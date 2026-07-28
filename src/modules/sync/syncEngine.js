@@ -7,7 +7,6 @@ let syncInterval = null;
 let isOnline = navigator.onLine;
 
 export async function initSyncEngine() {
-  // Écouter l'état du réseau
   window.addEventListener("online", () => {
     isOnline = true;
     store.set("sync.status", "idle");
@@ -19,12 +18,10 @@ export async function initSyncEngine() {
     store.set("sync.status", "offline");
   });
 
-  // Sync périodique
   syncInterval = setInterval(() => {
     if (isOnline) triggerSync();
   }, CONFIG.SYNC_INTERVAL_MS);
 
-  // Sync initiale
   if (isOnline) await triggerSync();
 }
 
