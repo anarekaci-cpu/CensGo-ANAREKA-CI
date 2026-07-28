@@ -15,16 +15,8 @@ export default defineConfig({
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
         icons: [
-          {
-            src: "/icon-192.png",
-            sizes: "192x192",
-            type: "image/png"
-          },
-          {
-            src: "/icon-512.png",
-            sizes: "512x512",
-            type: "image/png"
-          }
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" }
         ]
       },
       workbox: {
@@ -37,14 +29,6 @@ export default defineConfig({
               cacheName: "osm-tiles",
               expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 }
             }
-          },
-          {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "supabase-api",
-              expiration: { maxEntries: 100, maxAgeSeconds: 86400 }
-            }
           }
         ]
       }
@@ -52,13 +36,6 @@ export default defineConfig({
   ],
   build: {
     outDir: "dist",
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ["leaflet", "leaflet.markercluster", "@supabase/supabase-js", "dexie"]
-        }
-      }
-    }
+    sourcemap: true
   }
 });
