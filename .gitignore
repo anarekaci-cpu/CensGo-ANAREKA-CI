@@ -5,11 +5,11 @@ yarn.lock
 pnpm-lock.yaml
 
 # Build
-/dist
-/build
-/.vite
+dist/
+build/
+*.local
 
-# Environment variables
+# Environment
 .env
 .env.local
 .env.*.local
@@ -31,9 +31,6 @@ yarn-debug.log*
 yarn-error.log*
 logs/
 *.log
-
-# Supabase (safety)
-supabase/.temp
 
 # Coverage
 coverage/

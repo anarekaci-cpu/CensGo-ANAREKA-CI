@@ -1,0 +1,23 @@
+{
+  "name": "recensement-anareka-ci",
+  "version": "2.0.0",
+  "description": "Application PWA de recensement terrain ANAREKA-CI — Vite + IndexedDB",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && gh-pages -d dist"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dexie": "^4.0.8",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^0.20.0",
+    "gh-pages": "^6.1.1"
+  }
+}
