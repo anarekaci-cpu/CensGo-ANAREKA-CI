@@ -31,17 +31,11 @@ export function initMap(containerId = "map") {
   });
 
   mapInstance.addLayer(clusterGroup);
-
   return mapInstance;
 }
 
-export function getMap() {
-  return mapInstance;
-}
-
-export function getClusterGroup() {
-  return clusterGroup;
-}
+export function getMap() { return mapInstance; }
+export function getClusterGroup() { return clusterGroup; }
 
 export function flyToPoint(lat, lon, zoom = 17) {
   if (!mapInstance) return;
