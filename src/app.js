@@ -16,18 +16,15 @@ export class App {
   }
 
   async mount() {
-    // Écouter l'état d'authentification
     this.unsubs.push(store.subscribe("user", (user) => {
       this.render();
       if (user) this.initApp();
     }));
-
     this.render();
   }
 
   render() {
     const user = store.get("user");
-
     if (!user) {
       this.renderLogin();
     } else {
@@ -138,7 +135,7 @@ export class App {
 
         <div id="main">
           <div id="map"></div>
-
+          
           <div id="navPanel">
             <div id="navIcon">🧭</div>
             <div id="navInfo">
@@ -147,7 +144,7 @@ export class App {
             </div>
             <button id="navStopBtn">✕</button>
           </div>
-
+          
           <div id="arrivalBanner">
             <div id="arrivalText">🎉 Vous êtes arrivé !</div>
             <div class="arrival-row">
@@ -155,14 +152,14 @@ export class App {
               <button class="arrival-no" id="arrivalNoBtn">Fermer</button>
             </div>
           </div>
-
+          
           <div id="routeBanner">
             <span>🗺️ Itinéraire vers <b id="routeDestName"></b> — <span id="routeInfo"></span></span>
             <button id="closeRouteBtn">✕</button>
           </div>
-
+          
           <button id="fabNearest">🏃 Point le plus proche</button>
-
+          
           <div class="legend">
             <div><b>Statut</b></div>
             <div><span class="dot" style="background:#2ecc71"></span>Vert</div>
@@ -174,9 +171,9 @@ export class App {
               <span style="opacity:0.5">✓</span> visité
             </div>
           </div>
-
+          
           <div id="loading">Chargement de la carte...</div>
-
+          
           <div id="tourPanel">
             <div class="tour-handle"></div>
             <div class="tour-header">
@@ -198,46 +195,37 @@ export class App {
   }
 
   async initApp() {
-    // Initialiser la carte
     initMap("map");
     initNavigation();
     initTour();
 
-    // Charger les données
     const points = await loadCensusData();
     renderMarkers(points);
     this.populateBlockFilter(points);
     this.updateStats();
 
-    // Masquer le loading
     const loading = document.getElementById("loading");
     if (loading) loading.style.display = "none";
 
-    // Activer les boutons
     document.getElementById("tourBtn").disabled = false;
     document.getElementById("nearestBtn").disabled = false;
 
-    // Bind events
     this.bindEvents();
     this.bindStoreListeners();
   }
 
   bindEvents() {
-    // Auth
     document.getElementById("logoutBtn").onclick = () => logout();
 
-    // Controls toggle
     document.getElementById("menuToggleBtn").onclick = () => {
       document.getElementById("controls").classList.toggle("open");
     };
 
-    // Filtres
     ["filterBlock", "filterStatus", "filterVisited"].forEach(id => {
       document.getElementById(id)?.addEventListener("change", () => this.applyFilters());
     });
     document.getElementById("searchBox")?.addEventListener("input", () => this.applyFilters());
 
-    // Actions
     document.getElementById("locateBtn").onclick = () => {
       locateAndCenter();
       this.closeControls();
@@ -246,6 +234,7 @@ export class App {
     document.getElementById("nearestBtn").onclick = async () => {
       const res = await findNearestUnvisited();
       if (res) {
+        const { flyToPoint } = await import("./modules/map/map.js");
         flyToPoint(res.point.lat, res.point.lon, 17);
         const { openPopup } = await import("./modules/census/markers.js");
         openPopup(res.point.id);
@@ -264,7 +253,6 @@ export class App {
       this.closeControls();
     };
 
-    // Tour
     document.getElementById("tourBtn").onclick = () => {
       const pos = store.get("geo.position");
       if (!pos) {
@@ -284,10 +272,8 @@ export class App {
     document.getElementById("tourGoNextBtn").onclick = () => goToNext();
     document.getElementById("tourCloseBtn").onclick = () => stopTour();
 
-    // Export CSV
     document.getElementById("exportBtn").onclick = () => this.exportCSV();
 
-    // Reset
     document.getElementById("resetBtn").onclick = async () => {
       if (confirm("Réinitialiser toutes les visites enregistrées localement ?")) {
         await resetAllVisits();
@@ -297,7 +283,6 @@ export class App {
       }
     };
 
-    // Navigation
     document.getElementById("closeRouteBtn").onclick = () => {
       store.set("navigation.active", false);
     };
@@ -311,10 +296,8 @@ export class App {
   }
 
   bindStoreListeners() {
-    // Stats
     this.unsubs.push(store.subscribe("points", () => this.updateStats()));
 
-    // Sync status
     this.unsubs.push(store.subscribe("sync.status", (status) => {
       const el = document.getElementById("syncStatus");
       if (!el) return;
@@ -327,7 +310,6 @@ export class App {
       el.textContent = labels[status] || status;
     }));
 
-    // Navigation
     this.unsubs.push(store.subscribe("navigation.active", (active) => {
       const banner = document.getElementById("routeBanner");
       if (banner) banner.style.display = active ? "flex" : "none";
@@ -343,7 +325,6 @@ export class App {
       if (banner) banner.style.display = arrived ? "block" : "none";
     }));
 
-    // Tour
     this.unsubs.push(store.subscribe("tour.active", (active) => {
       const panel = document.getElementById("tourPanel");
       if (panel) panel.style.display = active ? "block" : "none";
