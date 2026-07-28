@@ -8,7 +8,6 @@ export async function loadCensusData(forceRefresh = false) {
   store.set("sync.status", "syncing");
 
   try {
-    // 1. Essayer Supabase
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from(CONFIG.TABLE_NAME)
@@ -48,7 +47,6 @@ export async function loadCensusData(forceRefresh = false) {
     console.warn("⚠️ Supabase indisponible, chargement depuis IndexedDB:", err.message);
   }
 
-  // 2. Fallback : IndexedDB
   const localPoints = await getAllPoints();
   if (localPoints.length > 0) {
     store.set("points", localPoints);
@@ -57,7 +55,6 @@ export async function loadCensusData(forceRefresh = false) {
     return localPoints;
   }
 
-  // 3. Rien du tout
   store.set("sync.status", "error");
   store.set("ui.error", "Aucune donnée disponible. Vérifiez votre connexion.");
   return [];
