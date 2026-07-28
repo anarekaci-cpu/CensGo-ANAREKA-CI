@@ -1,6 +1,5 @@
 import { store } from "../../core/store.js";
 import { flyToPoint } from "../map/map.js";
-import { calculateRoute } from "../routing/routing.js";
 
 let tourPoints = [];
 let currentIndex = 0;
@@ -12,7 +11,6 @@ export function initTour() {
 }
 
 export function generateOptimizedTour(points, startPos) {
-  // Algorithme du plus proche voisin (TSP greedy)
   const unvisited = points.filter(p => !p.visited);
   if (unvisited.length === 0) return [];
 
@@ -64,10 +62,10 @@ export function goToPoint(index) {
   const point = tourPoints[index];
   if (!point) return;
   flyToPoint(point.lat, point.lon, 17);
-  // Ouvrir popup après animation
   setTimeout(() => {
-    const { openPopup } = require("../census/markers.js");
-    openPopup(point.id);
+    import("../census/markers.js").then(({ openPopup }) => {
+      openPopup(point.id);
+    });
   }, 1200);
 }
 
