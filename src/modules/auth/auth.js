@@ -10,7 +10,6 @@ export async function initAuth() {
   } catch (e) {
     store.set("user", null);
   }
-
   unsubscribe = onAuthStateChange((session) => {
     store.set("user", session?.user || null);
   });
