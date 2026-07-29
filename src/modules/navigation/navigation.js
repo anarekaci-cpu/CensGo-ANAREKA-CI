@@ -2,6 +2,93 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { addRouteLayer, clearRouteLayers } from "../map/map.js";
 
+let navUnsubs = [];
+
+/**
+ * Met en place les abonnements qui pilotent la navigation :
+ * - calcule l'itinéraire quand une destination est choisie
+ * - suit la position GPS pour mettre à jour l'instruction et détecter l'arrivée
+ */
+export function initNavigation() {
+  navUnsubs.forEach(unsub => unsub());
+  navUnsubs = [];
+
+  navUnsubs.push(store.subscribe("navigation.active", (active) => {
+    if (active) {
+      startNavigation();
+    } else {
+      clearRoute();
+    }
+  }));
+
+  navUnsubs.push(store.subscribe("geo.position", (position) => {
+    if (store.get("navigation.active") && position) {
+      updateNavigationProgress(position);
+    }
+  }));
+}
+
+async function startNavigation() {
+  const destination = store.get("navigation.destination");
+  const position = store.get("geo.position");
+  if (!destination || !position) return;
+
+  try {
+    const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
+    store.set("navigation.route", route);
+    displayRoute(route.geometry);
+    store.set("navigation.instruction", `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`);
+  } catch (err) {
+    store.set("navigation.instruction", "Itinéraire indisponible");
+  }
+}
+
+function updateNavigationProgress(position) {
+  const destination = store.get("navigation.destination");
+  if (!destination) return;
+
+  const distance = haversineMeters(position.lat, position.lng, destination.lat, destination.lon);
+
+  if (distance <= CONFIG.ARRIVAL_RADIUS_M) {
+    if (!store.get("navigation.arrived")) {
+      store.set("navigation.arrived", true);
+      store.set("navigation.instruction", "🎉 Vous êtes arrivé !");
+    }
+    return;
+  }
+
+  store.set("navigation.arrived", false);
+  store.set("navigation.instruction", `${formatDistance(distance)} restants`);
+}
+
+/** Marque le point de destination courant comme visité et referme la navigation. */
+export async function markArrivedVisited() {
+  const destination = store.get("navigation.destination");
+  if (!destination) return;
+
+  const { updatePointVisit } = await import("../../db/database.js");
+  await updatePointVisit(destination.id, true, destination.status);
+
+  const points = store.get("points").map(p =>
+    p.id === destination.id ? { ...p, visited: true } : p
+  );
+  store.set("points", points);
+
+  const { refreshMarker } = await import("../census/markers.js");
+  refreshMarker(destination.id);
+
+  store.set("navigation.arrived", false);
+  store.set("navigation.active", false);
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
   const url = `${CONFIG.OSRM_URL}/route/v1/foot/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson&steps=true`;
 
@@ -36,6 +123,7 @@ export function clearRoute() {
   clearRouteLayers();
   store.set("navigation.route", null);
   store.set("navigation.instruction", "");
+  store.set("navigation.arrived", false);
 }
 
 export function formatDuration(seconds) {
