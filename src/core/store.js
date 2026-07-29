@@ -20,7 +20,8 @@ class Store {
         active: false,
         destination: null,
         route: null,
-        instruction: ""
+        instruction: "",
+        arrived: false
       },
       tour: {
         active: false,
@@ -45,7 +46,14 @@ class Store {
   }
 
   get(key) {
-    return key ? this.state[key] : { ...this.state };
+    if (!key) return { ...this.state };
+    const keys = key.split(".");
+    let target = this.state;
+    for (const k of keys) {
+      if (target == null) return undefined;
+      target = target[k];
+    }
+    return target;
   }
 
   set(path, value) {
