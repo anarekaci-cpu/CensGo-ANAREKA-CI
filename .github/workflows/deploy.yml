@@ -39,7 +39,12 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_TABLE: ${{ vars.VITE_SUPABASE_TABLE }}
           VITE_OSRM_URL: ${{ secrets.VITE_OSRM_URL }}
+          VITE_MAP_CENTER_LAT: ${{ vars.VITE_MAP_CENTER_LAT }}
+          VITE_MAP_CENTER_LNG: ${{ vars.VITE_MAP_CENTER_LNG }}
+          VITE_MAP_ZOOM: ${{ vars.VITE_MAP_ZOOM }}
+          VITE_ARRIVAL_RADIUS_M: ${{ vars.VITE_ARRIVAL_RADIUS_M }}
           VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
           VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
 
