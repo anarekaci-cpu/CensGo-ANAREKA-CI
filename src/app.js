@@ -260,7 +260,7 @@ export class App {
         return;
       }
       const points = store.get("points").filter(p => !p.visited);
-      const tour = generateOptimizedTour(points, { lat: pos.coords.latitude, lng: pos.coords.longitude });
+      const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
       if (tour.length === 0) {
         alert("Tous les points ont été visités !");
         return;
