@@ -96,10 +96,11 @@ export async function markSyncDone(queueId) {
 }
 
 export async function markSyncFailed(queueId, errorMsg) {
+  const item = await db.syncQueue.get(queueId);
   await db.syncQueue.update(queueId, {
     status: "failed",
     error: errorMsg,
-    attempts: Dexie.add(1)
+    attempts: (item?.attempts || 0) + 1
   });
 }
 
@@ -113,8 +114,9 @@ export async function setMeta(key, value) {
 }
 
 export async function getStats() {
-  const total = await db.points.count();
-  const visited = await db.points.where("visited").equals(1).count();
+  const all = await db.points.toArray();
+  const total = all.length;
+  const visited = all.filter(p => p.visited).length;
   return { total, visited, remaining: total - visited };
 }
 
