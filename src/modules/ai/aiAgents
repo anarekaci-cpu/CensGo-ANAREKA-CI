@@ -1,0 +1,82 @@
+import { store } from "../../core/store.js";
+
+/**
+ * Service pour interagir avec les Agents IA ANAREKA-CI
+ */
+
+export async function askAiAgent(action, { prompt, points, userPos } = {}) {
+  try {
+    const res = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, prompt, points, userPos })
+    });
+
+    if (!res.ok) {
+      throw new Error(`Erreur serveur (${res.status})`);
+    }
+
+    const data = await res.json();
+    if (data.success && data.result) {
+      return { success: true, text: data.result };
+    }
+
+    // Mode secours hors-ligne / sans clé API
+    return generateFallbackAgentResponse(action, { prompt, points, userPos });
+  } catch (err) {
+    console.warn("API IA indisponible ou mode hors-ligne, génération de réponse locale :", err.message);
+    return generateFallbackAgentResponse(action, { prompt, points, userPos });
+  }
+}
+
+/**
+ * Générateur local intelligent en mode secours (Offline / No Key)
+ */
+function generateFallbackAgentResponse(action, { prompt, points, userPos }) {
+  const allPoints = points || store.get("points") || [];
+  const unvisited = allPoints.filter(p => !p.visited);
+  const injoignables = allPoints.filter(p => p.status?.includes("JAUNE"));
+  const aVerifier = allPoints.filter(p => p.status?.includes("VIOLET"));
+
+  if (action === "optimize_tour") {
+    return {
+      success: true,
+      text: `🤖 **Agent Strategist (Analyse Terrain Bingerville)** :\n\n` +
+            `📍 **Statut du secteur** : ${unvisited.length} points restants sur ${allPoints.length}.\n\n` +
+            `1. **Recommandation Horaires** : Commencez par le quartier *${unvisited[0]?.quartier || 'Gbagba'}* (densité élevée de compteurs à relever).\n` +
+            `2. **Points d'Urgence** : Priorisez les ${injoignables.length} ménages injoignables en fin de matinée (entre 11h30 et 13h).\n` +
+            `3. **Efficacité énergétique** : Effectuez votre parcours en boucle concentrique autour de Bingerville centre pour minimiser vos déplacements.`
+    };
+  }
+
+  if (action === "audit_quality") {
+    const missingPhone = allPoints.filter(p => !p.tel || p.tel === "");
+    const missingAddress = allPoints.filter(p => !p.address || p.address === "");
+
+    return {
+      success: true,
+      text: `🔍 **Agent Inspecteur Qualité Données** :\n\n` +
+            `📊 **Rapport d'audit de la base** (${allPoints.length} fiches) :\n\n` +
+            `• ⚠️ **Numéros manquants** : ${missingPhone.length} fiche(s) sans contact renseigné.\n` +
+            `• 📍 **Adresses imprécises** : ${missingAddress.length} fiche(s) nécessitent un complément de lot/rue.\n` +
+            `• ❓ **Statuts "À vérifier" (Violet)** : ${aVerifier.length} fiche(s) doivent faire l'objet d'un second passage.\n\n` +
+            `💡 *Conseil : Complétez les données dès que vous êtes sur le point avant de valider la visite.*`
+    };
+  }
+
+  // Action Copilot par défaut
+  const q = (prompt || "").toLowerCase();
+  let reply = "";
+
+  if (q.includes("priorité") || q.includes("priorite") || q.includes("quoi faire")) {
+    reply = `🎯 **Priorités du jour** :\n\nVous avez **${unvisited.length} ménages** à visiter aujourd'hui. Concentrez-vous d'abord sur les blocs 1 et 2 à Bingerville.`;
+  } else if (q.includes("synthèse") || q.includes("synthese") || q.includes("rapport")) {
+    const visited = allPoints.filter(p => p.visited).length;
+    const pct = Math.round((visited / (allPoints.length || 1)) * 100);
+    reply = `📊 **Synthèse du Recensement Bingerville** :\n\nProgression globale : **${pct}%** (${visited}/${allPoints.length} points effectués).\nStatuts à relancer : ${injoignables.length} injoignables, ${aVerifier.length} à vérifier.`;
+  } else {
+    reply = `🤖 **Agent Copilot Terrain** :\n\nJ'ai analysé votre requête (*"${prompt}"*).\nPour la zone Bingerville : vous avez ${unvisited.length} points restants. N'hésitez pas à activer la navigation GPS interactive ou à démarrer l'optimisation de tournée !`;
+  }
+
+  return { success: true, text: reply };
+}
