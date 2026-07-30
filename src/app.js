@@ -366,7 +366,11 @@ export class App {
       if (!pos) {
         const { getCurrentPosition } = await import("./modules/geolocation/geolocation.js");
         pos = getCurrentPosition();
-        store.set("geo.position", pos);
+        if (pos) store.set("geo.position", pos);
+      }
+      if (!pos) {
+        alert("Position GPS indisponible pour le moment. Réessayez dans quelques secondes.");
+        return;
       }
       const points = store.get("points").filter(p => !p.visited);
       const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
