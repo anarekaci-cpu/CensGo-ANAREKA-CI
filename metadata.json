@@ -1,0 +1,6 @@
+{
+  "name": "Recensement ANAREKA-CI",
+  "description": "Application PWA de recensement terrain ANAREKA-CI — Bingerville, Côte d'Ivoire",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
