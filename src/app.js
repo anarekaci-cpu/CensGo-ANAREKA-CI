@@ -8,7 +8,7 @@ import { locateAndCenter, findNearestUnvisited } from "./modules/geolocation/geo
 import { login, logout, isAuthenticated } from "./modules/auth/auth.js";
 import { getStats, resetAllVisits } from "./db/database.js";
 import { CONFIG } from "./core/config.js";
-import { askAiAgent } from "./modules/ai/aiAgents.js";
+import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
 
 export class App {
   constructor(container) {
@@ -204,17 +204,19 @@ export class App {
                 <div class="ai-modal-title">
                   <span class="ai-badge-icon">🤖</span>
                   <div>
-                    <h3>Agents IA ANAREKA-CI</h3>
-                    <p>Assistant terrain, optimisation & audit qualité</p>
+                    <h3>Suite d'Agents IA ANAREKA-CI</h3>
+                    <p>Copilot, Vision OCR, Dictée Vocale & Briefing</p>
                   </div>
                 </div>
                 <button id="aiModalCloseBtn" class="ai-close-btn">✕</button>
               </div>
 
               <div class="ai-tabs">
-                <button class="ai-tab active" data-tab="copilot">💬 Copilot IA</button>
-                <button class="ai-tab" data-tab="strategist">⚡ Strategist Tournée</button>
-                <button class="ai-tab" data-tab="audit">🔍 Audit Qualité</button>
+                <button class="ai-tab active" data-tab="copilot">💬 Copilot</button>
+                <button class="ai-tab" data-tab="strategist">⚡ Strategist</button>
+                <button class="ai-tab" data-tab="voice">🎙️ Dictée</button>
+                <button class="ai-tab" data-tab="vision">📸 Photo OCR</button>
+                <button class="ai-tab" data-tab="briefing">📊 Briefing</button>
               </div>
 
               <div class="ai-content-body">
@@ -233,11 +235,32 @@ export class App {
                 <div id="aiTabStrategist" class="ai-tab-pane" style="display:none;">
                   <p class="ai-pane-desc">L'Agent Strategist analyse vos points géolocalisés à Bingerville pour optimiser votre itinéraire et vos créneaux d'accès.</p>
                   <button id="aiRunStrategistBtn" class="btn-ai-action">⚡ Générer la stratégie de tournée IA</button>
+                  <button id="aiRunAuditBtn" class="btn-ai-action-secondary" style="margin-top:6px;">🔍 Lancer l'audit de qualité des données</button>
                 </div>
 
-                <div id="aiTabAudit" class="ai-tab-pane" style="display:none;">
-                  <p class="ai-pane-desc">L'Agent Audit inspecte vos données enregistrées pour détecter les anomalies et corriger les erreurs de saisie.</p>
-                  <button id="aiRunAuditBtn" class="btn-ai-action">🔍 Lancer l'audit de qualité des données</button>
+                <div id="aiTabVoice" class="ai-tab-pane" style="display:none;">
+                  <p class="ai-pane-desc">Dictez votre rapport de visite à haute voix ou tapez vos notes brutes. L'Agent IA extraira automatiquement le nom, téléphone et statut.</p>
+                  <div class="ai-voice-container">
+                    <button id="aiMicBtn" class="btn-mic">🎙️ Démarrer la dictée vocale</button>
+                    <span id="aiMicStatus" class="mic-status">Prêt</span>
+                  </div>
+                  <textarea id="aiVoiceNoteText" placeholder="Ou saisissez la note vocale ici (ex: Visite point 12, M. Yao Kouadio, tel 0708091011, statut vert)..." rows="3"></textarea>
+                  <button id="aiParseVoiceBtn" class="btn-ai-action">✨ Analyser et structurer la note avec Gemini</button>
+                </div>
+
+                <div id="aiTabVision" class="ai-tab-pane" style="display:none;">
+                  <p class="ai-pane-desc">Prenez ou téléchargez une photo du compteur d'électricité/eau ou du badge pour extraction automatique par Gemini Vision.</p>
+                  <div class="ai-vision-upload">
+                    <input type="file" id="aiImageInput" accept="image/*" style="display:none;" />
+                    <button id="aiSelectImageBtn" class="btn-vision-select">📷 Sélectionner / Prendre une photo</button>
+                    <div id="aiImagePreview" class="ai-img-preview" style="display:none;"></div>
+                  </div>
+                  <button id="aiRunVisionBtn" class="btn-ai-action" style="display:none; margin-top:10px;">🔍 Analyser la photo avec Gemini Vision</button>
+                </div>
+
+                <div id="aiTabBriefing" class="ai-tab-pane" style="display:none;">
+                  <p class="ai-pane-desc">Obtenez un briefing IA personnalisé basé sur la météo terrain, la progression et les objectifs prioritaires.</p>
+                  <button id="aiRunBriefingBtn" class="btn-ai-action">📋 Générer mon Briefing IA du Jour</button>
                 </div>
 
                 <div id="aiAgentOutput" class="ai-output-box" style="display:none;">
@@ -393,7 +416,9 @@ export class App {
         const tabName = t.dataset.tab;
         document.getElementById("aiTabCopilot").style.display = tabName === "copilot" ? "block" : "none";
         document.getElementById("aiTabStrategist").style.display = tabName === "strategist" ? "block" : "none";
-        document.getElementById("aiTabAudit").style.display = tabName === "audit" ? "block" : "none";
+        document.getElementById("aiTabVoice").style.display = tabName === "voice" ? "block" : "none";
+        document.getElementById("aiTabVision").style.display = tabName === "vision" ? "block" : "none";
+        document.getElementById("aiTabBriefing").style.display = tabName === "briefing" ? "block" : "none";
       });
     });
 
@@ -456,6 +481,99 @@ export class App {
       displayOutput("⏳ <i>L'Agent Audit vérifie la qualité des données...</i>");
       const points = store.get("points") || [];
       const res = await askAiAgent("audit_quality", { points });
+      displayOutput(formatAiText(res.text));
+    });
+
+    // --- Module 1: Dictée Vocale IA ---
+    let recognizer = null;
+    const micBtn = document.getElementById("aiMicBtn");
+    const micStatus = document.getElementById("aiMicStatus");
+    const voiceText = document.getElementById("aiVoiceNoteText");
+
+    if (micBtn) {
+      micBtn.addEventListener("click", () => {
+        if (!recognizer) {
+          recognizer = createSpeechRecognizer(
+            (transcript) => {
+              if (voiceText) voiceText.value = (voiceText.value ? voiceText.value + " " : "") + transcript;
+              if (micStatus) micStatus.textContent = "✅ Transcrit !";
+              if (micBtn) micBtn.classList.remove("recording");
+            },
+            (err) => {
+              console.warn("Erreur dictée vocale:", err);
+              if (micStatus) micStatus.textContent = "⚠️ Dictée vocale non disponible sur ce navigateur";
+              if (micBtn) micBtn.classList.remove("recording");
+            },
+            () => {
+              if (micBtn) micBtn.classList.remove("recording");
+            }
+          );
+        }
+
+        if (recognizer) {
+          try {
+            recognizer.start();
+            if (micStatus) micStatus.textContent = "🔴 Écoute en cours... Parlez !";
+            micBtn.classList.add("recording");
+          } catch (e) {
+            console.warn(e);
+          }
+        } else {
+          if (micStatus) micStatus.textContent = "⚠️ Saisissez directement le texte ci-dessous.";
+        }
+      });
+    }
+
+    document.getElementById("aiParseVoiceBtn")?.addEventListener("click", async () => {
+      const prompt = voiceText?.value;
+      if (!prompt || !prompt.trim()) {
+        alert("Veuillez d'abord dicter ou taper une note vocale.");
+        return;
+      }
+      displayOutput("⏳ <i>L'Agent Transcripteur IA analyse et extrait les données...</i>");
+      const res = await askAiAgent("parse_voice_note", { prompt });
+      displayOutput(formatAiText(res.text));
+    });
+
+    // --- Module 2: Vision OCR Photo Compteur IA ---
+    let currentImageBase64 = null;
+    let currentMimeType = "image/jpeg";
+    const selectImgBtn = document.getElementById("aiSelectImageBtn");
+    const fileInput = document.getElementById("aiImageInput");
+    const imgPreview = document.getElementById("aiImagePreview");
+    const runVisionBtn = document.getElementById("aiRunVisionBtn");
+
+    selectImgBtn?.addEventListener("click", () => fileInput?.click());
+
+    fileInput?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        currentMimeType = file.type || "image/jpeg";
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          currentImageBase64 = evt.target.result;
+          if (imgPreview) {
+            imgPreview.style.display = "block";
+            imgPreview.innerHTML = `<img src="${currentImageBase64}" style="max-width:100%; max-height:180px; border-radius:10px; margin-top:8px; border:1px solid #ddd;" />`;
+          }
+          if (runVisionBtn) runVisionBtn.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    runVisionBtn?.addEventListener("click", async () => {
+      if (!currentImageBase64) return;
+      displayOutput("⏳ <i>L'Agent Vision Reconnaissance Gemini analyse la photo...</i>");
+      const res = await askAiAgent("vision_ocr", { imageBase64: currentImageBase64, mimeType: currentMimeType });
+      displayOutput(formatAiText(res.text));
+    });
+
+    // --- Module 3: Daily Briefing IA ---
+    document.getElementById("aiRunBriefingBtn")?.addEventListener("click", async () => {
+      displayOutput("⏳ <i>Préparation de votre Briefing IA Matinal...</i>");
+      const points = store.get("points") || [];
+      const res = await askAiAgent("daily_briefing", { points });
       displayOutput(formatAiText(res.text));
     });
   }
