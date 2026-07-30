@@ -3,6 +3,7 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { getClusterGroup } from "../map/map.js";
 import { updatePointVisit } from "../../db/database.js";
+import { openCensusForm } from "./censusFormModal.js";
 
 const iconCache = new Map();
 const markerRegistry = new Map();
@@ -65,6 +66,7 @@ function buildPopup(point) {
       <button class="visit-btn ${point.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${point.id}">
         ${point.visited ? '🔄 Annuler la visite' : '✅ Marquer comme visité'}
       </button>
+      <button class="go-btn edit-btn" data-action="edit" data-id="${point.id}" style="background:#475569;">✏️ Éditer</button>
     </div>
   `;
 
@@ -86,6 +88,8 @@ function handlePopupAction(e) {
     store.set("navigation.active", true);
   } else if (action === "visit") {
     toggleVisit(point);
+  } else if (action === "edit") {
+    openCensusForm(point);
   }
 }
 
