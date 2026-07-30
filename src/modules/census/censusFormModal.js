@@ -1,6 +1,6 @@
 import { store } from "../../core/store.js";
 import { upsertPoint } from "../../db/database.js";
-import { refreshMarker } from "./markers.js";
+import { upsertMarker } from "./markers.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -342,7 +342,7 @@ function bindFormEvents() {
       points.push(updated);
     }
     store.set("points", points);
-    refreshMarker(updated.id);
+    upsertMarker(updated);
 
     closeCensusForm();
   });
