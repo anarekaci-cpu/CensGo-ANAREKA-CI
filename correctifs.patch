@@ -1,0 +1,230 @@
+diff --git a/.env b/.env
+deleted file mode 100644
+index d45f19f..0000000
+--- a/.env
++++ /dev/null
+@@ -1,23 +0,0 @@
+-# ============================================
+-# Recensement ANAREKA-CI — Variables d'environnement
+-# ============================================
+-# Copiez ce fichier en .env et remplissez vos valeurs
+-# NEVER commit .env to Git!
+-
+-# --- Supabase ---
+-VITE_SUPABASE_URL=https://xqfdhgrdvsdngfgiuomk.supabase.co/rest/v1/
+-VITE_SUPABASE_ANON_KEY=sb_publishable_8Vyba1dTaQDTx1EuDz9naQ__fvezy3N
+-# --- OSRM Routing ---
+-# Instance publique par défaut (limite de requêtes)
+-VITE_OSRM_URL=https://router.project-osrm.org
+-# Pour une instance privée, décommentez :
+-# VITE_OSRM_URL=http://localhost:5000
+-
+-# --- Application ---
+-VITE_APP_NAME=Recensement ANAREKA
+-VITE_APP_VERSION=2.0.0
+-VITE_APP_ENV=development
+-
+-# --- Features ---
+-VITE_ENABLE_OFFLINE=true
+-VITE_ENABLE_TOUR_OPTIMIZATION=true
+diff --git a/.eslintrc.json b/.eslintrc.json
+new file mode 100644
+index 0000000..64bf6b5
+--- /dev/null
++++ b/.eslintrc.json
+@@ -0,0 +1,16 @@
++{
++  "root": true,
++  "env": {
++    "browser": true,
++    "es2022": true
++  },
++  "parserOptions": {
++    "ecmaVersion": "latest",
++    "sourceType": "module"
++  },
++  "extends": "eslint:recommended",
++  "rules": {
++    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
++    "no-console": "off"
++  }
++}
+diff --git a/index.html b/index.html
+index 9396ec2..bbce467 100644
+--- a/index.html
++++ b/index.html
+@@ -11,7 +11,6 @@
+   <meta name="HandheldFriendly" content="true">
+   <title>Recensement Bingerville — ANAREKA-CI</title>
+   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🗺️%3C/text%3E%3C/svg%3E">
+-  <link rel="manifest" href="/manifest.json">
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Frances:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+diff --git a/manifest.json b/manifest.json
+deleted file mode 100644
+index f1794e1..0000000
+--- a/manifest.json
++++ /dev/null
+@@ -1,16 +0,0 @@
+-{
+-  "name": "Recensement ANAREKA-CI",
+-  "short_name": "ANAREKA-CI",
+-  "start_url": "/Recensement-ANAREKA-CI/",
+-  "display": "standalone",
+-  "background_color": "#1a3d2b",
+-  "theme_color": "#1a3d2b",
+-  "orientation": "portrait-primary",
+-  "icons": [
+-    {
+-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>",
+-      "sizes": "any",
+-      "type": "image/svg+xml"
+-    }
+-  ]
+-}
+diff --git a/src/app.js b/src/app.js
+index 7404870..9b2188b 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -366,7 +366,11 @@ export class App {
+       if (!pos) {
+         const { getCurrentPosition } = await import("./modules/geolocation/geolocation.js");
+         pos = getCurrentPosition();
+-        store.set("geo.position", pos);
++        if (pos) store.set("geo.position", pos);
++      }
++      if (!pos) {
++        alert("Position GPS indisponible pour le moment. Réessayez dans quelques secondes.");
++        return;
+       }
+       const points = store.get("points").filter(p => !p.visited);
+       const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
+diff --git a/src/main.js b/src/main.js
+index c4e37d9..0191e6d 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -5,7 +5,6 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+ 
+ import L from "leaflet";
+ import { initAuth } from "./modules/auth/auth.js";
+-import { initMap } from "./modules/map/map.js";
+ import { initSyncEngine } from "./modules/sync/syncEngine.js";
+ import { initGeolocation } from "./modules/geolocation/geolocation.js";
+ import { App } from "./app.js";
+diff --git a/src/modules/census/censusFormModal.js b/src/modules/census/censusFormModal.js
+index 73c9588..215012b 100644
+--- a/src/modules/census/censusFormModal.js
++++ b/src/modules/census/censusFormModal.js
+@@ -1,6 +1,6 @@
+ import { store } from "../../core/store.js";
+ import { upsertPoint } from "../../db/database.js";
+-import { refreshMarker } from "./markers.js";
++import { upsertMarker } from "./markers.js";
+ 
+ /**
+  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
+@@ -342,7 +342,7 @@ function bindFormEvents() {
+       points.push(updated);
+     }
+     store.set("points", points);
+-    refreshMarker(updated.id);
++    upsertMarker(updated);
+ 
+     closeCensusForm();
+   });
+diff --git a/src/modules/census/markers.js b/src/modules/census/markers.js
+index 21f0728..04a76ba 100644
+--- a/src/modules/census/markers.js
++++ b/src/modules/census/markers.js
+@@ -125,6 +125,28 @@ export function renderMarkers(points) {
+   });
+ }
+ 
++export function upsertMarker(point) {
++  const group = getClusterGroup();
++  if (!group) return;
++
++  const existing = markerRegistry.get(point.id);
++  if (existing) {
++    refreshMarker(point.id);
++    return;
++  }
++
++  const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
++  const marker = L.marker([point.lat, point.lon], {
++    icon: getIcon(color, point.visited)
++  });
++
++  marker.pointId = point.id;
++  marker.bindPopup(() => buildPopup(point));
++
++  markerRegistry.set(point.id, marker);
++  group.addLayer(marker);
++}
++
+ export function refreshMarker(pointId) {
+   const marker = markerRegistry.get(pointId);
+   const point = store.get("points").find(p => p.id === pointId);
+diff --git a/src/modules/sync/syncEngine.js b/src/modules/sync/syncEngine.js
+index 0e707ef..3d93d0e 100644
+--- a/src/modules/sync/syncEngine.js
++++ b/src/modules/sync/syncEngine.js
+@@ -47,6 +47,28 @@ export async function triggerSync() {
+             })
+             .eq("point_id", item.pointId);
+ 
++          if (error) throw error;
++        } else if (item.action === "upsert_point") {
++          const p = item.payload;
++          const { error } = await supabase
++            .from(CONFIG.TABLE_NAME)
++            .upsert({
++              point_id: p.id,
++              block: p.block,
++              order: p.order,
++              name: p.name,
++              tel: p.tel,
++              quartier: p.quartier,
++              address: p.address,
++              produits: p.produits,
++              sexe: p.sexe,
++              status: p.status,
++              visited: p.visited,
++              lat: p.lat,
++              lon: p.lon,
++              updated_at: new Date().toISOString()
++            }, { onConflict: "point_id" });
++
+           if (error) throw error;
+         }
+ 
+diff --git a/vite.config.js b/vite.config.js
+index 66ec309..d8b95da 100644
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -83,7 +83,12 @@ function aiApiPlugin() {
+ }
+ 
+ export default defineConfig({
+-  base: "/",
++  // Le site est déployé sur GitHub Pages sous un sous-chemin
++  // (https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/) : avec base "/",
++  // les assets buildés étaient référencés en /assets/... (racine du domaine)
++  // au lieu de /Recensement-ANAREKA-CI/assets/..., ce qui causait des 404
++  // et un écran blanc une fois déployé.
++  base: "/Recensement-ANAREKA-CI/",
+   server: {
+     host: "0.0.0.0",
+     port: 3000
+@@ -101,8 +106,8 @@ export default defineConfig({
+         theme_color: "#1a3d2b",
+         orientation: "portrait-primary",
+         icons: [
+-          { src: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+-          { src: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
++          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
++          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
+         ]
+       },
+       workbox: {
