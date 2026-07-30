@@ -5,7 +5,6 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
 import L from "leaflet";
 import { initAuth } from "./modules/auth/auth.js";
-import { initMap } from "./modules/map/map.js";
 import { initSyncEngine } from "./modules/sync/syncEngine.js";
 import { initGeolocation } from "./modules/geolocation/geolocation.js";
 import { App } from "./app.js";
