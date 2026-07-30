@@ -125,6 +125,28 @@ export function renderMarkers(points) {
   });
 }
 
+export function upsertMarker(point) {
+  const group = getClusterGroup();
+  if (!group) return;
+
+  const existing = markerRegistry.get(point.id);
+  if (existing) {
+    refreshMarker(point.id);
+    return;
+  }
+
+  const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
+  const marker = L.marker([point.lat, point.lon], {
+    icon: getIcon(color, point.visited)
+  });
+
+  marker.pointId = point.id;
+  marker.bindPopup(() => buildPopup(point));
+
+  markerRegistry.set(point.id, marker);
+  group.addLayer(marker);
+}
+
 export function refreshMarker(pointId) {
   const marker = markerRegistry.get(pointId);
   const point = store.get("points").find(p => p.id === pointId);
