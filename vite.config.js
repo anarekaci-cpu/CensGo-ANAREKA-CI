@@ -16,7 +16,7 @@ function aiApiPlugin() {
         req.on("data", chunk => { body += chunk; });
         req.on("end", async () => {
           try {
-            const { action, prompt, points, userPos } = JSON.parse(body || "{}");
+            const { action, prompt, points, userPos, imageBase64, mimeType } = JSON.parse(body || "{}");
             const apiKey = process.env.GEMINI_API_KEY;
 
             if (!apiKey) {
@@ -36,19 +36,32 @@ function aiApiPlugin() {
             });
 
             let systemInstruction = "Tu es un agent IA spécialisé dans l'optimisation du recensement terrain ANAREKA-CI à Bingerville, Côte d'Ivoire. Sois concis, précis, professionnel et orienté terrain en français.";
-            let fullPrompt = prompt;
+            let contents = prompt;
 
             if (action === "optimize_tour") {
               systemInstruction = "Tu es l'Agent IA Strategist d'ANAREKA-CI. Tu analyses la liste des ménages/points de recensement et leur localisation pour donner des conseils tactiques de parcours terrain à Bingerville.";
-              fullPrompt = `Voici la liste des points de recensement (${points ? points.length : 0} points): ${JSON.stringify(points)}. Position agent: ${JSON.stringify(userPos)}. Analyse ces données et donne 3 conseils tactiques de tournée terrain optimisée.`;
+              contents = `Voici la liste des points de recensement (${points ? points.length : 0} points): ${JSON.stringify(points)}. Position agent: ${JSON.stringify(userPos)}. Analyse ces données et donne 3 conseils tactiques de tournée terrain optimisée.`;
             } else if (action === "audit_quality") {
               systemInstruction = "Tu es l'Agent IA Inspecteur Qualité Données ANAREKA-CI. Tu détectes les anomalies, numéros de téléphones invalides, statuts douteux ou informations manquantes.";
-              fullPrompt = `Audite cette liste de points de recensement: ${JSON.stringify(points)}. Liste les anomalies détectées et donne des suggestions de correction rapides.`;
+              contents = `Audite cette liste de points de recensement: ${JSON.stringify(points)}. Liste les anomalies détectées et donne des suggestions de correction rapides.`;
+            } else if (action === "parse_voice_note") {
+              systemInstruction = "Tu es l'Agent Transcripteur IA pour le recensement ANAREKA-CI. Extrais les informations structurées de cette note vocale terrain sous forme de JSON strict: { name, tel, quartier, address, produits, status (Vert, Jaune, Rouge, Violet), visited (boolean), summary }.";
+              contents = `Note vocale agent terrain : "${prompt}". Extrais les informations sous format JSON.`;
+            } else if (action === "vision_ocr" && imageBase64) {
+              systemInstruction = "Tu es l'Agent Vision Reconnaissance ANAREKA-CI. Analyse cette photo terrain (compteur d'électricité/eau, badge d'habitation, document) et extrais le numéro de compteur, le nom, l'état visuel et toute information utile en français.";
+              const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+              contents = [
+                { inlineData: { data: cleanBase64, mimeType: mimeType || "image/jpeg" } },
+                { text: "Analyse cette image de recensement terrain. Identifie le numéro de compteur, la lisibilité, l'adresse ou le nom si présent, et donne un résumé très clair." }
+              ];
+            } else if (action === "daily_briefing") {
+              systemInstruction = "Tu es l'Agent IA Directrice de Mission pour ANAREKA-CI Bingerville. Génère un briefing matinal motivant et analytique pour l'agent de recensement.";
+              contents = `Données du secteur (${points ? points.length : 0} points): ${JSON.stringify(points)}. Génère un briefing terrain synthétique avec objectifs du jour, zones d'intervention et recommandations météo/accès.`;
             }
 
             const response = await ai.models.generateContent({
               model: "gemini-3.6-flash",
-              contents: fullPrompt,
+              contents: contents,
               config: { systemInstruction }
             });
 
