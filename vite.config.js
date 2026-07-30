@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
-import { GoogleGenAI } from "@google/genai";
 
 function aiApiPlugin() {
   return {
@@ -28,6 +27,7 @@ function aiApiPlugin() {
               }));
             }
 
+            const { GoogleGenAI } = await import("@google/genai");
             const ai = new GoogleGenAI({
               apiKey: apiKey,
               httpOptions: {
