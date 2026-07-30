@@ -9,6 +9,7 @@ import { login, logout, isAuthenticated } from "./modules/auth/auth.js";
 import { getStats, resetAllVisits } from "./db/database.js";
 import { CONFIG } from "./core/config.js";
 import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
+import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 
 export class App {
   constructor(container) {
@@ -84,6 +85,7 @@ export class App {
           <div class="right">
             <div id="syncStatus">🌐 Connexion...</div>
             <div class="header-actions">
+              <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
               <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
               <button id="logoutBtn" title="Déconnexion">🔒</button>
               <button id="menuToggleBtn" title="Filtres">☰</button>
@@ -97,8 +99,9 @@ export class App {
               <span style="font-weight:700; font-size:14px; color:#1a3d2b; display:flex; align-items:center; gap:6px;">⚡ Options & Filtres</span>
               <button id="closeControlsBtn" style="background:#f5f5f5; border:none; width:28px; height:28px; border-radius:50%; font-size:14px; cursor:pointer; color:#666; display:flex; align-items:center; justify-content:center;">✕</button>
             </div>
-            <div class="action-row" style="margin-bottom:10px;">
-              <button id="aiModalBtnControl" class="btn-ai-control">🤖 Agents IA Copilot & Audit</button>
+            <div class="action-row" style="margin-bottom:10px; display:grid; grid-template-columns: 1fr 1.2fr; gap:8px;">
+              <button id="addCensusBtnControl" class="btn-add-control">➕ Nouveau Ménage</button>
+              <button id="aiModalBtnControl" class="btn-ai-control">🤖 Agents IA Copilot</button>
             </div>
             <div class="row2">
               <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
@@ -280,6 +283,7 @@ export class App {
     initMap("map");
     initNavigation();
     initTour();
+    initCensusFormModal();
 
     const points = await loadCensusData();
     renderMarkers(points);
@@ -302,6 +306,14 @@ export class App {
     document.getElementById("menuToggleBtn").onclick = () => {
       document.getElementById("controls").classList.toggle("open");
     };
+
+    const handleOpenCensus = () => {
+      openCensusForm();
+      this.closeControls();
+    };
+
+    document.getElementById("addCensusBtnHeader")?.addEventListener("click", handleOpenCensus);
+    document.getElementById("addCensusBtnControl")?.addEventListener("click", handleOpenCensus);
 
     document.getElementById("closeControlsBtn")?.addEventListener("click", () => {
       this.closeControls();
