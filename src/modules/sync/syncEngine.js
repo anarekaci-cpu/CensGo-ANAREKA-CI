@@ -48,6 +48,28 @@ export async function triggerSync() {
             .eq("point_id", item.pointId);
 
           if (error) throw error;
+        } else if (item.action === "upsert_point") {
+          const p = item.payload;
+          const { error } = await supabase
+            .from(CONFIG.TABLE_NAME)
+            .upsert({
+              point_id: p.id,
+              block: p.block,
+              order: p.order,
+              name: p.name,
+              tel: p.tel,
+              quartier: p.quartier,
+              address: p.address,
+              produits: p.produits,
+              sexe: p.sexe,
+              status: p.status,
+              visited: p.visited,
+              lat: p.lat,
+              lon: p.lon,
+              updated_at: new Date().toISOString()
+            }, { onConflict: "point_id" });
+
+          if (error) throw error;
         }
 
         await markSyncDone(item.id);
