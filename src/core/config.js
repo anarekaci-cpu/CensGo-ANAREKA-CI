@@ -6,8 +6,8 @@
 
 export const CONFIG = {
   // Supabase
-  SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL || 'https://xqfdhgrdvsdngfgiuomk.supabase.co/rest/v1/',
-  SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_8Vyba1dTaQDTx1EuDz9naQ__fvezy3N',
+  SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+  SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
   // Table Supabase contenant les points de recensement
   TABLE_NAME: import.meta.env.VITE_SUPABASE_TABLE || 'census_points',
 
