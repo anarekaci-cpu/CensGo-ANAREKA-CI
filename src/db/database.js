@@ -87,6 +87,55 @@ export async function updatePointVisit(pointId, visited, status) {
   return updated;
 }
 
+export async function upsertPoint(pointData) {
+  let point = await db.points.where("id").equals(pointData.id || "").first();
+  const now = new Date().toISOString();
+  let updated;
+  if (point) {
+    updated = {
+      ...point,
+      ...pointData,
+      updatedAt: now
+    };
+    await db.points.put(updated);
+  } else {
+    const all = await db.points.toArray();
+    const maxLocalId = all.reduce((max, p) => Math.max(max, p.localId || 0), 0);
+    const newId = pointData.id || `bgv_${String(maxLocalId + 1).padStart(3, "0")}`;
+    updated = {
+      order: maxLocalId + 1,
+      block: 1,
+      name: "",
+      tel: "",
+      quartier: "Bingerville Centre",
+      address: "",
+      produits: "",
+      sexe: "Homme",
+      status: "VERT (Joignable)",
+      visited: false,
+      lat: 5.355,
+      lon: -3.890,
+      ...pointData,
+      id: newId,
+      localId: maxLocalId + 1,
+      syncedAt: now,
+      updatedAt: now
+    };
+    await db.points.add(updated);
+  }
+
+  await db.syncQueue.add({
+    pointId: updated.id,
+    action: "upsert_point",
+    payload: updated,
+    createdAt: now,
+    attempts: 0,
+    status: "pending"
+  });
+
+  return updated;
+}
+
 export async function getPendingSyncs() {
   return await db.syncQueue.where("status").equals("pending").toArray();
 }
