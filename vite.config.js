@@ -83,7 +83,12 @@ function aiApiPlugin() {
 }
 
 export default defineConfig({
-  base: "/",
+  // Le site est déployé sur GitHub Pages sous un sous-chemin
+  // (https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/) : avec base "/",
+  // les assets buildés étaient référencés en /assets/... (racine du domaine)
+  // au lieu de /Recensement-ANAREKA-CI/assets/..., ce qui causait des 404
+  // et un écran blanc une fois déployé.
+  base: "/Recensement-ANAREKA-CI/",
   server: {
     host: "0.0.0.0",
     port: 3000
@@ -101,8 +106,8 @@ export default defineConfig({
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
         icons: [
-          { src: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
-          { src: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
+          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
         ]
       },
       workbox: {
