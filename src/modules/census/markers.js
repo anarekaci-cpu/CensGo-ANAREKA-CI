@@ -42,11 +42,15 @@ function buildPopup(point) {
     distHtml = `<div class="popup-dist">📍 ${formatDist(d)} de vous</div>`;
   }
 
+  const telLink = point.tel
+    ? `<a href="tel:${escapeHtml(point.tel)}" style="color:#166534; font-weight:700; text-decoration:none; background:#f0fdf4; padding:2px 8px; border-radius:6px; border:1px solid #bbf7d0;">📞 ${escapeHtml(point.tel)}</a>`
+    : "—";
+
   const div = document.createElement("div");
   div.innerHTML = `
-    <div class="popup-title">${escapeHtml(point.order)}. ${escapeHtml(point.name || "(sans nom)")}${point.visited ? ' <span style="color:#2e7d32">✓ Visité</span>' : ''}</div>
+    <div class="popup-title">${escapeHtml(point.order)}. ${escapeHtml(point.name || "(sans nom)")}${point.visited ? ' <span style="color:#15803d; font-size:12px;">✓ Visité</span>' : ''}</div>
     <div class="popup-row"><b>Bloc:</b> ${String(point.block).padStart(2, "0")} — Ordre ${escapeHtml(point.order)}</div>
-    <div class="popup-row"><b>Téléphone:</b> ${escapeHtml(point.tel || "—")}</div>
+    <div class="popup-row"><b>Téléphone:</b> ${telLink}</div>
     <div class="popup-row"><b>Quartier:</b> ${escapeHtml(point.quartier || "—")}</div>
     <div class="popup-row"><b>Adresse:</b> ${escapeHtml(point.address || "—")}</div>
     <div class="popup-row"><b>Produits:</b> ${escapeHtml(point.produits || "—")}</div>
@@ -59,7 +63,7 @@ function buildPopup(point) {
     </div>
     <div class="btn-row">
       <button class="visit-btn ${point.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${point.id}">
-        ${point.visited ? '🔄 Annuler' : '✅ Marquer visité'}
+        ${point.visited ? '🔄 Annuler la visite' : '✅ Marquer comme visité'}
       </button>
     </div>
   `;
