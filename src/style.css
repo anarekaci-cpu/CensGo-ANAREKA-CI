@@ -426,31 +426,192 @@ header {
 }
 .btn-ai-action-secondary:hover { background: #e0f2e1; }
 
-.ai-voice-container {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 12px; background: #f9fbf9; border: 1px dashed #2ecc71;
-  padding: 10px 14px; border-radius: 12px;
+.btn-add-header {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white; border: none; padding: 6px 14px;
+  border-radius: 10px; font-weight: 700; font-size: 12.5px;
+  cursor: pointer; display: flex; align-items: center; gap: 4px;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s ease;
 }
-.btn-mic {
-  background: #1a3d2b; color: white; border: none; padding: 8px 14px;
-  border-radius: 20px; font-weight: 600; font-size: 12px; cursor: pointer;
-  display: flex; align-items: center; gap: 6px; transition: all 0.2s ease;
+.btn-add-header:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45);
 }
-.btn-mic.recording {
-  background: #e74c3c; animation: pulseMic 1.2s infinite;
-}
-@keyframes pulseMic {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.5); }
-  70% { transform: scale(1.03); box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
-}
-.mic-status { font-size: 12px; font-weight: 500; color: #555; }
 
-#aiVoiceNoteText {
-  width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px;
-  font-size: 13px; outline: none; resize: vertical; margin-bottom: 12px;
-  font-family: inherit; box-sizing: border-box;
+.btn-add-control {
+  width: 100%; padding: 10px;
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: white; border: none; border-radius: 12px;
+  font-weight: 700; font-size: 13px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
 }
+
+/* Modal Formulaire Recensement Tactile */
+.census-modal {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.census-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(6px);
+}
+.census-modal-card {
+  position: relative; z-index: 1001;
+  background: #ffffff; width: 100%; max-width: 560px;
+  border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+  overflow: hidden; display: flex; flex-direction: column;
+  max-height: 90vh; border: 1px solid rgba(255,255,255,0.2);
+}
+.census-modal-header {
+  padding: 16px 20px; background: linear-gradient(135deg, #0d2818, #1a3d2b); color: white;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.census-modal-title { display: flex; align-items: center; gap: 12px; }
+.census-header-icon { font-size: 26px; }
+.census-modal-title h3 { margin: 0; font-size: 17px; font-weight: 800; color: #ffffff; }
+.census-modal-title p { margin: 2px 0 0; font-size: 11.5px; color: #a3e635; opacity: 0.9; }
+.census-close-btn {
+  background: rgba(255,255,255,0.15); border: none; color: white;
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+  font-size: 15px; display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease;
+}
+.census-close-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* Validation Bar Temps Réel */
+.census-val-bar {
+  padding: 10px 18px; font-size: 12.5px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px; transition: all 0.3s ease;
+}
+.census-val-bar.val-info { background: #f0fdf4; color: #166534; border-bottom: 1px solid #bbf7d0; }
+.census-val-bar.val-warning { background: #fefce8; color: #a16207; border-bottom: 1px solid #fef08a; }
+.census-val-bar.val-success { background: #dcfce7; color: #14532d; border-bottom: 1px solid #86efac; }
+
+.census-form-body {
+  padding: 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group label {
+  font-size: 13px; font-weight: 700; color: #1e293b; letter-spacing: 0.01em;
+}
+.form-group label .req { color: #ef4444; }
+
+.input-with-icon { position: relative; display: flex; align-items: center; }
+.input-with-icon input {
+  width: 100%; padding: 12px 14px; padding-right: 90px;
+  border: 1.5px solid #cbd5e1; border-radius: 12px;
+  font-size: 14px; font-family: inherit; background: #f8fafc;
+  color: #0f172a; transition: all 0.2s ease; box-sizing: border-box;
+}
+.input-with-icon input:focus {
+  outline: none; border-color: #10b981; background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+
+.input-val-badge {
+  position: absolute; right: 10px; font-size: 11px; font-weight: 800;
+  padding: 4px 8px; border-radius: 8px; pointer-events: none;
+}
+.input-val-badge.valid { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.input-val-badge.invalid { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
+
+.input-hint { font-size: 11.5px; color: #64748b; font-weight: 500; }
+
+/* Status Pills Tactiles */
+.tactile-status-group {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px;
+}
+.status-pill {
+  padding: 10px 14px; min-height: 42px; border-radius: 12px;
+  border: 1.5px solid #e2e8f0; background: #ffffff; color: #334155;
+  font-size: 12.5px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; transition: all 0.2s ease;
+  box-sizing: border-box; flex: 1 1 calc(50% - 6px);
+}
+.status-pill .pill-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: var(--pill-color);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.05);
+}
+.status-pill.active {
+  border-color: var(--pill-color); background: color-mix(in srgb, var(--pill-color) 12%, #ffffff);
+  color: #0f172a; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* Segmented Control Tactile */
+.segmented-control {
+  display: flex; background: #f1f5f9; padding: 4px; border-radius: 14px; gap: 4px;
+}
+.segment-btn {
+  flex: 1; padding: 10px 8px; min-height: 42px; border: none; background: transparent;
+  font-size: 12.5px; font-weight: 700; color: #64748b; border-radius: 10px;
+  cursor: pointer; transition: all 0.2s ease; text-align: center;
+}
+.segment-btn.active {
+  background: #ffffff; color: #0f172a; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* Tactile Switch Toggle */
+.form-group-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #f8fafc; padding: 12px 16px; border-radius: 14px; border: 1px solid #e2e8f0;
+}
+.tactile-switch {
+  position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0;
+}
+.tactile-switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; inset: 0; background-color: #cbd5e1;
+  transition: .3s; border-radius: 34px;
+}
+.slider:before {
+  position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px;
+  background-color: white; transition: .3s; border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+input:checked + .slider { background-color: #10b981; }
+input:checked + .slider:before { transform: translateX(24px); }
+
+/* Chips Quartier & Produits */
+.chips-row, .multi-chips-group {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+}
+.chip-q, .chip-p {
+  padding: 7px 12px; min-height: 36px; border-radius: 20px; border: 1px solid #cbd5e1;
+  background: #f8fafc; color: #334155; font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: all 0.15s ease;
+}
+.chip-q:hover, .chip-p:hover { background: #e2e8f0; }
+.chip-p.active {
+  background: #dcfce7; color: #15803d; border-color: #86efac;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.15);
+}
+
+/* GPS Header */
+.gps-header { display: flex; align-items: center; justify-content: space-between; }
+.btn-capture-gps {
+  background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+  padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: background 0.15s ease;
+}
+.btn-capture-gps:hover { background: #dbeafe; }
+
+.form-actions {
+  display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; margin-top: 10px;
+}
+.btn-ai-format {
+  padding: 14px; background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff;
+  border-radius: 14px; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.btn-save-census {
+  padding: 14px; background: linear-gradient(135deg, #0d2818, #10b981);
+  color: white; border: none; border-radius: 14px; font-weight: 800;
+  font-size: 14px; cursor: pointer; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+.btn-save-census:hover { filter: brightness(1.05); }
+
 
 .ai-vision-upload {
   text-align: center; margin-bottom: 12px;
