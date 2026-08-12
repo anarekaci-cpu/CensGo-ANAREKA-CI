@@ -1,8 +1,6 @@
 import { getSession, signIn, signOut, onAuthStateChange } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
 
-let unsubscribe = null;
-
 export async function initAuth() {
   try {
     const session = await getSession();
@@ -10,7 +8,7 @@ export async function initAuth() {
   } catch (e) {
     store.set("user", null);
   }
-  unsubscribe = onAuthStateChange((session) => {
+  onAuthStateChange((session) => {
     store.set("user", session?.user || null);
   });
 }

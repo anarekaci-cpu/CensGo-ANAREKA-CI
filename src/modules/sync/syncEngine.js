@@ -1,7 +1,7 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed } from "../../db/database.js";
+import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs } from "../../db/database.js";
 
 let syncInterval = null;
 let isOnline = navigator.onLine;
@@ -27,6 +27,7 @@ export async function initSyncEngine() {
 
 export async function triggerSync() {
   const pending = await getPendingSyncs();
+  store.set("sync.pendingPointIds", [...new Set(pending.map(p => p.pointId))]);
   if (pending.length === 0) return;
 
   store.set("sync.status", "syncing");
@@ -72,22 +73,32 @@ export async function triggerSync() {
           if (error) throw error;
         }
 
+        await markPointSynced(item.pointId);
         await markSyncDone(item.id);
       } catch (err) {
         console.error(`Sync failed for ${item.pointId}:`, err);
-        await markSyncFailed(item.id, err.message);
+        await markSyncFailed(item.id, err.message, CONFIG.MAX_RETRY_ATTEMPTS);
       }
     }
 
     const remaining = await getPendingSyncs();
+    const dead = await getDeadSyncs();
     store.set("sync.pendingCount", remaining.length);
-    store.set("sync.status", remaining.length > 0 ? "error" : "idle");
+    store.set("sync.pendingPointIds", [...new Set(remaining.map(p => p.pointId))]);
+    store.set("sync.deadCount", dead.length);
+    store.set("sync.status", dead.length > 0 ? "error" : (remaining.length > 0 ? "syncing" : "idle"));
     store.set("sync.lastSync", new Date().toISOString());
 
   } catch (err) {
     store.set("sync.status", "error");
     console.error("Sync engine error:", err);
   }
+}
+
+export async function retryFailedSyncs() {
+  const count = await retryDeadSyncs();
+  if (count > 0 && isOnline) await triggerSync();
+  return count;
 }
 
 export function destroySyncEngine() {

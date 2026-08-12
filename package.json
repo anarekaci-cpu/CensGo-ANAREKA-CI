@@ -4,6 +4,7 @@
   "description": "Application PWA de recensement terrain ANAREKA-CI — Vite + IndexedDB",
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -12,6 +13,7 @@
     "lint:fix": "eslint src/ --ext .js --fix"
   },
   "dependencies": {
+    "@google/genai": "^2.14.0",
     "@supabase/supabase-js": "^2.45.0",
     "dexie": "^4.0.8",
     "leaflet": "^1.9.4",

@@ -1,5 +1,16 @@
 # 🔐 Guide de Sécurité — Recensement ANAREKA-CI
 
+## 🚨 Incident connu : clé Supabase exposée dans l'historique Git
+
+Entre les commits `f67073f` et `09d5296`, un fichier `.env` contenant la vraie
+URL de projet Supabase et la clé `anon` a été committé (7 commits), avant
+d'être retiré du suivi. Le dépôt étant public, **ces valeurs restent
+récupérables dans l'historique Git tant qu'elles n'ont pas été régénérées** —
+voir l'étape "Régénérer les clés API" ci-dessous, à traiter en priorité.
+Réécrire l'historique (`git filter-repo`) est possible mais nécessite un
+force-push et la recréation des clones existants ; ce n'est utile qu'après
+rotation de la clé, pour éviter de laisser traîner une référence morte.
+
 ## ⚠️ Actions immédiates requises
 
 ### 1. Activer Row Level Security (RLS)

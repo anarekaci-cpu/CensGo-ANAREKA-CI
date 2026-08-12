@@ -1,7 +1,6 @@
 import L from "leaflet";
 import "leaflet.markercluster";
 import { CONFIG } from "../../core/config.js";
-import { store } from "../../core/store.js";
 
 let mapInstance = null;
 let clusterGroup = null;

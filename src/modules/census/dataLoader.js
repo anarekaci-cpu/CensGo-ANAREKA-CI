@@ -3,7 +3,7 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { savePoints, getAllPoints, setMeta } from "../../db/database.js";
 
-export async function loadCensusData(forceRefresh = false) {
+export async function loadCensusData() {
   store.set("ui.loading", true);
   store.set("sync.status", "syncing");
 

@@ -61,7 +61,7 @@ export function createSpeechRecognizer(onResult, onError, onEnd) {
 /**
  * Générateur local intelligent en mode secours (Offline / No Key)
  */
-function generateFallbackAgentResponse(action, { prompt, points, userPos, imageBase64 }) {
+function generateFallbackAgentResponse(action, { prompt, points }) {
   const allPoints = points || store.get("points") || [];
   const unvisited = allPoints.filter(p => !p.visited);
   const injoignables = allPoints.filter(p => p.status?.includes("JAUNE"));
@@ -126,15 +126,16 @@ function generateFallbackAgentResponse(action, { prompt, points, userPos, imageB
   }
 
   if (action === "vision_ocr") {
+    // Sans clé Gemini configurée, il n'existe aucune analyse d'image réelle en local :
+    // on ne doit surtout pas inventer un numéro de série ou un index de consommation
+    // (l'ancienne version générait ces valeurs au hasard tout en affirmant qu'elles
+    // avaient été "vérifiées par Gemini Flash" — un agent pressé pouvait recopier ces
+    // fausses données dans la fiche réelle).
     return {
       success: true,
       text: `📸 **Agent Reconnaissance Photo & Compteur** :\n\n` +
-            `Analyse visuelle complétée avec succès :\n\n` +
-            `• **Compteur / Plaque** : Lisibilité 98%\n` +
-            `• **Numéro Série détecté** : \`CIE-BGV-${Math.floor(100000 + Math.random() * 900000)}\`\n` +
-            `• **Index Relevé** : ${Math.floor(1200 + Math.random() * 8000)} kWh\n` +
-            `• **Conformité Installation** : Conforme, aucun dommage physique détecté.\n\n` +
-            `✅ *Les données de l'image ont été vérifiées par le modèle Gemini Flash.*`
+            `⚠️ *Analyse IA indisponible hors-ligne (clé Gemini non configurée ou pas de réseau).*\n\n` +
+            `Aucune lecture automatique du compteur n'a été effectuée. Merci de relever manuellement le numéro de série et l'index sur la photo, puis de les saisir vous-même dans la fiche.`
     };
   }
 

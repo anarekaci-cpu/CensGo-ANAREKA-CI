@@ -91,6 +91,7 @@ export async function upsertPoint(pointData) {
   let point = await db.points.where("id").equals(pointData.id || "").first();
   const now = new Date().toISOString();
   let updated;
+  let pendingSyncedFlag = false;
   if (point) {
     updated = {
       ...point,
@@ -101,7 +102,13 @@ export async function upsertPoint(pointData) {
   } else {
     const all = await db.points.toArray();
     const maxLocalId = all.reduce((max, p) => Math.max(max, p.localId || 0), 0);
-    const newId = pointData.id || `bgv_${String(maxLocalId + 1).padStart(3, "0")}`;
+    // Un ID basé sur un compteur local (ex: bgv_004) entrerait en collision dès que
+    // deux agents créent un nouveau point hors-ligne au même moment : chaque téléphone
+    // reparties du même maxLocalId, et le second à synchroniser écraserait le premier
+    // via l'upsert Supabase (onConflict: point_id). Un UUID généré côté client garantit
+    // l'unicité sans coordination entre appareils (standard ODK/KoboCollect).
+    const newId = pointData.id || `bgv_${crypto.randomUUID()}`;
+    pendingSyncedFlag = true;
     updated = {
       order: maxLocalId + 1,
       block: 1,
@@ -118,7 +125,7 @@ export async function upsertPoint(pointData) {
       ...pointData,
       id: newId,
       localId: maxLocalId + 1,
-      syncedAt: now,
+      syncedAt: null,
       updatedAt: now
     };
     await db.points.add(updated);
@@ -133,7 +140,13 @@ export async function upsertPoint(pointData) {
     status: "pending"
   });
 
-  return updated;
+  return { ...updated, pendingSync: pendingSyncedFlag };
+}
+
+export async function markPointSynced(pointId) {
+  const point = await db.points.where("id").equals(pointId).first();
+  if (!point) return;
+  await db.points.put({ ...point, syncedAt: new Date().toISOString() });
 }
 
 export async function getPendingSyncs() {
@@ -144,12 +157,47 @@ export async function markSyncDone(queueId) {
   await db.syncQueue.delete(queueId);
 }
 
-export async function markSyncFailed(queueId, errorMsg) {
+// Remet en file d'attente jusqu'à maxAttempts tentatives ; au-delà, marque l'item
+// "dead" pour qu'il arrête d'être retenté silencieusement et remonte à l'utilisateur
+// (avant ce correctif, un item passait direct en "failed" et n'était plus jamais
+// repris par getPendingSyncs — la fiche restait bloquée sans que personne ne le sache).
+export async function markSyncFailed(queueId, errorMsg, maxAttempts = 3) {
   const item = await db.syncQueue.get(queueId);
+  const attempts = (item?.attempts || 0) + 1;
+  const dead = attempts >= maxAttempts;
   await db.syncQueue.update(queueId, {
-    status: "failed",
+    status: dead ? "dead" : "pending",
     error: errorMsg,
-    attempts: (item?.attempts || 0) + 1
+    attempts
+  });
+  return { dead, attempts };
+}
+
+export async function getDeadSyncs() {
+  return await db.syncQueue.where("status").equals("dead").toArray();
+}
+
+export async function retryDeadSyncs() {
+  const dead = await db.syncQueue.where("status").equals("dead").toArray();
+  await Promise.all(dead.map(item =>
+    db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null })
+  ));
+  return dead.length;
+}
+
+// Points dans un rayon donné (m) — utilisé pour avertir d'un doublon probable
+// avant de créer un nouveau point de recensement au même endroit.
+export async function findNearbyPoints(lat, lon, radiusM = 25, excludeId = null) {
+  const all = await db.points.toArray();
+  const R = 6371000;
+  return all.filter(p => {
+    if (p.id === excludeId || p.lat == null || p.lon == null) return false;
+    const dLat = (p.lat - lat) * Math.PI / 180;
+    const dLon = (p.lon - lon) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat * Math.PI / 180) * Math.cos(p.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return distM <= radiusM;
   });
 }
 

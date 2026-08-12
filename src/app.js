@@ -1,15 +1,15 @@
 import { store } from "./core/store.js";
-import { initMap, getMap, fitToBounds } from "./modules/map/map.js";
+import { initMap, fitToBounds } from "./modules/map/map.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited } from "./modules/navigation/navigation.js";
 import { initTour, generateOptimizedTour, startTour, goToNext, stopTour } from "./modules/tour/tour.js";
 import { locateAndCenter, findNearestUnvisited } from "./modules/geolocation/geolocation.js";
-import { login, logout, isAuthenticated } from "./modules/auth/auth.js";
-import { getStats, resetAllVisits } from "./db/database.js";
-import { CONFIG } from "./core/config.js";
+import { login, logout } from "./modules/auth/auth.js";
+import { resetAllVisits } from "./db/database.js";
 import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
+import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
 
 export class App {
   constructor(container) {
@@ -597,9 +597,25 @@ export class App {
   bindStoreListeners() {
     this.unsubs.push(store.subscribe("points", () => this.updateStats()));
 
-    this.unsubs.push(store.subscribe("sync.status", (status) => {
+    const renderSyncStatus = () => {
       const el = document.getElementById("syncStatus");
       if (!el) return;
+      const status = store.get("sync.status");
+      const deadCount = store.get("sync.deadCount") || 0;
+
+      if (deadCount > 0) {
+        el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Réessayer`;
+        el.title = "Ces fiches n'ont pas pu être envoyées à Supabase après plusieurs tentatives. Cliquez pour réessayer.";
+        el.style.cursor = "pointer";
+        el.onclick = async () => {
+          el.textContent = "🔄 Nouvelle tentative...";
+          await retryFailedSyncs();
+        };
+        return;
+      }
+
+      el.onclick = null;
+      el.style.cursor = "default";
       const labels = {
         idle: "🟢 Synchronisé",
         syncing: "🔄 Sync...",
@@ -607,7 +623,10 @@ export class App {
         error: "⚠️ Erreur sync"
       };
       el.textContent = labels[status] || status;
-    }));
+    };
+
+    this.unsubs.push(store.subscribe("sync.status", renderSyncStatus));
+    this.unsubs.push(store.subscribe("sync.deadCount", renderSyncStatus));
 
     this.unsubs.push(store.subscribe("navigation.active", (active) => {
       const banner = document.getElementById("routeBanner");

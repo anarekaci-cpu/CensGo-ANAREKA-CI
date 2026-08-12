@@ -1,5 +1,5 @@
 import { store } from "../../core/store.js";
-import { upsertPoint } from "../../db/database.js";
+import { upsertPoint, findNearbyPoints } from "../../db/database.js";
 import { upsertMarker } from "./markers.js";
 
 /**
@@ -140,6 +140,7 @@ export function initCensusFormModal() {
                 <input type="number" step="any" id="cf_lon" placeholder="Longitude (ex: -3.890)" />
               </div>
             </div>
+            <div id="cf_proximity_warning" class="input-hint" style="display:none; margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412;"></div>
           </div>
 
           <!-- Actions Footer -->
@@ -156,10 +157,7 @@ export function initCensusFormModal() {
   bindFormEvents();
 }
 
-let activePointData = null;
-
 export function openCensusForm(point = null) {
-  activePointData = point;
   const modal = document.getElementById("censusFormModal");
   if (!modal) return;
 
@@ -205,6 +203,34 @@ export function openCensusForm(point = null) {
 
   modal.style.display = "flex";
   validateFormRealtime();
+  checkProximity();
+}
+
+// Avertit si un point existant se trouve à moins de 25m — évite d'enregistrer
+// deux fois le même ménage (un agent qui n'a pas vu la fiche déjà créée par
+// un collègue, ou une double saisie accidentelle).
+async function checkProximity() {
+  const warningEl = document.getElementById("cf_proximity_warning");
+  if (!warningEl) return;
+
+  const lat = parseFloat(document.getElementById("cf_lat")?.value);
+  const lon = parseFloat(document.getElementById("cf_lon")?.value);
+  const currentId = document.getElementById("cf_id")?.value || null;
+
+  if (Number.isNaN(lat) || Number.isNaN(lon)) {
+    warningEl.style.display = "none";
+    return;
+  }
+
+  const nearby = await findNearbyPoints(lat, lon, 25, currentId);
+  if (nearby.length === 0) {
+    warningEl.style.display = "none";
+    return;
+  }
+
+  const names = nearby.slice(0, 3).map(p => p.name || `Fiche #${p.order || p.id}`).join(", ");
+  warningEl.style.display = "block";
+  warningEl.textContent = `⚠️ ${nearby.length} fiche(s) déjà enregistrée(s) à moins de 25m de cette position (${names}). Vérifiez qu'il ne s'agit pas d'un doublon avant d'enregistrer.`;
 }
 
 export function closeCensusForm() {
@@ -275,14 +301,18 @@ function bindFormEvents() {
         document.getElementById("cf_lon").value = pos.coords.longitude.toFixed(6);
         btn.textContent = "📍 Capturé !";
         setTimeout(() => { btn.textContent = "📍 Ma Position GPS"; }, 2000);
+        checkProximity();
       },
-      (err) => {
+      (_err) => {
         btn.textContent = "⚠️ Erreur GPS";
         setTimeout(() => { btn.textContent = "📍 Ma Position GPS"; }, 2000);
       },
       { enableHighAccuracy: true, timeout: 5000 }
     );
   });
+
+  document.getElementById("cf_lat")?.addEventListener("change", checkProximity);
+  document.getElementById("cf_lon")?.addEventListener("change", checkProximity);
 
   // AI Clean Up
   document.getElementById("cf_ai_fix")?.addEventListener("click", () => {
@@ -342,6 +372,13 @@ function bindFormEvents() {
       points.push(updated);
     }
     store.set("points", points);
+
+    // Affiche tout de suite le badge "en attente d'envoi" sans attendre le prochain
+    // passage du moteur de sync (qui tourne toutes les 30s).
+    const pendingIds = new Set(store.get("sync.pendingPointIds") || []);
+    pendingIds.add(updated.id);
+    store.set("sync.pendingPointIds", [...pendingIds]);
+
     upsertMarker(updated);
 
     closeCensusForm();

@@ -31,7 +31,9 @@ class Store {
       sync: {
         status: "idle", // idle | syncing | error | offline
         lastSync: null,
-        pendingCount: 0
+        pendingCount: 0,
+        deadCount: 0,
+        pendingPointIds: []
       },
       ui: {
         loading: true,

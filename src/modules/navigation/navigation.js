@@ -1,6 +1,5 @@
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { addRouteLayer, clearRouteLayers } from "../map/map.js";
 import { calculateRoute, displayRoute, clearRoute, formatDuration, formatDistance } from "../routing/routing.js";
 
 let navUnsubs = [];
