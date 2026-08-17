@@ -83,11 +83,6 @@ function aiApiPlugin() {
 }
 
 export default defineConfig({
-  // Le site est déployé sur GitHub Pages sous un sous-chemin
-  // (https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/) : avec base "/",
-  // les assets buildés étaient référencés en /assets/... (racine du domaine)
-  // au lieu de /Recensement-ANAREKA-CI/assets/..., ce qui causait des 404
-  // et un écran blanc une fois déployé.
   base: "/Recensement-ANAREKA-CI/",
   server: {
     host: "0.0.0.0",
@@ -106,12 +101,14 @@ export default defineConfig({
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
         icons: [
-          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
-          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml" }
+          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
         ]
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
+        navigateFallback: "index.html",
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
@@ -120,6 +117,14 @@ export default defineConfig({
               cacheName: "osm-tiles",
               expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 }
             }
+          },
+          {
+            urlPattern: /^https:\/\/router\.project-osrm\.org\/.*/,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "osrm-routes",
+              expiration: { maxEntries: 200, maxAgeSeconds: 3600 }
+            }
           }
         ]
       }
@@ -127,6 +132,6 @@ export default defineConfig({
   ],
   build: {
     outDir: "dist",
-    sourcemap: true
+    sourcemap: false
   }
 });

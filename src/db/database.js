@@ -18,14 +18,29 @@ db.version(1).stores({
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
+  // Préserver les points créés localement qui n'ont pas encore été synchronisés
+  const localPoints = await db.points.toArray();
+  const unsynced = localPoints.filter(p => !p.syncedAt);
+  const unsyncedIds = new Set(unsynced.map(p => p.id));
+
   await db.points.clear();
-  const withLocal = pointsArray.map((p, i) => ({
+
+  const withLocal = pointsArray
+    .filter(p => !unsyncedIds.has(p.id))
+    .map((p, i) => ({
+      ...p,
+      localId: i + 1,
+      syncedAt: new Date().toISOString()
+    }));
+
+  let nextId = withLocal.length + 1;
+  const unsyncedPreserved = unsynced.map(p => ({
     ...p,
-    localId: i + 1,
-    syncedAt: new Date().toISOString()
+    localId: nextId++
   }));
-  await db.points.bulkAdd(withLocal);
-  return withLocal.length;
+
+  await db.points.bulkAdd([...withLocal, ...unsyncedPreserved]);
+  return withLocal.length + unsyncedPreserved.length;
 }
 
 export async function getAllPoints() {

@@ -1,6 +1,7 @@
 import { store } from "../../core/store.js";
 import { upsertPoint, findNearbyPoints } from "../../db/database.js";
 import { upsertMarker } from "./markers.js";
+import { toastWarning } from "../../core/toast.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -256,7 +257,7 @@ function bindFormEvents() {
   // Capture GPS
   document.getElementById("cf_capture_gps")?.addEventListener("click", () => {
     if (!navigator.geolocation) {
-      alert("Géolocalisation non disponible");
+      toastWarning("Géolocalisation non disponible");
       return;
     }
     const btn = document.getElementById("cf_capture_gps");
@@ -308,7 +309,7 @@ function bindFormEvents() {
   document.getElementById("censusForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!validateFormRealtime()) {
-      alert("Veuillez remplir correctement les champs obligatoires (Nom et Téléphone).");
+      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom et Téléphone).");
       return;
     }
 

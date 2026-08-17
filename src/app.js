@@ -12,6 +12,7 @@ import { resetAllVisits } from "./db/database.js";
 import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
+import { toastInfo, toastWarning } from "./core/toast.js";
 
 // Distingue les causes d'échec de connexion : la config Supabase manquante/erronée
 // et une panne réseau/DNS produisaient toutes les deux le message générique
@@ -390,7 +391,7 @@ export class App {
         const { openPopup } = await import("./modules/census/markers.js");
         openPopup(res.point.id);
       } else {
-        alert("Aucun point non-visité trouvé.");
+        toastInfo("Aucun point non-visité trouvé.");
       }
       this.closeControls();
     };
@@ -400,7 +401,7 @@ export class App {
     document.getElementById("fitFilteredBtn").onclick = () => {
       const bounds = getFilteredBounds();
       if (bounds) fitToBounds(bounds);
-      else alert("Aucun point ne correspond aux filtres.");
+      else toastWarning("Aucun point ne correspond aux filtres.");
       this.closeControls();
     };
 
@@ -427,13 +428,13 @@ export class App {
         if (pos) store.set("geo.position", pos);
       }
       if (!pos) {
-        alert("Position GPS indisponible pour le moment. Réessayez dans quelques secondes.");
+        toastWarning("Position GPS indisponible pour le moment. Réessayez dans quelques secondes.");
         return;
       }
       const points = store.get("points").filter(p => !p.visited);
       const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
       if (tour.length === 0) {
-        alert("Tous les points non-visités ont déjà été traités !");
+        toastInfo("Tous les points non-visités ont déjà été traités !");
         return;
       }
       startTour(tour);
@@ -505,6 +506,9 @@ export class App {
 
     const formatAiText = (str) => {
       return (str || "")
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
         .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
         .replace(/\*(.*?)\*/g, '<i>$1</i>')
         .replace(/\n/g, '<br>');
@@ -601,7 +605,7 @@ export class App {
     document.getElementById("aiParseVoiceBtn")?.addEventListener("click", async () => {
       const prompt = voiceText?.value;
       if (!prompt || !prompt.trim()) {
-        alert("Veuillez d'abord dicter ou taper une note vocale.");
+        toastWarning("Veuillez d'abord dicter ou taper une note vocale.");
         return;
       }
       displayOutput("⏳ <i>L'Agent Transcripteur IA analyse et extrait les données...</i>");
