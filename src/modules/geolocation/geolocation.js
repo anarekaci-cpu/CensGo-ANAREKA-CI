@@ -1,5 +1,6 @@
 import { store } from "../../core/store.js";
 import { getMap, flyToPoint } from "../map/map.js";
+import { reportPosition } from "./agentTracking.js";
 
 let watchId = null;
 let position = null;
@@ -21,6 +22,7 @@ export function initGeolocation() {
       };
       store.set("geo.position", position);
       store.set("geo.tracking", true);
+      reportPosition(position);
     },
     (err) => {
       console.warn("Géolocalisation erreur:", err);

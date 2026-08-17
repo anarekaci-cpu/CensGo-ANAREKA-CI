@@ -21,10 +21,13 @@ export async function askAiAgent(action, { prompt, points, userPos, imageBase64,
       return { success: true, text: data.result };
     }
 
-    // Mode secours hors-ligne / sans clé API
+    if (data.fallback) {
+      console.info("Clé Gemini non configurée — mode analyse locale activé");
+    }
+
     return generateFallbackAgentResponse(action, { prompt, points, userPos, imageBase64 });
   } catch (err) {
-    console.warn("API IA indisponible ou mode hors-ligne, génération de réponse locale :", err.message);
+    console.warn("API IA indisponible, réponse locale :", err.message);
     return generateFallbackAgentResponse(action, { prompt, points, userPos, imageBase64 });
   }
 }
@@ -126,16 +129,12 @@ function generateFallbackAgentResponse(action, { prompt, points }) {
   }
 
   if (action === "vision_ocr") {
-    // Sans clé Gemini configurée, il n'existe aucune analyse d'image réelle en local :
-    // on ne doit surtout pas inventer un numéro de série ou un index de consommation
-    // (l'ancienne version générait ces valeurs au hasard tout en affirmant qu'elles
-    // avaient été "vérifiées par Gemini Flash" — un agent pressé pouvait recopier ces
-    // fausses données dans la fiche réelle).
     return {
       success: true,
-      text: `📸 **Agent Reconnaissance Photo & Compteur** :\n\n` +
-            `⚠️ *Analyse IA indisponible hors-ligne (clé Gemini non configurée ou pas de réseau).*\n\n` +
-            `Aucune lecture automatique du compteur n'a été effectuée. Merci de relever manuellement le numéro de série et l'index sur la photo, puis de les saisir vous-même dans la fiche.`
+      text: `📸 **Agent Vision** :\n\n` +
+            `⚠️ *Analyse photo indisponible* — la clé API Gemini n'est pas configurée sur ce serveur.\n\n` +
+            `Pour activer l'analyse photo, ajoutez \`GEMINI_API_KEY\` dans le fichier \`.env\` du serveur.\n\n` +
+            `En attendant, relevez manuellement le numéro de compteur et l'index sur la photo.`
     };
   }
 

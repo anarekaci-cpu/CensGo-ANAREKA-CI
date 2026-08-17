@@ -50,26 +50,6 @@ export function initCensusFormModal() {
             <div id="cf_tel_err" class="input-hint">Format CI 10 chiffres (début 01, 05, 07...).</div>
           </div>
 
-          <!-- Statut Tactile -->
-          <div class="form-group">
-            <label>Statut du Recensement <span class="req">*</span></label>
-            <div class="tactile-status-group" id="cf_status_group">
-              <button type="button" class="status-pill active" data-status="VERT (Joignable)" style="--pill-color:#2ecc71">
-                <span class="pill-dot"></span> Vert (Joignable)
-              </button>
-              <button type="button" class="status-pill" data-status="JAUNE (Injoignable)" style="--pill-color:#f1c40f">
-                <span class="pill-dot"></span> Jaune (Injoignable)
-              </button>
-              <button type="button" class="status-pill" data-status="ROUGE (Refus)" style="--pill-color:#e74c3c">
-                <span class="pill-dot"></span> Rouge (Refus)
-              </button>
-              <button type="button" class="status-pill" data-status="VIOLET (A verifier)" style="--pill-color:#9b59b6">
-                <span class="pill-dot"></span> Violet (À vérifier)
-              </button>
-            </div>
-            <input type="hidden" id="cf_status" value="VERT (Joignable)" />
-          </div>
-
           <!-- Genre / Sexe Tactile Segmented -->
           <div class="form-group">
             <label>Genre / Type de Local</label>
@@ -170,7 +150,6 @@ export function openCensusForm(point = null) {
     document.getElementById("cf_id").value = point.id || "";
     document.getElementById("cf_name").value = point.name || "";
     document.getElementById("cf_tel").value = formatPhoneCI(point.tel || "");
-    document.getElementById("cf_status").value = point.status || "VERT (Joignable)";
     document.getElementById("cf_sexe").value = point.sexe || "Homme";
     document.getElementById("cf_visited").checked = !!point.visited;
     document.getElementById("cf_quartier").value = point.quartier || "";
@@ -184,7 +163,6 @@ export function openCensusForm(point = null) {
     document.getElementById("cf_id").value = "";
     document.getElementById("cf_name").value = "";
     document.getElementById("cf_tel").value = "";
-    document.getElementById("cf_status").value = "VERT (Joignable)";
     document.getElementById("cf_sexe").value = "Homme";
     document.getElementById("cf_visited").checked = false;
     document.getElementById("cf_quartier").value = "Gbagba";
@@ -197,7 +175,6 @@ export function openCensusForm(point = null) {
   }
 
   // Synchroniser l'état des composants tactiles
-  syncStatusPills();
   syncSegmentedSexe();
   syncProduitsChips();
 
@@ -249,17 +226,6 @@ function bindFormEvents() {
     validateFormRealtime();
   });
   document.getElementById("cf_quartier")?.addEventListener("input", validateFormRealtime);
-
-  // Status pills click
-  const statusPills = document.querySelectorAll("#cf_status_group .status-pill");
-  statusPills.forEach(pill => {
-    pill.addEventListener("click", () => {
-      statusPills.forEach(p => p.classList.remove("active"));
-      pill.classList.add("active");
-      document.getElementById("cf_status").value = pill.dataset.status;
-      validateFormRealtime();
-    });
-  });
 
   // Segmented Sexe click
   const segmentBtns = document.querySelectorAll("#cf_sexe_group .segment-btn");
@@ -347,11 +313,12 @@ function bindFormEvents() {
     }
 
     const id = document.getElementById("cf_id").value;
+    const existingPoint = id ? (store.get("points") || []).find(p => p.id === id) : null;
     const pointData = {
       id: id || undefined,
       name: document.getElementById("cf_name").value.trim(),
       tel: document.getElementById("cf_tel").value.trim(),
-      status: document.getElementById("cf_status").value,
+      status: existingPoint ? existingPoint.status : "NON DEFINI",
       sexe: document.getElementById("cf_sexe").value,
       visited: document.getElementById("cf_visited").checked,
       quartier: document.getElementById("cf_quartier").value.trim(),
@@ -382,13 +349,6 @@ function bindFormEvents() {
     upsertMarker(updated);
 
     closeCensusForm();
-  });
-}
-
-function syncStatusPills() {
-  const current = document.getElementById("cf_status").value;
-  document.querySelectorAll("#cf_status_group .status-pill").forEach(p => {
-    p.classList.toggle("active", p.dataset.status === current);
   });
 }
 

@@ -29,7 +29,7 @@ export async function loadCensusData() {
         produits: row.produits,
         sexe: row.sexe,
         status: row.status || "NON DEFINI",
-        visited: !!row.visited,
+        visited: row.visited === true || row.visited === "true" || row.visited === "oui",
         lat: row.lat,
         lon: row.lon
       }));

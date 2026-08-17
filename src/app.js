@@ -1,10 +1,12 @@
 import { store } from "./core/store.js";
+import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds } from "./modules/map/map.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited } from "./modules/navigation/navigation.js";
 import { initTour, generateOptimizedTour, startTour, goToNext, stopTour } from "./modules/tour/tour.js";
 import { locateAndCenter, findNearestUnvisited } from "./modules/geolocation/geolocation.js";
+import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { login, logout } from "./modules/auth/auth.js";
 import { resetAllVisits } from "./db/database.js";
 import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
@@ -157,6 +159,9 @@ export class App {
             </div>
             <div class="action-row">
               <button id="fitFilteredBtn" class="btn-overview">👁️ Vue d'ensemble filtrés</button>
+            </div>
+            <div class="action-row" id="adminTrackingRow" style="display:none;">
+              <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
             </div>
             <div class="action-row">
               <button id="exportBtn" class="btn-export">📄 Exporter CSV</button>
@@ -318,6 +323,22 @@ export class App {
     document.getElementById("tourBtn").disabled = false;
     document.getElementById("nearestBtn").disabled = false;
 
+    // Vérifier le rôle admin depuis la table user_roles Supabase
+    try {
+      const user = store.get("user");
+      const supabase = getSupabaseClient();
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .single();
+      const isAdmin = data?.role === "admin";
+      const adminRow = document.getElementById("adminTrackingRow");
+      if (adminRow) adminRow.style.display = isAdmin ? "flex" : "none";
+    } catch {
+      // Table user_roles pas encore créée ou pas d'accès — mode agent
+    }
+
     this.bindEvents();
     this.bindStoreListeners();
   }
@@ -382,6 +403,21 @@ export class App {
       else alert("Aucun point ne correspond aux filtres.");
       this.closeControls();
     };
+
+    // Admin: suivi des agents terrain
+    let agentTrackingActive = false;
+    document.getElementById("agentTrackingBtn")?.addEventListener("click", async () => {
+      agentTrackingActive = !agentTrackingActive;
+      const btn = document.getElementById("agentTrackingBtn");
+      if (agentTrackingActive) {
+        startAgentTracking();
+        if (btn) btn.textContent = "📍 Arrêter le suivi";
+      } else {
+        stopAgentTracking();
+        if (btn) btn.textContent = "📍 Suivi Agents Terrain";
+      }
+      this.closeControls();
+    });
 
     document.getElementById("tourBtn").onclick = async () => {
       let pos = store.get("geo.position");
@@ -754,9 +790,18 @@ export class App {
 
   updateStats() {
     const points = store.get("points");
-    const visited = points.filter(p => p.visited).length;
+    const visited = points.filter(p => p.visited === true).length;
+    const total = points.length;
+    const pct = total > 0 ? Math.round((visited / total) * 100) : 0;
     const el = document.getElementById("statsHeader");
-    if (el) el.textContent = `${visited} / ${points.length} visités`;
+    if (el) {
+      el.innerHTML = `
+        <span>${visited} / ${total} visités (${pct}%)</span>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:${pct}%"></div>
+        </div>
+      `;
+    }
   }
 
   closeControls() {
