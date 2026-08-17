@@ -580,15 +580,19 @@ input:checked + .slider:before { transform: translateX(24px); }
 .chips-row, .multi-chips-group {
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
 }
-.chip-q, .chip-p {
+.chip-q, .chip-p, .chip-a {
   padding: 7px 12px; min-height: 36px; border-radius: 20px; border: 1px solid #cbd5e1;
   background: #f8fafc; color: #334155; font-size: 12px; font-weight: 700;
   cursor: pointer; transition: all 0.15s ease;
 }
-.chip-q:hover, .chip-p:hover { background: #e2e8f0; }
+.chip-q:hover, .chip-p:hover, .chip-a:hover { background: #e2e8f0; }
 .chip-p.active {
   background: #dcfce7; color: #15803d; border-color: #86efac;
   box-shadow: 0 2px 6px rgba(22, 163, 74, 0.15);
+}
+.chip-a.active {
+  background: #dbeafe; color: #1d4ed8; border-color: #93c5fd;
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.15);
 }
 
 /* GPS Header */

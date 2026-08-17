@@ -1,7 +1,9 @@
 import { store } from "../../core/store.js";
+import { CONFIG } from "../../core/config.js";
 import { upsertPoint, findNearbyPoints } from "../../db/database.js";
 import { upsertMarker } from "./markers.js";
 import { toastWarning } from "../../core/toast.js";
+import { getMap } from "../map/map.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -17,7 +19,7 @@ export function initCensusFormModal() {
             <span class="census-header-icon">📋</span>
             <div>
               <h3 id="censusFormTitle">Fiche de Recensement</h3>
-              <p id="censusFormSubtitle">Bingerville — Recensement Terrain</p>
+              <p id="censusFormSubtitle">ANAREKA-CI — Recensement Terrain</p>
             </div>
           </div>
           <button id="censusFormCloseBtn" class="census-close-btn">✕</button>
@@ -38,7 +40,7 @@ export function initCensusFormModal() {
               <input type="text" id="cf_name" placeholder="Ex: Kouadio Koffi Jean" required autocomplete="off" />
               <span id="cf_name_val" class="input-val-badge"></span>
             </div>
-            <div id="cf_name_err" class="input-hint">Nom du responsable du logement ou local.</div>
+            <div id="cf_name_err" class="input-hint">Nom du restaurateur / responsable de l'établissement.</div>
           </div>
 
           <!-- Téléphone CI -->
@@ -51,13 +53,32 @@ export function initCensusFormModal() {
             <div id="cf_tel_err" class="input-hint">Format CI 10 chiffres (début 01, 05, 07...).</div>
           </div>
 
-          <!-- Genre / Sexe Tactile Segmented -->
+          <!-- Nom de l'établissement -->
           <div class="form-group">
-            <label>Genre / Type de Local</label>
+            <label for="cf_etablissement">Nom de l'établissement / Kiosque</label>
+            <input type="text" id="cf_etablissement" placeholder="Ex: Chez Tantie Aya" autocomplete="off" />
+          </div>
+
+          <!-- Type d'activité -->
+          <div class="form-group">
+            <label>Type d'activité <span class="req">*</span></label>
+            <div class="chips-row" id="cf_activity_group">
+              <button type="button" class="chip-a" data-activity="Kiosque d'attiéké fixe">🏪 Kiosque fixe</button>
+              <button type="button" class="chip-a" data-activity="Restaurant traditionnel">🍽️ Restaurant</button>
+              <button type="button" class="chip-a" data-activity="Vendeur ambulant">🚶 Vendeur ambulant</button>
+              <button type="button" class="chip-a" data-activity="Producteur d'attiéké">🌾 Producteur</button>
+              <button type="button" class="chip-a" data-activity="Maquis / Gargote">🍲 Maquis / Gargote</button>
+              <button type="button" class="chip-a" data-activity="Autre">➕ Autre</button>
+            </div>
+            <input type="hidden" id="cf_activity" value="" />
+          </div>
+
+          <!-- Genre du responsable -->
+          <div class="form-group">
+            <label>Genre du responsable</label>
             <div class="segmented-control" id="cf_sexe_group">
               <button type="button" class="segment-btn active" data-sexe="Homme">👨 Homme</button>
               <button type="button" class="segment-btn" data-sexe="Femme">👩 Femme</button>
-              <button type="button" class="segment-btn" data-sexe="Entreprise">🏢 Local Pro</button>
             </div>
             <input type="hidden" id="cf_sexe" value="Homme" />
           </div>
@@ -74,35 +95,29 @@ export function initCensusFormModal() {
             </label>
           </div>
 
-          <!-- Quartier avec Chips Tactiles -->
+          <!-- Quartier avec Chips Tactiles (générées depuis les quartiers déjà recensés) -->
           <div class="form-group">
-            <label for="cf_quartier">Quartier (Bingerville)</label>
-            <input type="text" id="cf_quartier" placeholder="Ex: Gbagba" autocomplete="off" />
-            <div class="chips-row">
-              <button type="button" class="chip-q" data-q="Gbagba">Gbagba</button>
-              <button type="button" class="chip-q" data-q="Bingerville Centre">Centre</button>
-              <button type="button" class="chip-q" data-q="Marché">Marché</button>
-              <button type="button" class="chip-q" data-q="Feh Kessé">Feh Kessé</button>
-              <button type="button" class="chip-q" data-q="Santai">Santai</button>
-              <button type="button" class="chip-q" data-q="Akandjé">Akandjé</button>
-            </div>
+            <label for="cf_quartier">Ville / Quartier</label>
+            <input type="text" id="cf_quartier" placeholder="Ex: Cocody, Yopougon..." autocomplete="off" />
+            <div class="chips-row" id="cf_quartier_chips"></div>
           </div>
 
-          <!-- Adresse / Lot -->
+          <!-- Emplacement -->
           <div class="form-group">
-            <label for="cf_address">Adresse & Précisions Lot / Rue</label>
-            <input type="text" id="cf_address" placeholder="Ex: Lot 412, îlot 14, Rue des Écoles" autocomplete="off" />
+            <label for="cf_address">Emplacement précis (repère, rue...)</label>
+            <input type="text" id="cf_address" placeholder="Ex: En face du marché, près de la pharmacie" autocomplete="off" />
           </div>
 
-          <!-- Produits & Services Multi-select Chips -->
+          <!-- Produits & Spécialités Multi-select Chips -->
           <div class="form-group">
-            <label>Produits / Compteurs Sélectionnés</label>
+            <label>Produits / Spécialités proposées</label>
             <div class="multi-chips-group" id="cf_produits_group">
-              <button type="button" class="chip-p" data-p="Électricité CIE">⚡ Électricité CIE</button>
-              <button type="button" class="chip-p" data-p="Eau SODECI">💧 Eau SODECI</button>
-              <button type="button" class="chip-p" data-p="Fibre Orange">🍊 Fibre Orange</button>
-              <button type="button" class="chip-p" data-p="Fibre MTN">🟡 Fibre MTN</button>
-              <button type="button" class="chip-p" data-p="Gaz">🔥 Gaz</button>
+              <button type="button" class="chip-p" data-p="Attiéké Poisson">🐟 Attiéké Poisson</button>
+              <button type="button" class="chip-p" data-p="Attiéké Poulet">🍗 Attiéké Poulet</button>
+              <button type="button" class="chip-p" data-p="Attiéké Viande/Grillades">🍖 Viande/Grillades</button>
+              <button type="button" class="chip-p" data-p="Attiéké Nature">🍚 Attiéké Nature</button>
+              <button type="button" class="chip-p" data-p="Garba">🥘 Garba</button>
+              <button type="button" class="chip-p" data-p="Boissons/Jus">🥤 Boissons/Jus</button>
             </div>
             <input type="hidden" id="cf_produits" value="" />
           </div>
@@ -110,15 +125,15 @@ export function initCensusFormModal() {
           <!-- GPS Coordinates -->
           <div class="form-group">
             <div class="gps-header">
-              <label style="margin:0;">Position GPS (Bingerville)</label>
+              <label style="margin:0;">Position GPS</label>
               <button type="button" id="cf_capture_gps" class="btn-capture-gps">📍 Ma Position GPS</button>
             </div>
             <div class="row2" style="margin-top:6px;">
               <div>
-                <input type="number" step="any" id="cf_lat" placeholder="Latitude (ex: 5.355)" />
+                <input type="number" step="any" id="cf_lat" placeholder="Latitude" />
               </div>
               <div>
-                <input type="number" step="any" id="cf_lon" placeholder="Longitude (ex: -3.890)" />
+                <input type="number" step="any" id="cf_lon" placeholder="Longitude" />
               </div>
             </div>
             <div id="cf_proximity_warning" class="input-hint" style="display:none; margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412;"></div>
@@ -145,43 +160,93 @@ export function openCensusForm(point = null) {
   const title = document.getElementById("censusFormTitle");
   const sub = document.getElementById("censusFormSubtitle");
 
+  // Position de secours si aucune position réelle n'est disponible : le centre
+  // actuel de la carte (là où l'agent/admin regarde déjà) plutôt qu'un point fixe
+  // — sinon une nouvelle fiche créée loin d'Abidjan atterrirait à tort au siège.
+  const map = getMap();
+  const fallbackCenter = map ? map.getCenter() : { lat: CONFIG.MAP_CENTER[0], lng: CONFIG.MAP_CENTER[1] };
+
   if (point) {
     title.textContent = `Édition Fiche #${point.order || point.id}`;
-    sub.textContent = `${point.quartier || 'Bingerville'} — Bloc ${String(point.block || 1).padStart(2, '0')}`;
+    sub.textContent = `${point.quartier || 'Zone non renseignée'} — ${point.etablissement || point.activityType || 'ANAREKA-CI'}`;
     document.getElementById("cf_id").value = point.id || "";
     document.getElementById("cf_name").value = point.name || "";
     document.getElementById("cf_tel").value = formatPhoneCI(point.tel || "");
+    document.getElementById("cf_etablissement").value = point.etablissement || "";
+    document.getElementById("cf_activity").value = point.activityType || "";
     document.getElementById("cf_sexe").value = point.sexe || "Homme";
     document.getElementById("cf_visited").checked = !!point.visited;
     document.getElementById("cf_quartier").value = point.quartier || "";
     document.getElementById("cf_address").value = point.address || "";
     document.getElementById("cf_produits").value = point.produits || "";
-    document.getElementById("cf_lat").value = point.lat || 5.355;
-    document.getElementById("cf_lon").value = point.lon || -3.890;
+    document.getElementById("cf_lat").value = point.lat ?? fallbackCenter.lat.toFixed(6);
+    document.getElementById("cf_lon").value = point.lon ?? fallbackCenter.lng.toFixed(6);
   } else {
     title.textContent = "Nouveau Point de Recensement";
-    sub.textContent = "Saisie rapide terrain — Bingerville";
+    sub.textContent = "Saisie rapide terrain — ANAREKA-CI";
     document.getElementById("cf_id").value = "";
     document.getElementById("cf_name").value = "";
     document.getElementById("cf_tel").value = "";
+    document.getElementById("cf_etablissement").value = "";
+    document.getElementById("cf_activity").value = "";
     document.getElementById("cf_sexe").value = "Homme";
     document.getElementById("cf_visited").checked = false;
-    document.getElementById("cf_quartier").value = "Gbagba";
+    document.getElementById("cf_quartier").value = "";
     document.getElementById("cf_address").value = "";
-    document.getElementById("cf_produits").value = "Électricité CIE, Eau SODECI";
-    
+    document.getElementById("cf_produits").value = "";
+
     const userPos = store.get("geo.position");
-    document.getElementById("cf_lat").value = userPos ? userPos.lat.toFixed(6) : 5.355;
-    document.getElementById("cf_lon").value = userPos ? userPos.lng.toFixed(6) : -3.890;
+    document.getElementById("cf_lat").value = userPos ? userPos.lat.toFixed(6) : fallbackCenter.lat.toFixed(6);
+    document.getElementById("cf_lon").value = userPos ? userPos.lng.toFixed(6) : fallbackCenter.lng.toFixed(6);
   }
 
   // Synchroniser l'état des composants tactiles
+  renderQuartierChips();
   syncSegmentedSexe();
+  syncActivityChips();
   syncProduitsChips();
 
   modal.style.display = "flex";
   validateFormRealtime();
   checkProximity();
+}
+
+// Génère les chips de quartier à partir des quartiers déjà recensés (les plus
+// fréquents en premier) au lieu d'une liste figée sur une seule ville — pour que
+// le formulaire s'adapte à n'importe quelle zone où les agents travaillent.
+function renderQuartierChips() {
+  const container = document.getElementById("cf_quartier_chips");
+  if (!container) return;
+
+  const points = store.get("points") || [];
+  const counts = new Map();
+  points.forEach(p => {
+    const q = (p.quartier || "").trim();
+    if (q) counts.set(q, (counts.get(q) || 0) + 1);
+  });
+
+  const top = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([q]) => q);
+
+  container.innerHTML = top.map(q =>
+    `<button type="button" class="chip-q" data-q="${escapeAttr(q)}">${escapeAttr(q)}</button>`
+  ).join("");
+
+  container.querySelectorAll(".chip-q").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.getElementById("cf_quartier").value = chip.dataset.q;
+      validateFormRealtime();
+      checkProximity();
+    });
+  });
+}
+
+function escapeAttr(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 // Avertit si un point existant se trouve à moins de 25m — évite d'enregistrer
@@ -238,10 +303,17 @@ function bindFormEvents() {
     });
   });
 
-  // Quartier Chips
-  document.querySelectorAll(".chip-q").forEach(chip => {
-    chip.addEventListener("click", () => {
-      document.getElementById("cf_quartier").value = chip.dataset.q;
+  // Note : les chips de quartier sont générées dynamiquement par
+  // renderQuartierChips() à chaque ouverture du formulaire (voir openCensusForm),
+  // avec leurs propres écouteurs de clic — rien à câbler ici au chargement initial.
+
+  // Type d'activité (sélection unique)
+  const activityBtns = document.querySelectorAll("#cf_activity_group .chip-a");
+  activityBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      activityBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("cf_activity").value = btn.dataset.activity;
       validateFormRealtime();
     });
   });
@@ -309,7 +381,7 @@ function bindFormEvents() {
   document.getElementById("censusForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!validateFormRealtime()) {
-      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom et Téléphone).");
+      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom, Téléphone et Type d'activité).");
       return;
     }
 
@@ -319,14 +391,16 @@ function bindFormEvents() {
       id: id || undefined,
       name: document.getElementById("cf_name").value.trim(),
       tel: document.getElementById("cf_tel").value.trim(),
+      etablissement: document.getElementById("cf_etablissement").value.trim(),
+      activityType: document.getElementById("cf_activity").value,
       status: existingPoint ? existingPoint.status : "NON DEFINI",
       sexe: document.getElementById("cf_sexe").value,
       visited: document.getElementById("cf_visited").checked,
       quartier: document.getElementById("cf_quartier").value.trim(),
       address: document.getElementById("cf_address").value.trim(),
       produits: document.getElementById("cf_produits").value.trim(),
-      lat: parseFloat(document.getElementById("cf_lat").value) || 5.355,
-      lon: parseFloat(document.getElementById("cf_lon").value) || -3.890
+      lat: parseFloat(document.getElementById("cf_lat").value) || CONFIG.MAP_CENTER[0],
+      lon: parseFloat(document.getElementById("cf_lon").value) || CONFIG.MAP_CENTER[1]
     };
 
     const updated = await upsertPoint(pointData);
@@ -360,6 +434,13 @@ function syncSegmentedSexe() {
   });
 }
 
+function syncActivityChips() {
+  const current = document.getElementById("cf_activity").value;
+  document.querySelectorAll("#cf_activity_group .chip-a").forEach(c => {
+    c.classList.toggle("active", c.dataset.activity === current);
+  });
+}
+
 function syncProduitsChips() {
   const val = document.getElementById("cf_produits").value || "";
   document.querySelectorAll("#cf_produits_group .chip-p").forEach(c => {
@@ -389,6 +470,7 @@ function formatPhoneCI(raw) {
 function validateFormRealtime() {
   const nameVal = document.getElementById("cf_name")?.value.trim() || "";
   const telVal = (document.getElementById("cf_tel")?.value || "").replace(/\D/g, "");
+  const activityVal = document.getElementById("cf_activity")?.value || "";
 
   const nameBadge = document.getElementById("cf_name_val");
   const nameErr = document.getElementById("cf_name_err");
@@ -397,6 +479,7 @@ function validateFormRealtime() {
 
   const isNameValid = nameVal.length >= 2;
   const isTelValid = telVal.length === 10;
+  const isActivityValid = activityVal.length > 0;
 
   if (nameBadge) {
     if (isNameValid) {
@@ -430,7 +513,7 @@ function validateFormRealtime() {
   const valIcon = document.getElementById("censusValStatusIcon");
   const valText = document.getElementById("censusValStatusText");
 
-  if (isNameValid && isTelValid) {
+  if (isNameValid && isTelValid && isActivityValid) {
     if (valBar) valBar.className = "census-val-bar val-success";
     if (valIcon) valIcon.textContent = "✅";
     if (valText) valText.textContent = "Fiche à 100% valide — Prête à être enregistrée !";
@@ -438,7 +521,7 @@ function validateFormRealtime() {
   } else {
     if (valBar) valBar.className = "census-val-bar val-warning";
     if (valIcon) valIcon.textContent = "⚠️";
-    if (valText) valText.textContent = "Saisie incomplète : vérifiez le Nom et le Numéro (10 chiffres).";
+    if (valText) valText.textContent = "Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres) et le Type d'activité.";
     return false;
   }
 }

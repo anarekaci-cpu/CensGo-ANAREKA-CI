@@ -123,21 +123,23 @@ export async function upsertPoint(pointData) {
     // reparties du même maxLocalId, et le second à synchroniser écraserait le premier
     // via l'upsert Supabase (onConflict: point_id). Un UUID généré côté client garantit
     // l'unicité sans coordination entre appareils (standard ODK/KoboCollect).
-    const newId = pointData.id || `bgv_${crypto.randomUUID()}`;
+    const newId = pointData.id || `arka_${crypto.randomUUID()}`;
     pendingSyncedFlag = true;
     updated = {
       order: maxLocalId + 1,
       block: 1,
       name: "",
       tel: "",
-      quartier: "Bingerville Centre",
+      etablissement: "",
+      activityType: "",
+      quartier: "",
       address: "",
       produits: "",
       sexe: "Homme",
       status: "VERT (Joignable)",
       visited: false,
-      lat: 5.355,
-      lon: -3.890,
+      lat: CONFIG.MAP_CENTER[0],
+      lon: CONFIG.MAP_CENTER[1],
       ...pointData,
       id: newId,
       localId: maxLocalId + 1,

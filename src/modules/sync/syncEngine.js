@@ -49,6 +49,8 @@ async function syncOne(supabase, item) {
         order: p.order,
         name: p.name,
         tel: p.tel,
+        etablissement: p.etablissement,
+        activity_type: p.activityType,
         quartier: p.quartier,
         address: p.address,
         produits: p.produits,

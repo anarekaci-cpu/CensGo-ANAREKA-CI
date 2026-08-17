@@ -55,6 +55,12 @@ function describeLoginError(e) {
   return msg ? `Erreur de connexion : ${msg}` : "Échec de la connexion. Réessayez.";
 }
 
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str == null ? "" : String(str);
+  return div.innerHTML;
+}
+
 export class App {
   constructor(container) {
     this.container = container;
@@ -144,8 +150,12 @@ export class App {
               <button id="closeControlsBtn" style="background:#f5f5f5; border:none; width:28px; height:28px; border-radius:50%; font-size:14px; cursor:pointer; color:#666; display:flex; align-items:center; justify-content:center;">✕</button>
             </div>
             <div class="action-row" style="margin-bottom:10px; display:grid; grid-template-columns: 1fr 1.2fr; gap:8px;">
-              <button id="addCensusBtnControl" class="btn-add-control">➕ Nouveau Ménage</button>
+              <button id="addCensusBtnControl" class="btn-add-control">➕ Nouvel Établissement</button>
               <button id="aiModalBtnControl" class="btn-ai-control">🤖 Agents IA Copilot</button>
+            </div>
+            <div id="quartierCoveragePanel" style="margin:0 0 12px; padding:10px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
+              <div style="font-weight:700; font-size:12px; color:#1a3d2b; margin-bottom:6px;">📊 Couverture par quartier — priorité aux moins avancés</div>
+              <div id="quartierCoverageList" style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;"></div>
             </div>
             <div class="row2">
               <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
@@ -272,7 +282,7 @@ export class App {
               <div class="ai-content-body">
                 <div id="aiTabCopilot" class="ai-tab-pane active">
                   <div class="ai-prompt-box">
-                    <input type="text" id="aiCopilotInput" placeholder="Posez une question sur le secteur Bingerville..." />
+                    <input type="text" id="aiCopilotInput" placeholder="Posez une question sur votre secteur..." />
                     <button id="aiCopilotSendBtn" class="btn-ai-send">Envoyer</button>
                   </div>
                   <div class="ai-quick-prompts">
@@ -283,7 +293,7 @@ export class App {
                 </div>
 
                 <div id="aiTabStrategist" class="ai-tab-pane" style="display:none;">
-                  <p class="ai-pane-desc">L'Agent Strategist analyse vos points géolocalisés à Bingerville pour optimiser votre itinéraire et vos créneaux d'accès.</p>
+                  <p class="ai-pane-desc">L'Agent Strategist analyse vos points géolocalisés pour optimiser votre itinéraire et vos créneaux d'accès.</p>
                   <button id="aiRunStrategistBtn" class="btn-ai-action">⚡ Générer la stratégie de tournée IA</button>
                   <button id="aiRunAuditBtn" class="btn-ai-action-secondary" style="margin-top:6px;">🔍 Lancer l'audit de qualité des données</button>
                 </div>
@@ -335,6 +345,7 @@ export class App {
     renderMarkers(points);
     this.populateBlockFilter(points);
     this.updateStats();
+    this.renderQuartierCoverage();
 
     const loading = document.getElementById("loading");
     if (loading) loading.style.display = "none";
@@ -567,7 +578,7 @@ export class App {
     });
 
     document.getElementById("aiRunStrategistBtn")?.addEventListener("click", async () => {
-      displayOutput("⏳ <i>L'Agent Strategist analyse la zone Bingerville...</i>");
+      displayOutput("⏳ <i>L'Agent Strategist analyse votre secteur...</i>");
       const points = store.get("points") || [];
       const userPos = store.get("geo.position");
       const res = await (await getAiModule()).askAiAgent("optimize_tour", { points, userPos });
@@ -677,7 +688,10 @@ export class App {
   }
 
   bindStoreListeners() {
-    this.unsubs.push(store.subscribe("points", () => this.updateStats()));
+    this.unsubs.push(store.subscribe("points", () => {
+      this.updateStats();
+      this.renderQuartierCoverage();
+    }));
 
     const renderSyncStatus = () => {
       const el = document.getElementById("syncStatus");
@@ -828,15 +842,56 @@ export class App {
     }
   }
 
+  // "Diriger les agents par la donnée" : plutôt qu'une liste de quartiers figée
+  // sur une seule ville, calcule la couverture réelle à partir des fiches déjà
+  // recensées et fait remonter les zones les moins avancées en premier — un
+  // agent (ou un superviseur) sait ainsi où concentrer l'effort ensuite.
+  renderQuartierCoverage() {
+    const container = document.getElementById("quartierCoverageList");
+    if (!container) return;
+
+    const points = store.get("points") || [];
+    const byQuartier = new Map();
+    points.forEach(p => {
+      const q = (p.quartier || "").trim() || "Non renseigné";
+      if (!byQuartier.has(q)) byQuartier.set(q, { total: 0, visited: 0 });
+      const entry = byQuartier.get(q);
+      entry.total++;
+      if (p.visited) entry.visited++;
+    });
+
+    const rows = [...byQuartier.entries()]
+      .map(([q, s]) => ({ q, ...s, pct: s.total ? Math.round((s.visited / s.total) * 100) : 0 }))
+      .sort((a, b) => a.pct - b.pct || b.total - a.total);
+
+    if (rows.length === 0) {
+      container.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Aucun établissement recensé pour l'instant.</div>`;
+      return;
+    }
+
+    container.innerHTML = rows.map(r => {
+      const color = r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
+      return `
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
+          <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.q)}">${escapeHtml(r.q)}</span>
+          <span style="color:#64748b; min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
+          <div style="width:44px; height:6px; border-radius:3px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
+            <div style="height:100%; width:${r.pct}%; background:${color};"></div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
   closeControls() {
     document.getElementById("controls")?.classList.remove("open");
   }
 
   exportCSV() {
     const points = store.get("points");
-    const header = ["id", "block", "name", "tel", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
+    const header = ["id", "block", "name", "etablissement", "activityType", "tel", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
     const rows = points.map(p => [
-      p.id, p.block, p.name, p.tel, p.quartier, p.address,
+      p.id, p.block, p.name, p.etablissement, p.activityType, p.tel, p.quartier, p.address,
       p.produits, p.sexe, p.status, p.visited ? "oui" : "non", p.lat, p.lon
     ]);
     const csv = [header, ...rows]

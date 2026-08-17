@@ -24,6 +24,8 @@ export async function loadCensusData() {
         order: row.order,
         name: row.name,
         tel: row.tel,
+        etablissement: row.etablissement || "",
+        activityType: row.activity_type || "",
         quartier: row.quartier,
         address: row.address,
         produits: row.produits,

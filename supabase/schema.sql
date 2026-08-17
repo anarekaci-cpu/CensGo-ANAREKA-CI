@@ -4,23 +4,32 @@
 -- Idempotent : peut être exécuté plusieurs fois sans erreur
 -- =============================================================
 
--- 1. Table principale des points de recensement
+-- 1. Table principale des points de recensement (restaurateurs, kiosques
+--    d'attiéké, vendeurs ambulants et producteurs référencés par l'ANAREKA-CI)
 CREATE TABLE IF NOT EXISTS census_points (
-  point_id   TEXT PRIMARY KEY,
-  block      INTEGER NOT NULL DEFAULT 1,
-  "order"    INTEGER NOT NULL DEFAULT 0,
-  name       TEXT NOT NULL DEFAULT '',
-  tel        TEXT NOT NULL DEFAULT '',
-  quartier   TEXT NOT NULL DEFAULT '',
-  address    TEXT NOT NULL DEFAULT '',
-  produits   TEXT NOT NULL DEFAULT '',
-  sexe       TEXT NOT NULL DEFAULT 'Homme',
-  status     TEXT NOT NULL DEFAULT 'NON DEFINI',
-  visited    BOOLEAN NOT NULL DEFAULT false,
-  lat        DOUBLE PRECISION,
-  lon        DOUBLE PRECISION,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  point_id      TEXT PRIMARY KEY,
+  block         INTEGER NOT NULL DEFAULT 1,
+  "order"       INTEGER NOT NULL DEFAULT 0,
+  name          TEXT NOT NULL DEFAULT '',
+  tel           TEXT NOT NULL DEFAULT '',
+  etablissement TEXT NOT NULL DEFAULT '',
+  activity_type TEXT NOT NULL DEFAULT '',
+  quartier      TEXT NOT NULL DEFAULT '',
+  address       TEXT NOT NULL DEFAULT '',
+  produits      TEXT NOT NULL DEFAULT '',
+  sexe          TEXT NOT NULL DEFAULT 'Homme',
+  status        TEXT NOT NULL DEFAULT 'NON DEFINI',
+  visited       BOOLEAN NOT NULL DEFAULT false,
+  lat           DOUBLE PRECISION,
+  lon           DOUBLE PRECISION,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 1bis. Pour une table census_points déjà existante (créée avant ce
+--       correctif) : ajoute les deux colonnes manquantes sans toucher aux
+--       données déjà présentes.
+ALTER TABLE census_points ADD COLUMN IF NOT EXISTS etablissement TEXT NOT NULL DEFAULT '';
+ALTER TABLE census_points ADD COLUMN IF NOT EXISTS activity_type TEXT NOT NULL DEFAULT '';
 
 -- 2. Index pour les requêtes fréquentes
 CREATE INDEX IF NOT EXISTS idx_census_points_block_order

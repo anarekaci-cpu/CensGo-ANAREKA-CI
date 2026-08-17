@@ -4,8 +4,8 @@
 [![PWA](https://img.shields.io/badge/PWA-Ready-blueviolet)](https://web.dev/progressive-web-apps/)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 
-> Application PWA de recensement terrain pour les agents ANAREKA (Autorité Nationale de Régulation du secteur de l'Électricité — Côte d'Ivoire).
-> Déployée à **Bingerville**, cette application permet aux agents de terrain de localiser, visiter et enregistrer l'état des points de recensement en temps réel, même hors connexion.
+> Application PWA de recensement terrain pour les agents de l'**ANAREKA-CI** (Association Nationale des Restaurateurs et Kiosques d'Attiéké de Côte d'Ivoire — filière fondée en 1996, association créée en 2025).
+> Elle sert la mission de recensement de l'association : localiser, référencer et suivre les restaurateurs, kiosques d'attiéké, vendeurs ambulants et producteurs sur le terrain, en Côte d'Ivoire, même hors connexion — pour alimenter l'annuaire officiel des membres.
 
 ---
 
@@ -18,7 +18,8 @@
 | 🧭 **Navigation intégrée** | Itinéraire piéton vers le point sélectionné (OSRM) |
 | 🔄 **Mode offline** | Synchronisation automatique dès la connexion retrouvée |
 | 🎯 **Tournée optimisée** | Génération d'itinéraire optimal pour visiter les points non-recensés |
-| 🔍 **Filtres avancés** | Par bloc, statut (Vert/Jaune/Rouge/Violet), état de visite |
+| 🍚 **Type d'activité** | Kiosque fixe, restaurant traditionnel, vendeur ambulant, producteur, maquis/gargote |
+| 🔍 **Filtres avancés** | Par zone, statut (Vert/Jaune/Rouge/Violet), état de visite |
 | 📊 **Export CSV** | Export des données pour analyse et reporting |
 | 🔐 **Authentification** | Connexion sécurisée via Supabase Auth |
 
@@ -126,8 +127,8 @@ Distribué sous licence MIT. Voir [LICENSE](./LICENSE) pour plus d'informations.
 
 ## 📬 Contact
 
-**ANAREKA-CI** — [Site officiel](https://www.anareka.ci)  
-Projet maintenu par l'équipe technique ANAREKA.
+**ANAREKA-CI** — [Site officiel](https://anarekaci.com) — info@anarekaci.com
+Cocody Riviera Bonoumin, Cité Syninfo, Abidjan, Côte d'Ivoire
 
 ---
 

@@ -27,10 +27,11 @@ export const CONFIG = {
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles
   // sont utilisées par src/modules/map/map.js -> la carte ne s'initialisait jamais.
   MAP_CENTER: [
-    Number(import.meta.env.VITE_MAP_CENTER_LAT) || 5.3599,
-    Number(import.meta.env.VITE_MAP_CENTER_LNG) || -4.0083
-  ], // Bingerville, Côte d'Ivoire
-  MAP_ZOOM: Number(import.meta.env.VITE_MAP_ZOOM) || 14,
+    Number(import.meta.env.VITE_MAP_CENTER_LAT) || 5.3724499,
+    Number(import.meta.env.VITE_MAP_CENTER_LNG) || -3.9676843
+  ], // Cocody, Abidjan — siège de l'ANAREKA-CI. Le recensement couvre toute la
+     // Côte d'Ivoire ; ce n'est qu'un point de départ, pas une limite de zone.
+  MAP_ZOOM: Number(import.meta.env.VITE_MAP_ZOOM) || 12,
   MAP_MAX_ZOOM: 19,
 
   // Rayon (en mètres) considéré comme "arrivé" pendant la navigation
