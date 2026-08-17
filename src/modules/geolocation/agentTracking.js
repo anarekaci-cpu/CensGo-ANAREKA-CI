@@ -5,14 +5,22 @@ import { getMap, flyToPoint } from "../map/map.js";
 
 let agentMarkers = new Map();
 let pollInterval = null;
+let lastReportedAt = 0;
+const REPORT_INTERVAL_MS = 15000;
 
 /**
  * Envoie la position de l'agent connecté à Supabase (upsert).
- * Appelé automatiquement quand la géolocalisation se met à jour.
+ * Appelé automatiquement quand la géolocalisation se met à jour — throttlé
+ * car watchPosition peut déclencher plusieurs fois par seconde, ce qui
+ * enverrait sinon une requête réseau en continu (coût data/batterie terrain).
  */
 export async function reportPosition(pos) {
   const user = store.get("user");
   if (!user || !pos) return;
+
+  const now = Date.now();
+  if (now - lastReportedAt < REPORT_INTERVAL_MS) return;
+  lastReportedAt = now;
 
   try {
     const supabase = getSupabaseClient();

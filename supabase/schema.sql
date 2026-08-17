@@ -6,7 +6,7 @@
 
 -- 1. Table principale des points de recensement
 CREATE TABLE IF NOT EXISTS census_points (
-  point_id   UUID PRIMARY KEY,
+  point_id   TEXT PRIMARY KEY,
   block      INTEGER NOT NULL DEFAULT 1,
   "order"    INTEGER NOT NULL DEFAULT 0,
   name       TEXT NOT NULL DEFAULT '',
