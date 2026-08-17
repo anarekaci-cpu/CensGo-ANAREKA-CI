@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "logLevel": "WARN",
+  "share": "disabled",
+  "autoupdate": false,
+  "formatter": false,
+  "tool_output": { "max_lines": 200 },
+  "permission": {
+    "bash": { "npm run *": "allow", "git *": "allow", "*": "ask" },
+    "edit": "ask"
+  }
+}

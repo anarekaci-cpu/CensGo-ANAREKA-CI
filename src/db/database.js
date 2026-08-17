@@ -1,6 +1,7 @@
 import Dexie from "dexie";
+import { CONFIG } from "../core/config.js";
 
-export const db = new Dexie("ANAREKA_CensusDB");
+export const db = new Dexie(CONFIG.DB_NAME);
 
 // Schéma version 1
 db.version(1).stores({
