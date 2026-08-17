@@ -4,15 +4,34 @@ import { initMap, fitToBounds } from "./modules/map/map.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited } from "./modules/navigation/navigation.js";
-import { initTour, generateOptimizedTour, startTour, goToNext, stopTour } from "./modules/tour/tour.js";
 import { locateAndCenter, findNearestUnvisited } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { login, logout } from "./modules/auth/auth.js";
 import { resetAllVisits } from "./db/database.js";
-import { askAiAgent, createSpeechRecognizer } from "./modules/ai/aiAgents.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning } from "./core/toast.js";
+
+// La tournée optimisée et le panneau Agents IA ne sont utilisés que si l'agent
+// clique dessus — les charger en chunks séparés au lieu de les inclure dans le
+// bundle initial réduit ce que doit télécharger/parser un agent qui ne s'en sert
+// jamais, ce qui compte sur les connexions terrain à faible bande passante.
+let tourModulePromise = null;
+function getTourModule() {
+  if (!tourModulePromise) {
+    tourModulePromise = import("./modules/tour/tour.js").then(mod => {
+      mod.initTour();
+      return mod;
+    });
+  }
+  return tourModulePromise;
+}
+
+let aiModulePromise = null;
+function getAiModule() {
+  if (!aiModulePromise) aiModulePromise = import("./modules/ai/aiAgents.js");
+  return aiModulePromise;
+}
 
 // Distingue les causes d'échec de connexion : la config Supabase manquante/erronée
 // et une panne réseau/DNS produisaient toutes les deux le message générique
@@ -310,7 +329,6 @@ export class App {
   async initApp() {
     initMap("map");
     initNavigation();
-    initTour();
     initCensusFormModal();
 
     const points = await loadCensusData();
@@ -432,6 +450,7 @@ export class App {
         return;
       }
       const points = store.get("points").filter(p => !p.visited);
+      const { generateOptimizedTour, startTour } = await getTourModule();
       const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
       if (tour.length === 0) {
         toastInfo("Tous les points non-visités ont déjà été traités !");
@@ -441,8 +460,8 @@ export class App {
       this.closeControls();
     };
 
-    document.getElementById("tourGoNextBtn").onclick = () => goToNext();
-    document.getElementById("tourCloseBtn").onclick = () => stopTour();
+    document.getElementById("tourGoNextBtn").onclick = async () => (await getTourModule()).goToNext();
+    document.getElementById("tourCloseBtn").onclick = async () => (await getTourModule()).stopTour();
 
     document.getElementById("exportBtn").onclick = () => this.exportCSV();
 
@@ -519,7 +538,7 @@ export class App {
       displayOutput("⏳ <i>L'Agent Copilot IA réfléchit...</i>");
       const points = store.get("points") || [];
       const userPos = store.get("geo.position");
-      const res = await askAiAgent("copilot", { prompt, points, userPos });
+      const res = await (await getAiModule()).askAiAgent("copilot", { prompt, points, userPos });
       displayOutput(formatAiText(res.text));
     };
 
@@ -551,14 +570,14 @@ export class App {
       displayOutput("⏳ <i>L'Agent Strategist analyse la zone Bingerville...</i>");
       const points = store.get("points") || [];
       const userPos = store.get("geo.position");
-      const res = await askAiAgent("optimize_tour", { points, userPos });
+      const res = await (await getAiModule()).askAiAgent("optimize_tour", { points, userPos });
       displayOutput(formatAiText(res.text));
     });
 
     document.getElementById("aiRunAuditBtn")?.addEventListener("click", async () => {
       displayOutput("⏳ <i>L'Agent Audit vérifie la qualité des données...</i>");
       const points = store.get("points") || [];
-      const res = await askAiAgent("audit_quality", { points });
+      const res = await (await getAiModule()).askAiAgent("audit_quality", { points });
       displayOutput(formatAiText(res.text));
     });
 
@@ -569,8 +588,9 @@ export class App {
     const voiceText = document.getElementById("aiVoiceNoteText");
 
     if (micBtn) {
-      micBtn.addEventListener("click", () => {
+      micBtn.addEventListener("click", async () => {
         if (!recognizer) {
+          const { createSpeechRecognizer } = await getAiModule();
           recognizer = createSpeechRecognizer(
             (transcript) => {
               if (voiceText) voiceText.value = (voiceText.value ? voiceText.value + " " : "") + transcript;
@@ -609,7 +629,7 @@ export class App {
         return;
       }
       displayOutput("⏳ <i>L'Agent Transcripteur IA analyse et extrait les données...</i>");
-      const res = await askAiAgent("parse_voice_note", { prompt });
+      const res = await (await getAiModule()).askAiAgent("parse_voice_note", { prompt });
       displayOutput(formatAiText(res.text));
     });
 
@@ -643,7 +663,7 @@ export class App {
     runVisionBtn?.addEventListener("click", async () => {
       if (!currentImageBase64) return;
       displayOutput("⏳ <i>L'Agent Vision Reconnaissance Gemini analyse la photo...</i>");
-      const res = await askAiAgent("vision_ocr", { imageBase64: currentImageBase64, mimeType: currentMimeType });
+      const res = await (await getAiModule()).askAiAgent("vision_ocr", { imageBase64: currentImageBase64, mimeType: currentMimeType });
       displayOutput(formatAiText(res.text));
     });
 
@@ -651,7 +671,7 @@ export class App {
     document.getElementById("aiRunBriefingBtn")?.addEventListener("click", async () => {
       displayOutput("⏳ <i>Préparation de votre Briefing IA Matinal...</i>");
       const points = store.get("points") || [];
-      const res = await askAiAgent("daily_briefing", { points });
+      const res = await (await getAiModule()).askAiAgent("daily_briefing", { points });
       displayOutput(formatAiText(res.text));
     });
   }

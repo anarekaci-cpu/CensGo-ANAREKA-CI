@@ -132,6 +132,19 @@ export default defineConfig({
   ],
   build: {
     outDir: "dist",
-    sourcemap: false
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Sépare les grosses dépendances tierces du code applicatif : elles
+        // changent rarement, donc un agent qui revisite le site après une mise
+        // à jour ne retélécharge que le petit chunk "app", pas Leaflet/Supabase/
+        // Dexie en entier (utile sur les connexions terrain à faible bande passante).
+        manualChunks: {
+          leaflet: ["leaflet", "leaflet.markercluster"],
+          supabase: ["@supabase/supabase-js"],
+          dexie: ["dexie"]
+        }
+      }
+    }
   }
 });
