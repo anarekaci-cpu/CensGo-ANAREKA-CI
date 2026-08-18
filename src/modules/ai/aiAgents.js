@@ -1,4 +1,5 @@
 import { store } from "../../core/store.js";
+import { getSupabaseClient } from "../../core/supabase.js";
 
 /**
  * Service pour interagir avec les Agents IA ANAREKA-CI
@@ -6,22 +7,20 @@ import { store } from "../../core/store.js";
 
 export async function askAiAgent(action, { prompt, points, userPos, imageBase64, mimeType } = {}) {
   try {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, prompt, points, userPos, imageBase64, mimeType })
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.functions.invoke("ai-agent", {
+      body: { action, prompt, points, userPos, imageBase64, mimeType }
     });
 
-    if (!res.ok) {
-      throw new Error(`Erreur serveur (${res.status})`);
+    if (error) {
+      throw new Error(error.message || "Edge function error");
     }
 
-    const data = await res.json();
-    if (data.success && data.result) {
+    if (data && data.success && data.result) {
       return { success: true, text: data.result };
     }
 
-    if (data.fallback) {
+    if (data && data.fallback) {
       console.info("Clé Gemini non configurée — mode analyse locale activé");
     }
 

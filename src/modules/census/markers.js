@@ -10,6 +10,7 @@ const iconCache = new Map();
 const markerRegistry = new Map();
 let currentPopup = null;
 let moveHandler = null;
+let loadedFeatures = [];
 
 let pendingIds = new Set();
 store.subscribe("sync.pendingPointIds", (ids) => {
@@ -149,7 +150,7 @@ function renderVisibleMarkers() {
     bounds.getNorth()
   ];
 
-  const clusters = cluster.getBounds(bbox, zoom);
+  const clusters = cluster.getClusters(bbox, zoom);
 
   closeCurrentPopup();
 
@@ -170,12 +171,12 @@ function renderVisibleMarkers() {
       el.textContent = props.point_count;
 
       new maplibregl.Marker({ element: el, anchor: "center" })
-        .setLngLat(feature.coordinates)
+        .setLngLat(feature.geometry.coordinates)
         .addTo(map);
 
       el.addEventListener("click", () => {
         map.easeTo({
-          center: feature.coordinates,
+          center: feature.geometry.coordinates,
           zoom: Math.min(zoom + 2, cluster.options.maxZoom + 1),
           duration: 400
         });
@@ -221,13 +222,13 @@ export function renderMarkers(points) {
   markerRegistry.clear();
   closeCurrentPopup();
 
-  const geojson = points.map(p => ({
+  loadedFeatures = points.map(p => ({
     type: "Feature",
     geometry: { type: "Point", coordinates: [p.lon, p.lat] },
     properties: { ...p }
   }));
 
-  cluster.load(geojson);
+  cluster.load(loadedFeatures);
 
   if (moveHandler) {
     map.off("moveend", moveHandler);
@@ -248,15 +249,13 @@ export function upsertMarker(point) {
   const cluster = getClusterGroup();
   if (!cluster) return;
 
-  cluster.load([
-    ...cluster._points || [],
-    {
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [point.lon, point.lat] },
-      properties: { ...point }
-    }
-  ]);
+  loadedFeatures.push({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [point.lon, point.lat] },
+    properties: { ...point }
+  });
 
+  cluster.load(loadedFeatures);
   renderVisibleMarkers();
 }
 

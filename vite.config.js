@@ -1,87 +1,6 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-function aiApiPlugin() {
-  return {
-    name: "vite-plugin-ai-api",
-    configureServer(server) {
-      server.middlewares.use("/api/ai", async (req, res) => {
-        if (req.method !== "POST") {
-          res.statusCode = 405;
-          return res.end(JSON.stringify({ error: "Method not allowed" }));
-        }
-
-        let body = "";
-        req.on("data", chunk => { body += chunk; });
-        req.on("end", async () => {
-          try {
-            const { action, prompt, points, userPos, imageBase64, mimeType } = JSON.parse(body || "{}");
-            const apiKey = process.env.GEMINI_API_KEY;
-
-            if (!apiKey) {
-              res.setHeader("Content-Type", "application/json");
-              return res.end(JSON.stringify({
-                success: false,
-                fallback: true,
-                message: "Clé GEMINI_API_KEY non configurée. Mode secours IA activé."
-              }));
-            }
-
-            const { GoogleGenAI } = await import("@google/genai");
-            const ai = new GoogleGenAI({
-              apiKey: apiKey,
-              httpOptions: {
-                headers: { "User-Agent": "aistudio-build" }
-              }
-            });
-
-            let systemInstruction = "Tu es un agent IA spécialisé dans le recensement terrain des restaurateurs, kiosques d'attiéké, vendeurs ambulants et producteurs pour l'ANAREKA-CI (Association Nationale des Restaurateurs et Kiosques d'Attiéké de Côte d'Ivoire). Sois concis, précis, professionnel et orienté terrain en français.";
-            let contents = prompt;
-
-            if (action === "optimize_tour") {
-              systemInstruction = "Tu es l'Agent IA Strategist d'ANAREKA-CI. Tu analyses la liste des restaurateurs/kiosques d'attiéké recensés et leur localisation pour donner des conseils tactiques de parcours terrain.";
-              contents = `Voici la liste des points de recensement (${points ? points.length : 0} restaurateurs/kiosques): ${JSON.stringify(points)}. Position agent: ${JSON.stringify(userPos)}. Analyse ces données et donne 3 conseils tactiques de tournée terrain optimisée.`;
-            } else if (action === "audit_quality") {
-              systemInstruction = "Tu es l'Agent IA Inspecteur Qualité Données ANAREKA-CI. Tu détectes les anomalies, numéros de téléphones invalides, statuts douteux ou informations manquantes dans les fiches de restaurateurs/kiosques d'attiéké.";
-              contents = `Audite cette liste de points de recensement: ${JSON.stringify(points)}. Liste les anomalies détectées et donne des suggestions de correction rapides.`;
-            } else if (action === "parse_voice_note") {
-              systemInstruction = "Tu es l'Agent Transcripteur IA pour le recensement ANAREKA-CI. Extrais les informations structurées de cette note vocale terrain sous forme de JSON strict: { name, tel, quartier, address, produits, activityType (Kiosque d'attiéké fixe, Restaurant traditionnel, Vendeur ambulant, Producteur d'attiéké, Maquis/Gargote), status (Vert, Jaune, Rouge, Violet), visited (boolean), summary }.";
-              contents = `Note vocale agent terrain : "${prompt}". Extrais les informations sous format JSON.`;
-            } else if (action === "vision_ocr" && imageBase64) {
-              systemInstruction = "Tu es l'Agent Vision Reconnaissance ANAREKA-CI. Analyse cette photo terrain (enseigne de kiosque/restaurant, étal de vente, badge d'adhérent, document) et extrais le nom de l'établissement, le type d'activité, l'état visuel et toute information utile en français.";
-              const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-              contents = [
-                { inlineData: { data: cleanBase64, mimeType: mimeType || "image/jpeg" } },
-                { text: "Analyse cette image de recensement terrain (kiosque, restaurant ou point de vente d'attiéké). Identifie le nom de l'enseigne, le type d'activité, la lisibilité, l'adresse ou le nom si présent, et donne un résumé très clair." }
-              ];
-            } else if (action === "daily_briefing") {
-              systemInstruction = "Tu es l'Agent IA Directrice de Mission pour ANAREKA-CI. Génère un briefing matinal motivant et analytique pour l'agent de recensement terrain des restaurateurs et kiosques d'attiéké.";
-              contents = `Données du secteur (${points ? points.length : 0} points): ${JSON.stringify(points)}. Génère un briefing terrain synthétique avec objectifs du jour, zones d'intervention et recommandations météo/accès.`;
-            }
-
-            const response = await ai.models.generateContent({
-              model: "gemini-3.6-flash",
-              contents: contents,
-              config: { systemInstruction }
-            });
-
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({
-              success: true,
-              result: response.text
-            }));
-          } catch (err) {
-            console.error("AI API Error:", err);
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ success: false, error: err.message }));
-          }
-        });
-      });
-    }
-  };
-}
-
 export default defineConfig({
   base: "/Recensement-ANAREKA-CI/",
   server: {
@@ -89,7 +8,6 @@ export default defineConfig({
     port: 3000
   },
   plugins: [
-    aiApiPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
@@ -135,10 +53,6 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // Sépare les grosses dépendances tierces du code applicatif : elles
-        // changent rarement, donc un agent qui revisite le site après une mise
-        // à jour ne retélécharge que le petit chunk "app", pas Leaflet/Supabase/
-        // Dexie en entier (utile sur les connexions terrain à faible bande passante).
         manualChunks: {
           maplibregl: ["maplibre-gl", "supercluster"],
           supabase: ["@supabase/supabase-js"],
