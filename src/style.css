@@ -10,7 +10,7 @@ body {
 #boot-screen, #boot-error {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  height: 100vh; width: 100vw;
+  height: 100vh; height: 100dvh; width: 100vw;
   background: #1a3d2b; color: white;
   gap: 16px; text-align: center; padding: 24px;
 }
@@ -76,9 +76,10 @@ body {
 #loginBtn:disabled { opacity: 0.6; cursor: not-allowed; }
 #loginError { color: #e74c3c; font-size: 13px; margin-top: 12px; min-height: 18px; }
 
-#app-container { display: flex; flex-direction: column; height: 100vh; }
+#app-container { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 header {
   display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
   padding: 12px 18px;
   background: linear-gradient(135deg, #0d2818 0%, #1a3d2b 60%, #14472f 100%);
   color: white;
@@ -86,7 +87,15 @@ header {
   box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.htitle { display: flex; align-items: center; gap: 12px; }
+/* Sur un téléphone étroit, le titre + stats + statut de sync + 4 boutons ne
+   tenaient jamais sur une seule ligne — comme le body a overflow:hidden, le
+   débordement ne défilait pas, il coupait purement et simplement les boutons
+   hors de l'écran. Le titre se tronque maintenant en premier, les boutons
+   restent toujours visibles. */
+.htitle { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 1; overflow: hidden; }
+.htitle > div { min-width: 0; overflow: hidden; }
+.htitle h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand-mark {
   font-size: 26px;
   filter: drop-shadow(0 2px 6px rgba(46, 204, 113, 0.4));
@@ -98,14 +107,15 @@ header {
 .stats { font-size: 12px; color: #dcfce7; font-weight: 500; opacity: 0.9; margin-top: 2px; }
 .progress-bar-wrap { width: 100%; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; margin-top: 4px; overflow: hidden; }
 .progress-bar-fill { height: 100%; background: #2ecc71; border-radius: 3px; transition: width 0.4s ease; }
-.right { display: flex; align-items: center; gap: 12px; }
+.right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 #syncStatus {
   font-size: 12px; color: #86efac; font-weight: 600;
   background: rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 20px;
   border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(4px);
   display: flex; align-items: center; gap: 6px;
+  max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.header-actions { display: flex; gap: 8px; }
+.header-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .header-actions button {
   height: 38px; border-radius: 12px;
   background: rgba(255,255,255,0.12); color: white;
@@ -127,7 +137,7 @@ header {
   box-shadow: 0 16px 40px rgba(0,0,0,0.18);
   border-radius: 20px; border: 1px solid rgba(26, 61, 43, 0.1);
   backdrop-filter: blur(12px);
-  max-height: calc(100vh - 80px); overflow-y: auto;
+  max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); overflow-y: auto;
 }
 #controls.open { transform: translateY(0); opacity: 1; }
 #controlsInner { padding: 18px; }
@@ -405,7 +415,7 @@ header {
   background: white; width: 100%; max-width: 520px;
   border-radius: 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.2);
   overflow: hidden; display: flex; flex-direction: column;
-  max-height: 85vh;
+  max-height: 85vh; max-height: 85dvh;
 }
 .ai-modal-header {
   padding: 16px 20px; background: #1a3d2b; color: white;
@@ -506,7 +516,7 @@ header {
   background: #ffffff; width: 100%; max-width: 560px;
   border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.25);
   overflow: hidden; display: flex; flex-direction: column;
-  max-height: 90vh; border: 1px solid rgba(255,255,255,0.2);
+  max-height: 90vh; max-height: 90dvh; border: 1px solid rgba(255,255,255,0.2);
 }
 .census-modal-header {
   padding: 16px 20px; background: linear-gradient(135deg, #0d2818, #1a3d2b); color: white;
@@ -677,11 +687,16 @@ input:checked + .slider:before { transform: translateX(24px); }
 }
 .ai-output-text { font-size: 13px; color: #2c3e50; line-height: 1.6; }
 
-@media (max-width: 380px) {
+@media (max-width: 430px) {
+  header { padding: 10px 12px; }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
+  #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
+  .header-actions button { width: 34px; height: 34px; padding: 0; font-size: 15px; }
   .row2 { grid-template-columns: 1fr; }
   .action-row { grid-template-columns: 1fr; }
+  .census-modal, .ai-modal { padding: 0; }
+  .census-modal-card, .ai-modal-card { max-width: 100%; height: 100%; max-height: 100vh; max-height: 100dvh; border-radius: 0; }
 }
 
 @keyframes toastIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }

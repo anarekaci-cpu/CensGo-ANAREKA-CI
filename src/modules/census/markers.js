@@ -198,7 +198,10 @@ function renderVisibleMarkers() {
 
       const popup = createPopupForPoint(point);
 
-      marker.setPopup(popup);
+      // Ne pas utiliser marker.setPopup(popup) : MapLibre y attache son propre
+      // gestionnaire de clic qui bascule le popup (ouvre/ferme), en plus de
+      // celui ci-dessous qui gère l'ouverture manuellement — les deux se
+      // marchaient dessus et le popup finissait par ne plus s'ouvrir du tout.
 
       marker.getElement().addEventListener("click", (e) => {
         e.stopPropagation();

@@ -5,6 +5,7 @@ import { haversineKm } from "../../core/geo.js";
 
 let watchId = null;
 let position = null;
+let hasAutoCentered = false;
 
 export function initGeolocation() {
   if (!navigator.geolocation) {
@@ -28,6 +29,17 @@ export function initGeolocation() {
       // jamais affichée sur la carte — un agent ne voyait jamais où il était.
       showUserLocation(position.lat, position.lng);
       reportPosition(position);
+
+      // La carte s'ouvrait toujours centrée sur Abidjan par défaut, quel que
+      // soit l'endroit réel où l'agent travaille. L'app doit fonctionner
+      // n'importe où en Côte d'Ivoire (ou ailleurs) : dès la première position
+      // GPS reçue, on recentre automatiquement dessus une seule fois, sans
+      // continuer à déplacer la caméra à chaque mise à jour ensuite (ce qui
+      // gênerait un agent en train de consulter la carte).
+      if (!hasAutoCentered) {
+        hasAutoCentered = true;
+        flyToPoint(position.lat, position.lng, 15);
+      }
     },
     (err) => {
       console.warn("Géolocalisation erreur:", err);
