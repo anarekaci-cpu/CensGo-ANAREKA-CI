@@ -4,6 +4,7 @@ class Store {
     this.state = {
       user: null,
       points: [],
+      targetZones: [],
       filters: {
         block: "all",
         status: "all",

@@ -225,14 +225,21 @@ function renderQuartierChips() {
     if (q) counts.set(q, (counts.get(q) || 0) + 1);
   });
 
-  const top = [...counts.entries()]
+  // Les zones cibles (ajoutées par un admin, sans aucun point encore) passent
+  // en premier — c'est justement là qu'on veut qu'un agent crée la toute
+  // première fiche, avec le nom exact plutôt qu'une variante mal orthographiée.
+  const targetZoneNames = (store.get("targetZones") || []).map(z => z.name);
+  const existingTop = [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([q]) => q);
+    .map(([q]) => q)
+    .filter(q => !targetZoneNames.includes(q));
 
-  container.innerHTML = top.map(q =>
-    `<button type="button" class="chip-q" data-q="${escapeAttr(q)}">${escapeAttr(q)}</button>`
-  ).join("");
+  const top = [...targetZoneNames, ...existingTop].slice(0, 10);
+
+  container.innerHTML = top.map(q => {
+    const isTarget = targetZoneNames.includes(q);
+    return `<button type="button" class="chip-q" data-q="${escapeAttr(q)}">${isTarget ? "🎯 " : ""}${escapeAttr(q)}</button>`;
+  }).join("");
 
   container.querySelectorAll(".chip-q").forEach(chip => {
     chip.addEventListener("click", () => {

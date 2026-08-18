@@ -10,7 +10,8 @@ import { login, logout } from "./modules/auth/auth.js";
 import { resetAllVisits } from "./db/database.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
-import { toastInfo, toastWarning } from "./core/toast.js";
+import { toastInfo, toastWarning, toastError } from "./core/toast.js";
+import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 
 // La tournée optimisée et le panneau Agents IA ne sont utilisés que si l'agent
 // clique dessus — les charger en chunks séparés au lieu de les inclure dans le
@@ -156,6 +157,10 @@ export class App {
             <div id="quartierCoveragePanel" style="margin:0 0 12px; padding:10px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
               <div style="font-weight:700; font-size:12px; color:#1a3d2b; margin-bottom:6px;">📊 Couverture par quartier — priorité aux moins avancés</div>
               <div id="quartierCoverageList" style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;"></div>
+              <div style="display:flex; gap:6px; margin-top:8px;">
+                <input type="text" id="newZoneInput" placeholder="Ajouter une zone à couvrir (ex: Venservin)" style="flex:1; font-size:12px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:8px;" />
+                <button type="button" id="addZoneBtn" style="font-size:12px; padding:6px 10px; border:none; border-radius:8px; background:#1a3d2b; color:white; cursor:pointer; white-space:nowrap;">➕ Ajouter</button>
+              </div>
             </div>
             <div class="row2">
               <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
@@ -345,6 +350,8 @@ export class App {
     renderMarkers(points);
     this.populateBlockFilter(points);
     this.updateStats();
+
+    store.set("targetZones", await loadTargetZones());
     this.renderQuartierCoverage();
 
     const loading = document.getElementById("loading");
@@ -475,6 +482,24 @@ export class App {
     document.getElementById("tourCloseBtn").onclick = async () => (await getTourModule()).stopTour();
 
     document.getElementById("exportBtn").onclick = () => this.exportCSV();
+
+    document.getElementById("addZoneBtn")?.addEventListener("click", async () => {
+      const input = document.getElementById("newZoneInput");
+      const name = input?.value.trim();
+      if (!name) return;
+      try {
+        const zone = await addTargetZone(name);
+        store.set("targetZones", [...(store.get("targetZones") || []), zone]);
+        this.renderQuartierCoverage();
+        input.value = "";
+        toastInfo(`"${name}" ajoutée aux zones à couvrir.`);
+      } catch (err) {
+        toastError(err.message || "Impossible d'ajouter cette zone.");
+      }
+    });
+    document.getElementById("newZoneInput")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") document.getElementById("addZoneBtn")?.click();
+    });
 
     document.getElementById("resetBtn").onclick = async () => {
       if (confirm("Réinitialiser toutes les visites enregistrées localement ?")) {
@@ -873,12 +898,21 @@ export class App {
   // sur une seule ville, calcule la couverture réelle à partir des fiches déjà
   // recensées et fait remonter les zones les moins avancées en premier — un
   // agent (ou un superviseur) sait ainsi où concentrer l'effort ensuite.
+  // Les "zones cibles" ajoutées manuellement (voir targetZones.js) apparaissent
+  // aussi, même à 0/0, pour pouvoir dire "il faut couvrir tel endroit" avant
+  // même qu'un agent n'y ait recensé quoi que ce soit.
   renderQuartierCoverage() {
     const container = document.getElementById("quartierCoverageList");
     if (!container) return;
 
     const points = store.get("points") || [];
+    const targetZones = store.get("targetZones") || [];
     const byQuartier = new Map();
+
+    targetZones.forEach(z => {
+      byQuartier.set(z.name, { total: 0, visited: 0, targetZoneId: z.id });
+    });
+
     points.forEach(p => {
       const q = (p.quartier || "").trim() || "Non renseigné";
       if (!byQuartier.has(q)) byQuartier.set(q, { total: 0, visited: 0 });
@@ -892,22 +926,39 @@ export class App {
       .sort((a, b) => a.pct - b.pct || b.total - a.total);
 
     if (rows.length === 0) {
-      container.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Aucun établissement recensé pour l'instant.</div>`;
+      container.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Aucune zone définie pour l'instant — ajoutez-en une ci-dessous.</div>`;
       return;
     }
 
     container.innerHTML = rows.map(r => {
-      const color = r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
+      const color = r.total === 0 ? "#94a3b8" : r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
+      const removeBtn = r.targetZoneId
+        ? `<button type="button" class="remove-zone-btn" data-zone-id="${r.targetZoneId}" title="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
+        : "";
       return `
         <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
-          <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.q)}">${escapeHtml(r.q)}</span>
+          <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.q)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.q)}</span>
           <span style="color:#64748b; min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
           <div style="width:44px; height:6px; border-radius:3px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
             <div style="height:100%; width:${r.pct}%; background:${color};"></div>
           </div>
+          ${removeBtn}
         </div>
       `;
     }).join("");
+
+    container.querySelectorAll(".remove-zone-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const zoneId = btn.dataset.zoneId;
+        try {
+          await removeTargetZone(zoneId);
+          store.set("targetZones", (store.get("targetZones") || []).filter(z => z.id !== zoneId));
+          this.renderQuartierCoverage();
+        } catch (err) {
+          toastError(err.message || "Impossible de retirer cette zone.");
+        }
+      });
+    });
   }
 
   closeControls() {

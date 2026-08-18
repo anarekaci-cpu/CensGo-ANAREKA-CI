@@ -127,3 +127,36 @@ CREATE POLICY "Service role manages roles"
   ON user_roles FOR ALL TO service_role
   USING (true)
   WITH CHECK (true);
+
+-- =============================================================
+-- Zones cibles : quartiers/villes que l'association veut voir couverts,
+-- ajoutés AVANT qu'un agent n'y ait recensé le moindre établissement.
+-- Sans ça, un quartier n'apparaît dans la couverture qu'après coup —
+-- impossible de dire "il faut couvrir Venservin" tant que personne n'y est
+-- allé. Avec cette table, un admin ajoute le nom et il apparaît tout de
+-- suite dans le panneau de couverture à 0/0, comme objectif explicite.
+-- =============================================================
+CREATE TABLE IF NOT EXISTS target_zones (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT NOT NULL UNIQUE,
+  added_by   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE target_zones ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated can read target zones" ON target_zones;
+DROP POLICY IF EXISTS "Authenticated can add target zones" ON target_zones;
+DROP POLICY IF EXISTS "Authenticated can remove target zones" ON target_zones;
+
+CREATE POLICY "Authenticated can read target zones"
+  ON target_zones FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY "Authenticated can add target zones"
+  ON target_zones FOR INSERT TO authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Authenticated can remove target zones"
+  ON target_zones FOR DELETE TO authenticated
+  USING (true);
