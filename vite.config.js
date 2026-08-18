@@ -140,7 +140,7 @@ export default defineConfig({
         // à jour ne retélécharge que le petit chunk "app", pas Leaflet/Supabase/
         // Dexie en entier (utile sur les connexions terrain à faible bande passante).
         manualChunks: {
-          leaflet: ["leaflet", "leaflet.markercluster"],
+          maplibregl: ["maplibre-gl", "supercluster"],
           supabase: ["@supabase/supabase-js"],
           dexie: ["dexie"]
         }

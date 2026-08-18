@@ -1,28 +1,27 @@
-import L from "leaflet";
+import maplibregl from "maplibre-gl";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getClusterGroup } from "../map/map.js";
+import { getClusterGroup, getMap } from "../map/map.js";
 import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
 import { haversineKm } from "../../core/geo.js";
 
 const iconCache = new Map();
 const markerRegistry = new Map();
+let currentPopup = null;
+let moveHandler = null;
 
-// IDs des points en attente d'envoi vers Supabase (maj par syncEngine via le store) —
-// permet d'afficher un badge "pas encore synchronisé" sur une fiche fraîchement créée,
-// pour qu'un agent ne croie pas à tort qu'elle est déjà enregistrée côté serveur.
 let pendingIds = new Set();
 store.subscribe("sync.pendingPointIds", (ids) => {
   pendingIds = new Set(ids || []);
-  markerRegistry.forEach((_marker, pointId) => refreshMarker(pointId));
+  markerRegistry.forEach((_entry, pointId) => refreshMarker(pointId));
 });
 
 function isPointPending(pointId) {
   return pendingIds.has(pointId);
 }
 
-function getIcon(color, isVisited, isPending) {
+function buildIconHTML(color, isVisited, isPending) {
   const key = `${color}_${isVisited}_${isPending}`;
   if (iconCache.has(key)) return iconCache.get(key);
 
@@ -36,20 +35,15 @@ function getIcon(color, isVisited, isPending) {
     ? '<circle cx="20" cy="6" r="5.5" fill="#f4e3c4" stroke="#b5791a" stroke-width="1.2"/><text x="20" y="8.8" font-size="7" text-anchor="middle">⏳</text>'
     : '';
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="34" viewBox="0 0 26 34">
+  const html = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="34" viewBox="0 0 26 34">
     <path d="M13 0C6 0 0 6 0 13c0 9 13 21 13 21s13-12 13-21C26 6 20 0 13 0z"
       fill="${color}" fill-opacity="${opacity}" stroke="${stroke}" stroke-width="1.5" ${dash}/>
     <circle cx="13" cy="13" r="5.5" fill="white" fill-opacity="${isVisited ? 0.85 : 1}"/>
     ${check}
     ${pendingBadge}
   </svg>`;
-
-  const icon = L.divIcon({
-    html: svg, className: "",
-    iconSize: [26, 34], iconAnchor: [13, 34], popupAnchor: [0, -30]
-  });
-  iconCache.set(key, icon);
-  return icon;
+  iconCache.set(key, html);
+  return html;
 }
 
 function buildPopup(point) {
@@ -123,71 +117,185 @@ async function toggleVisit(point) {
   refreshMarker(point.id);
 }
 
-export function renderMarkers(points) {
-  const group = getClusterGroup();
-  if (!group) return;
+function closeCurrentPopup() {
+  if (currentPopup) {
+    currentPopup.remove();
+    currentPopup = null;
+  }
+}
 
-  group.clearLayers();
+function createPopupForPoint(point) {
+  const popup = new maplibregl.Popup({
+    offset: [0, -30],
+    closeButton: true,
+    maxWidth: "320px",
+    closeOnClick: false
+  });
+  popup.setDOMContent(buildPopup(point));
+  return popup;
+}
+
+function renderVisibleMarkers() {
+  const map = getMap();
+  const cluster = getClusterGroup();
+  if (!map || !cluster) return;
+
+  const bounds = map.getBounds();
+  const zoom = map.getZoom();
+  const bbox = [
+    bounds.getWest(),
+    bounds.getSouth(),
+    bounds.getEast(),
+    bounds.getNorth()
+  ];
+
+  const clusters = cluster.getBounds(bbox, zoom);
+
+  closeCurrentPopup();
+
+  markerRegistry.forEach((entry) => {
+    entry.marker.remove();
+  });
   markerRegistry.clear();
 
-  points.forEach(point => {
-    const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-    const marker = L.marker([point.lat, point.lon], {
-      icon: getIcon(color, point.visited, isPointPending(point.id))
-    });
+  const allPoints = store.get("points") || [];
+  const pointsById = new Map(allPoints.map(p => [p.id, p]));
 
-    marker.pointId = point.id;
-    marker.bindPopup(() => buildPopup(point));
+  clusters.forEach((feature) => {
+    const props = feature.properties;
 
-    markerRegistry.set(point.id, marker);
-    group.addLayer(marker);
+    if (props.cluster) {
+      const el = document.createElement("div");
+      el.className = "cluster-marker";
+      el.textContent = props.point_count;
+
+      new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat(feature.coordinates)
+        .addTo(map);
+
+      el.addEventListener("click", () => {
+        map.easeTo({
+          center: feature.coordinates,
+          zoom: Math.min(zoom + 2, cluster.options.maxZoom + 1),
+          duration: 400
+        });
+      });
+
+    } else {
+      const pointId = props.id;
+      const point = pointsById.get(pointId);
+      if (!point) return;
+
+      const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
+      const el = document.createElement("div");
+      el.innerHTML = buildIconHTML(color, point.visited, isPointPending(pointId));
+      el.style.cursor = "pointer";
+
+      const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+        .setLngLat([point.lon, point.lat])
+        .addTo(map);
+
+      const popup = createPopupForPoint(point);
+
+      marker.setPopup(popup);
+
+      marker.getElement().addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeCurrentPopup();
+        currentPopup = popup;
+        popup.addTo(map);
+      });
+
+      marker.pointId = pointId;
+      markerRegistry.set(pointId, { marker, popup, point });
+    }
   });
 }
 
-export function upsertMarker(point) {
-  const group = getClusterGroup();
-  if (!group) return;
+export function renderMarkers(points) {
+  const map = getMap();
+  const cluster = getClusterGroup();
+  if (!map || !cluster) return;
 
+  markerRegistry.forEach((entry) => entry.marker.remove());
+  markerRegistry.clear();
+  closeCurrentPopup();
+
+  const geojson = points.map(p => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+    properties: { ...p }
+  }));
+
+  cluster.load(geojson);
+
+  if (moveHandler) {
+    map.off("moveend", moveHandler);
+  }
+  moveHandler = () => renderVisibleMarkers();
+  map.on("moveend", moveHandler);
+
+  renderVisibleMarkers();
+}
+
+export function upsertMarker(point) {
   const existing = markerRegistry.get(point.id);
   if (existing) {
     refreshMarker(point.id);
     return;
   }
 
-  const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-  const marker = L.marker([point.lat, point.lon], {
-    icon: getIcon(color, point.visited, isPointPending(point.id))
-  });
+  const cluster = getClusterGroup();
+  if (!cluster) return;
 
-  marker.pointId = point.id;
-  marker.bindPopup(() => buildPopup(point));
+  cluster.load([
+    ...cluster._points || [],
+    {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [point.lon, point.lat] },
+      properties: { ...point }
+    }
+  ]);
 
-  markerRegistry.set(point.id, marker);
-  group.addLayer(marker);
+  renderVisibleMarkers();
 }
 
 export function refreshMarker(pointId) {
-  const marker = markerRegistry.get(pointId);
+  const entry = markerRegistry.get(pointId);
   const point = store.get("points").find(p => p.id === pointId);
-  if (!marker || !point) return;
+  if (!entry || !point) return;
 
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-  marker.setIcon(getIcon(color, point.visited, isPointPending(point.id)));
+  entry.marker.getElement().innerHTML = buildIconHTML(color, point.visited, isPointPending(pointId));
 
-  if (marker.getPopup()?.isOpen()) {
-    marker.setPopupContent(buildPopup(point));
+  if (entry.popup.isOpen()) {
+    entry.popup.setDOMContent(buildPopup(point));
   }
+
+  entry.point = point;
 }
 
 export function openPopup(pointId) {
-  const marker = markerRegistry.get(pointId);
-  if (marker) marker.openPopup();
+  const entry = markerRegistry.get(pointId);
+  if (!entry) return;
+
+  const map = getMap();
+  closeCurrentPopup();
+  currentPopup = entry.popup;
+  entry.popup.addTo(map);
 }
 
 export function getFilteredBounds() {
-  const group = getClusterGroup();
-  if (!group || group.getLayers().length === 0) return null;
-  return group.getBounds();
+  if (markerRegistry.size === 0) return null;
+  const map = getMap();
+  if (!map) return null;
+
+  const bounds = new maplibregl.LngLatBounds();
+  markerRegistry.forEach((entry) => {
+    bounds.extend(entry.marker.getLngLat());
+  });
+
+  return [[bounds.getWest(), bounds.getSouth()], [bounds.getEast(), bounds.getNorth()]];
 }
 
 function formatDist(km) {
