@@ -724,6 +724,33 @@ export class App {
     this.unsubs.push(store.subscribe("sync.status", renderSyncStatus));
     this.unsubs.push(store.subscribe("sync.deadCount", renderSyncStatus));
 
+    // #geoStatus existait dans le HTML mais rien ne l'alimentait jamais — un
+    // agent n'avait donc aucun moyen de savoir si le GPS était actif, en
+    // attente, ou refusé (ce qui expliquait aussi l'itinéraire qui ne partait
+    // jamais sans le moindre message).
+    const renderGeoStatus = () => {
+      const el = document.getElementById("geoStatus");
+      if (!el) return;
+      const error = store.get("geo.error");
+      const tracking = store.get("geo.tracking");
+      const position = store.get("geo.position");
+
+      if (error) {
+        el.textContent = `⚠️ ${error}`;
+        el.className = "geo-status geo-status-error";
+      } else if (tracking && position) {
+        el.textContent = "📍 Position GPS active";
+        el.className = "geo-status geo-status-ok";
+      } else {
+        el.textContent = "📍 Recherche de la position GPS...";
+        el.className = "geo-status geo-status-pending";
+      }
+    };
+    this.unsubs.push(store.subscribe("geo.tracking", renderGeoStatus));
+    this.unsubs.push(store.subscribe("geo.error", renderGeoStatus));
+    this.unsubs.push(store.subscribe("geo.position", renderGeoStatus));
+    renderGeoStatus();
+
     this.unsubs.push(store.subscribe("navigation.active", (active) => {
       const banner = document.getElementById("routeBanner");
       if (banner) banner.style.display = active ? "flex" : "none";

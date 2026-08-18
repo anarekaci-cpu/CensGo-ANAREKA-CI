@@ -21,8 +21,23 @@ export function initNavigation() {
     }
   }));
 
+  // Un nouveau clic sur "Itinéraire" pendant qu'une navigation est déjà active
+  // ne fait que changer la destination (navigation.active reste déjà à true et
+  // ne redéclenche donc pas l'abonnement ci-dessus) — sans ceci l'itinéraire
+  // restait figé sur le premier point choisi.
+  navUnsubs.push(store.subscribe("navigation.destination", () => {
+    if (store.get("navigation.active")) startNavigation();
+  }));
+
   navUnsubs.push(store.subscribe("geo.position", (position) => {
-    if (store.get("navigation.active") && position) {
+    if (!store.get("navigation.active") || !position) return;
+    // Le calcul initial attendait une position déjà connue et abandonnait
+    // silencieusement si le GPS n'avait pas encore de fix (cas fréquent au
+    // premier clic) : dès qu'une position arrive, on calcule enfin l'itinéraire
+    // au lieu de rester bloqué sans aucun message.
+    if (!store.get("navigation.route")) {
+      startNavigation();
+    } else {
       updateNavigationProgress(position);
     }
   }));
@@ -30,16 +45,22 @@ export function initNavigation() {
 
 async function startNavigation() {
   const destination = store.get("navigation.destination");
-  const position = store.get("geo.position");
-  if (!destination || !position) return;
+  if (!destination) return;
 
+  const position = store.get("geo.position");
+  if (!position) {
+    store.set("navigation.instruction", "📍 En attente de votre position GPS...");
+    return;
+  }
+
+  store.set("navigation.instruction", "⏳ Calcul de l'itinéraire...");
   try {
     const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
     store.set("navigation.route", route);
     displayRoute(route.geometry);
     store.set("navigation.instruction", `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`);
   } catch (err) {
-    store.set("navigation.instruction", "Itinéraire indisponible");
+    store.set("navigation.instruction", "⚠️ Itinéraire indisponible — vérifiez votre connexion");
   }
 }
 

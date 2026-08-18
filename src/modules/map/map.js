@@ -17,6 +17,7 @@ const osmStyle = {
 
 let mapInstance = null;
 let clusterInstance = null;
+let userLocationMarker = null;
 
 export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
@@ -63,6 +64,14 @@ export function fitToBounds(bounds, padding = [40, 40]) {
 export function addRouteLayer(geojson) {
   if (!mapInstance) return;
 
+  // addSource/addLayer lèvent une erreur ("Style is not done loading") si le
+  // style du fond de carte n'a pas fini de charger — ça peut arriver si un
+  // agent clique sur "Itinéraire" tout de suite après l'ouverture de l'app.
+  if (!mapInstance.isStyleLoaded()) {
+    mapInstance.once("idle", () => addRouteLayer(geojson));
+    return;
+  }
+
   if (mapInstance.getLayer("route-line-layer")) {
     mapInstance.removeLayer("route-line-layer");
   }
@@ -80,6 +89,27 @@ export function addRouteLayer(geojson) {
   });
 
   return { sourceId: "route-line", layerId: "route-line-layer" };
+}
+
+// Marqueur "vous êtes ici" — la position GPS était suivie en interne (pour les
+// calculs de distance/itinéraire) mais jamais affichée sur la carte, donc un
+// agent ne voyait jamais où il se trouvait réellement.
+export function showUserLocation(lat, lng) {
+  if (!mapInstance) return;
+  if (!userLocationMarker) {
+    const el = document.createElement("div");
+    el.className = "user-location-dot";
+    el.innerHTML = '<div class="user-location-pulse"></div><div class="user-location-core"></div>';
+    userLocationMarker = new maplibregl.Marker({ element: el, anchor: "center" });
+  }
+  userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
+}
+
+export function hideUserLocation() {
+  if (userLocationMarker) {
+    userLocationMarker.remove();
+    userLocationMarker = null;
+  }
 }
 
 export function clearRouteLayers() {

@@ -14,7 +14,8 @@ class Store {
         position: null,
         heading: 0,
         accuracy: null,
-        tracking: false
+        tracking: false,
+        error: null
       },
       navigation: {
         active: false,

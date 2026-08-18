@@ -160,6 +160,9 @@ header {
 .btn-export { background: #ccfbf1; color: #115e59; border: 1px solid #99f6e4; }
 .btn-reset { background: #ffe4e6; color: #9f1239; border: 1px solid #fecdd3; }
 #geoStatus { font-size: 12px; color: #64748b; text-align: center; margin-top: 6px; font-weight: 500; }
+.geo-status-ok { color: #16a34a; }
+.geo-status-pending { color: #d97706; }
+.geo-status-error { color: #dc2626; }
 
 #main { flex: 1; position: relative; overflow: hidden; }
 #map { width: 100%; height: 100%; }
@@ -345,6 +348,26 @@ header {
   cursor: pointer; transition: transform 0.15s ease;
 }
 .cluster-marker:hover { transform: scale(1.1); }
+
+.user-location-dot {
+  width: 22px; height: 22px; position: relative;
+}
+.user-location-core {
+  position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+  transform: translate(-50%, -50%);
+  background: #2563eb; border: 3px solid white; border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.user-location-pulse {
+  position: absolute; top: 50%; left: 50%; width: 22px; height: 22px;
+  transform: translate(-50%, -50%);
+  background: rgba(37, 99, 235, 0.35); border-radius: 50%;
+  animation: userLocationPulse 2s ease-out infinite;
+}
+@keyframes userLocationPulse {
+  0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+}
 
 /* AI Agent Styles */
 .btn-ai-header {
