@@ -1,5 +1,22 @@
 # 🔐 Guide de Sécurité — Recensement ANAREKA-CI
 
+## 🚨 Historique Git : clés Supabase exposées
+
+Un fichier `.env` contenant l'URL et la clé `anon`/`publishable` réelles du
+projet Supabase a été commité entre le 29/07/2026 (`f67073f`) et le
+18/08/2026 (`09d5296`). Il a été retiré du suivi Git, **mais reste
+récupérable dans l'historique** tant que celui-ci n'est pas réécrit — le
+dépôt étant public sur GitHub Pages.
+
+Actions requises côté Supabase (non réalisables depuis ce dépôt) :
+1. **Régénérer la clé `anon`** (voir section suivante) et révoquer l'ancienne.
+2. **Vérifier que RLS est bien actif** sur `census_points` et les autres
+   tables — une clé publishable exposée n'est un problème que si RLS n'est
+   pas correctement configuré (voir policies ci-dessous).
+3. Si une réécriture de l'historique Git est souhaitée (`git filter-repo`
+   ou équivalent), le faire consciemment : cela nécessite un
+   force-push et que tous les contributeurs re-clonent le dépôt.
+
 ## ⚠️ Actions immédiates requises
 
 ### 1. Activer Row Level Security (RLS)

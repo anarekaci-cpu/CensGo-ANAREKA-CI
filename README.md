@@ -66,7 +66,7 @@ npm run deploy
 > 2. Régénéré vos clés API Supabase
 > 3. Configuré les policies d'accès par utilisateur authentifié
 
-Voir [docs/SECURITY.md](./docs/SECURITY.md) pour la configuration complète.
+Voir [SECURITY.md](./SECURITY.md) pour la configuration complète.
 
 ---
 
