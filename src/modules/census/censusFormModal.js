@@ -2,8 +2,9 @@ import { store } from "../../core/store.js";
 import { CONFIG } from "../../core/config.js";
 import { upsertPoint, findNearbyPoints } from "../../db/database.js";
 import { upsertMarker } from "./markers.js";
-import { toastWarning } from "../../core/toast.js";
+import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
+import { confirmAction } from "../../core/confirmModal.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -283,14 +284,23 @@ async function checkProximity() {
   warningEl.textContent = `⚠️ ${nearby.length} fiche(s) déjà enregistrée(s) à moins de 25m de cette position (${names}). Vérifiez qu'il ne s'agit pas d'un doublon avant d'enregistrer.`;
 }
 
-export function closeCensusForm() {
+export async function closeCensusForm() {
+  const nameEl = document.getElementById("cf_name");
+  const telEl = document.getElementById("cf_tel");
+  if (nameEl && nameEl.value.trim() && telEl && telEl.value.trim()) {
+    const ok = await confirmAction(
+      "Fermer sans enregistrer ?",
+      "Des données ont été saisies mais non enregistrées. Voulez-vous vraiment fermer ?"
+    );
+    if (!ok) return;
+  }
   const modal = document.getElementById("censusFormModal");
   if (modal) modal.style.display = "none";
 }
 
 function bindFormEvents() {
-  document.getElementById("censusFormCloseBtn")?.addEventListener("click", closeCensusForm);
-  document.getElementById("censusModalBackdrop")?.addEventListener("click", closeCensusForm);
+  document.getElementById("censusFormCloseBtn")?.addEventListener("click", () => closeCensusForm());
+  document.getElementById("censusModalBackdrop")?.addEventListener("click", () => closeCensusForm());
 
   // Inputs live validation
   document.getElementById("cf_name")?.addEventListener("input", validateFormRealtime);
@@ -353,7 +363,7 @@ function bindFormEvents() {
         btn.textContent = "⚠️ Erreur GPS";
         setTimeout(() => { btn.textContent = "📍 Ma Position GPS"; }, 2000);
       },
-      { enableHighAccuracy: true, timeout: 5000 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   });
 
@@ -430,6 +440,7 @@ function bindFormEvents() {
 
     upsertMarker(updated);
 
+    toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
     closeCensusForm();
   });
 }

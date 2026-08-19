@@ -10,8 +10,9 @@ import { logout } from "./modules/auth/auth.js";
 import { resetAllVisits } from "./db/database.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
-import { toastInfo, toastWarning, toastError } from "./core/toast.js";
+import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
+import { confirmAction } from "./core/confirmModal.js";
 
 let tourModulePromise = null;
 function getTourModule() {
@@ -34,6 +35,11 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str == null ? "" : String(str);
   return div.innerHTML;
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
 export async function mountAuthenticatedApp(container) {
@@ -274,6 +280,22 @@ async function initApp() {
   const loading = document.getElementById("loading");
   if (loading) loading.style.display = "none";
 
+  if (points.length === 0) {
+    const mapEl = document.getElementById("main");
+    if (mapEl) {
+      const emptyState = document.createElement("div");
+      emptyState.className = "empty-state";
+      emptyState.innerHTML = `
+        <div class="empty-state-icon">📍</div>
+        <div class="empty-state-title">Aucun point de recensement</div>
+        <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
+        <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
+      `;
+      mapEl.appendChild(emptyState);
+      document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
+    }
+  }
+
   document.getElementById("tourBtn").disabled = false;
   document.getElementById("nearestBtn").disabled = false;
 
@@ -297,7 +319,13 @@ async function initApp() {
 }
 
 function bindEvents() {
-  document.getElementById("logoutBtn").onclick = () => logout();
+  document.getElementById("logoutBtn").onclick = async () => {
+    const ok = await confirmAction(
+      "Déconnexion",
+      "Voulez-vous vous déconnecter ? Les données non synchronisées seront conservées localement."
+    );
+    if (ok) logout();
+  };
 
   document.getElementById("menuToggleBtn").onclick = () => {
     document.getElementById("controls").classList.toggle("open");
@@ -328,7 +356,7 @@ function bindEvents() {
   ["filterBlock", "filterStatus", "filterVisited"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => applyFilters());
   });
-  document.getElementById("searchBox")?.addEventListener("input", () => applyFilters());
+  document.getElementById("searchBox")?.addEventListener("input", debounce(() => applyFilters(), 250));
 
   document.getElementById("locateBtn").onclick = () => {
     locateAndCenter();
@@ -414,11 +442,17 @@ function bindEvents() {
   });
 
   document.getElementById("resetBtn").onclick = async () => {
-    if (confirm("Réinitialiser toutes les visites enregistrées localement ?")) {
+    const ok = await confirmAction(
+      "Réinitialiser les visites",
+      "Toutes les visites enregistrées localement seront supprimées. Cette action est irréversible.",
+      { danger: true }
+    );
+    if (ok) {
       await resetAllVisits();
       const points = await loadCensusData(true);
       renderMarkers(points);
       updateStats();
+      toastSuccess("Visites réinitialisées.");
     }
   };
 
@@ -484,10 +518,14 @@ function bindAiEvents() {
   const runCopilot = async (prompt) => {
     if (!prompt || !prompt.trim()) return;
     displayOutput("⏳ <i>L'Agent Copilot IA réfléchit...</i>");
-    const points = store.get("points") || [];
-    const userPos = store.get("geo.position");
-    const res = await (await getAiModule()).askAiAgent("copilot", { prompt, points, userPos });
-    displayOutput(formatAiText(res.text));
+    try {
+      const points = store.get("points") || [];
+      const userPos = store.get("geo.position");
+      const res = await (await getAiModule()).askAiAgent("copilot", { prompt, points, userPos });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Impossible de contacter l'agent IA")}</i>`);
+    }
   };
 
   document.getElementById("aiCopilotSendBtn")?.addEventListener("click", () => {
@@ -516,17 +554,25 @@ function bindAiEvents() {
 
   document.getElementById("aiRunStrategistBtn")?.addEventListener("click", async () => {
     displayOutput("⏳ <i>L'Agent Strategist analyse votre secteur...</i>");
-    const points = store.get("points") || [];
-    const userPos = store.get("geo.position");
-    const res = await (await getAiModule()).askAiAgent("optimize_tour", { points, userPos });
-    displayOutput(formatAiText(res.text));
+    try {
+      const points = store.get("points") || [];
+      const userPos = store.get("geo.position");
+      const res = await (await getAiModule()).askAiAgent("optimize_tour", { points, userPos });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec de l'analyse")}</i>`);
+    }
   });
 
   document.getElementById("aiRunAuditBtn")?.addEventListener("click", async () => {
     displayOutput("⏳ <i>L'Agent Audit vérifie la qualité des données...</i>");
-    const points = store.get("points") || [];
-    const res = await (await getAiModule()).askAiAgent("audit_quality", { points });
-    displayOutput(formatAiText(res.text));
+    try {
+      const points = store.get("points") || [];
+      const res = await (await getAiModule()).askAiAgent("audit_quality", { points });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec de l'audit")}</i>`);
+    }
   });
 
   let recognizer = null;
@@ -576,8 +622,12 @@ function bindAiEvents() {
       return;
     }
     displayOutput("⏳ <i>L'Agent Transcripteur IA analyse et extrait les données...</i>");
-    const res = await (await getAiModule()).askAiAgent("parse_voice_note", { prompt });
-    displayOutput(formatAiText(res.text));
+    try {
+      const res = await (await getAiModule()).askAiAgent("parse_voice_note", { prompt });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec de l'analyse vocale")}</i>`);
+    }
   });
 
   let currentImageBase64 = null;
@@ -609,15 +659,23 @@ function bindAiEvents() {
   runVisionBtn?.addEventListener("click", async () => {
     if (!currentImageBase64) return;
     displayOutput("⏳ <i>L'Agent Vision Reconnaissance Gemini analyse la photo...</i>");
-    const res = await (await getAiModule()).askAiAgent("vision_ocr", { imageBase64: currentImageBase64, mimeType: currentMimeType });
-    displayOutput(formatAiText(res.text));
+    try {
+      const res = await (await getAiModule()).askAiAgent("vision_ocr", { imageBase64: currentImageBase64, mimeType: currentMimeType });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec de l'analyse photo")}</i>`);
+    }
   });
 
   document.getElementById("aiRunBriefingBtn")?.addEventListener("click", async () => {
     displayOutput("⏳ <i>Préparation de votre Briefing IA Matinal...</i>");
-    const points = store.get("points") || [];
-    const res = await (await getAiModule()).askAiAgent("daily_briefing", { points });
-    displayOutput(formatAiText(res.text));
+    try {
+      const points = store.get("points") || [];
+      const res = await (await getAiModule()).askAiAgent("daily_briefing", { points });
+      displayOutput(formatAiText(res.text));
+    } catch (e) {
+      displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec du briefing")}</i>`);
+    }
   });
 }
 
@@ -632,13 +690,14 @@ function bindStoreListeners() {
     if (!el) return;
     const status = store.get("sync.status");
     const deadCount = store.get("sync.deadCount") || 0;
+    const pendingCount = store.get("sync.pendingCount") || 0;
 
     if (deadCount > 0) {
-      el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Réessayer`;
-      el.title = "Ces fiches n'ont pas pu être envoyées à Supabase après plusieurs tentatives. Cliquez pour réessayer.";
+      el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Voir`;
+      el.title = "Ces fiches n'ont pas pu être envoyées après plusieurs tentatives. Cliquez pour voir les détails.";
       el.style.cursor = "pointer";
       el.onclick = async () => {
-        el.textContent = "🔄 Nouvelle tentative...";
+        toastWarning(`${deadCount} fiche(s) bloquée(s). Nouvelle tentative en cours...`);
         await retryFailedSyncs();
       };
       return;
@@ -648,15 +707,19 @@ function bindStoreListeners() {
     el.style.cursor = "default";
     const labels = {
       idle: "🟢 Synchronisé",
-      syncing: "🔄 Sync...",
       offline: "📴 Mode offline",
       error: "⚠️ Erreur sync"
     };
-    el.textContent = labels[status] || status;
+    if (status === "syncing" && pendingCount > 0) {
+      el.textContent = `🔄 Sync... ${pendingCount} restante${pendingCount > 1 ? "s" : ""}`;
+    } else {
+      el.textContent = labels[status] || status;
+    }
   };
 
   store.subscribe("sync.status", renderSyncStatus);
   store.subscribe("sync.deadCount", renderSyncStatus);
+  store.subscribe("sync.pendingCount", renderSyncStatus);
 
   const renderGeoStatus = () => {
     const el = document.getElementById("geoStatus");

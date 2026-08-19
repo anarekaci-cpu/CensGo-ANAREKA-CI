@@ -6,6 +6,7 @@ export async function initAuth() {
     const session = await getSession();
     store.set("user", session?.user || null);
   } catch (e) {
+    console.warn("[AUTH] Session check failed:", e);
     store.set("user", null);
   }
   onAuthStateChange((session) => {

@@ -52,8 +52,14 @@ export class App {
           <p>Connexion agent de terrain</p>
           <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
           <input type="password" id="loginPassword" placeholder="Mot de passe" autocomplete="current-password">
-          <button id="loginBtn">Se connecter</button>
-          <div id="loginError"></div>
+          <button id="loginBtn">
+            <span class="login-spinner"></span>
+            <span class="login-btn-text">Se connecter</span>
+          </button>
+          <div id="loginError" role="alert"></div>
+          <div class="login-links">
+            <a id="forgotPasswordLink">Mot de passe oublié ?</a>
+          </div>
         </div>
       </div>
     `;
@@ -64,23 +70,37 @@ export class App {
     const error = document.getElementById("loginError");
 
     const attempt = async () => {
+      if (!email.value.trim() || !password.value) {
+        error.textContent = "Veuillez remplir tous les champs.";
+        return;
+      }
       error.textContent = "";
       btn.disabled = true;
-      btn.textContent = "Connexion...";
       try {
         await login(email.value.trim(), password.value);
       } catch (e) {
         error.textContent = describeLoginError(e);
         btn.disabled = false;
-        btn.textContent = "Se connecter";
       }
     };
 
     btn.onclick = attempt;
+    email.onkeydown = (e) => { if (e.key === "Enter") password.focus(); };
     password.onkeydown = (e) => { if (e.key === "Enter") attempt(); };
+
+    document.getElementById("forgotPasswordLink")?.addEventListener("click", () => {
+      error.textContent = "Contactez votre administrateur ANAREKA-CI pour réinitialiser votre mot de passe.";
+    });
   }
 
   async renderApp() {
+    this.container.innerHTML = `
+      <div id="boot-screen">
+        <div class="boot-spinner"></div>
+        <div class="boot-text">Chargement de l'application...</div>
+        <div class="boot-status">Préparation des données et de la carte</div>
+      </div>
+    `;
     if (!this._appModule) {
       this._appModule = await import("./appView.js");
     }

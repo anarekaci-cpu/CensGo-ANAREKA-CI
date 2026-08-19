@@ -13,14 +13,16 @@ export default defineConfig({
       manifest: {
         name: "Recensement ANAREKA-CI",
         short_name: "ANAREKA-CI",
+        description: "Application de recensement terrain pour agents ANAREKA-CI en Côte d'Ivoire",
         start_url: "/Recensement-ANAREKA-CI/",
         display: "standalone",
         background_color: "#1a3d2b",
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
         icons: [
-          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
+          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" },
+          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
         ]
       },
       workbox: {
@@ -41,7 +43,15 @@ export default defineConfig({
             handler: "StaleWhileRevalidate",
             options: {
               cacheName: "osrm-routes",
-              expiration: { maxEntries: 200, maxAgeSeconds: 3600 }
+              expiration: { maxEntries: 500, maxAgeSeconds: 86400 }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts",
+              expiration: { maxEntries: 30, maxAgeSeconds: 86400 * 365 }
             }
           }
         ]
