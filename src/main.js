@@ -4,7 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { initAuth } from "./modules/auth/auth.js";
 import { initSyncEngine } from "./modules/sync/syncEngine.js";
 import { initGeolocation } from "./modules/geolocation/geolocation.js";
-import { App } from "./app.js";
+import { App } from "./appShell.js";
+import { db } from "./db/database.js";
 
 async function bootstrap() {
   const app = document.getElementById("app");
@@ -18,7 +19,6 @@ async function bootstrap() {
   `;
 
   try {
-    const { db } = await import("./db/database.js");
     await db.open();
     console.log("📦 IndexedDB prête");
 

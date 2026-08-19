@@ -1,6 +1,8 @@
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { calculateRoute, displayRoute, clearRoute, formatDuration, formatDistance } from "../routing/routing.js";
+import { updatePointVisit } from "../../db/database.js";
+import { refreshMarker } from "../census/markers.js";
 
 let navUnsubs = [];
 
@@ -87,7 +89,6 @@ export async function markArrivedVisited() {
   const destination = store.get("navigation.destination");
   if (!destination) return;
 
-  const { updatePointVisit } = await import("../../db/database.js");
   await updatePointVisit(destination.id, true, destination.status);
 
   const points = store.get("points").map(p =>
@@ -95,7 +96,6 @@ export async function markArrivedVisited() {
   );
   store.set("points", points);
 
-  const { refreshMarker } = await import("../census/markers.js");
   refreshMarker(destination.id);
 
   clearRoute();

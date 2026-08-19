@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "deploy": "vite build && gh-pages -d dist",
     "lint": "eslint src/ --ext .js",
-    "lint:fix": "eslint src/ --ext .js --fix"
+    "lint:fix": "eslint src/ --ext .js --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -19,9 +21,11 @@
     "supercluster": "^8.0.1"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
+    "gh-pages": "^6.1.1",
+    "jsdom": "^30.0.1",
     "vite": "^5.4.0",
     "vite-plugin-pwa": "^0.20.0",
-    "gh-pages": "^6.1.1",
-    "eslint": "^8.57.0"
+    "vitest": "^4.1.11"
   }
 }
