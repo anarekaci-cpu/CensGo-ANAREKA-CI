@@ -29,11 +29,3 @@ export async function logout() {
   await signOut();
   store.set("user", null);
 }
-
-export function getCurrentUser() {
-  return store.get("user");
-}
-
-export function isAuthenticated() {
-  return !!store.get("user");
-}

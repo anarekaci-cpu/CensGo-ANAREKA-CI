@@ -1,9 +1,8 @@
 import { store } from "../../core/store.js";
-import { getMap, flyToPoint, showUserLocation, hideUserLocation } from "../map/map.js";
+import { getMap, flyToPoint, showUserLocation } from "../map/map.js";
 import { reportPosition } from "./agentTracking.js";
 import { haversineKm } from "../../core/geo.js";
 
-let watchId = null;
 let position = null;
 let hasAutoCentered = false;
 
@@ -13,7 +12,7 @@ export function initGeolocation() {
     return;
   }
 
-  watchId = navigator.geolocation.watchPosition(
+  navigator.geolocation.watchPosition(
     (pos) => {
       position = {
         lat: pos.coords.latitude,
@@ -61,15 +60,6 @@ function describeGeoError(err) {
     return "Délai dépassé pour obtenir la position GPS.";
   }
   return err.message || "Erreur de géolocalisation.";
-}
-
-export function stopGeolocation() {
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  }
-  store.set("geo.tracking", false);
-  hideUserLocation();
 }
 
 export function getCurrentPosition() {

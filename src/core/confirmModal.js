@@ -1,13 +1,12 @@
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str == null ? "" : String(str);
-  return div.innerHTML;
-}
+import { escapeHtml } from "./utils.js";
 
 export function confirmAction(title, desc, { danger = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "confirm-modal";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", title);
     overlay.innerHTML = `
       <div class="confirm-modal-backdrop"></div>
       <div class="confirm-modal-card">

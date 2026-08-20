@@ -5,11 +5,13 @@ import { getClusterGroup, getMap } from "../map/map.js";
 import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
 import { haversineKm } from "../../core/geo.js";
+import { escapeHtml } from "../../core/utils.js";
 
 const iconCache = new Map();
 const markerRegistry = new Map();
 let currentPopup = null;
 let moveHandler = null;
+let moveRaf = null;
 let loadedFeatures = [];
 
 let pendingIds = new Set();
@@ -52,13 +54,20 @@ function buildPopup(point) {
   const userPos = store.get("geo.position");
   let distHtml = "";
 
-  if (userPos) {
+  if (userPos && point.lat != null && point.lon != null) {
     const d = haversineKm(userPos.lat, userPos.lng, point.lat, point.lon);
     distHtml = `<div class="popup-dist">📍 ${formatDist(d)} de vous</div>`;
   }
 
   const telLink = point.tel
     ? `<a href="tel:${escapeHtml(point.tel)}" style="color:#166534; font-weight:700; text-decoration:none; background:#f0fdf4; padding:2px 8px; border-radius:6px; border:1px solid #bbf7d0;">📞 ${escapeHtml(point.tel)}</a>`
+    : "—";
+
+  const safeId = escapeHtml(point.id);
+  const latStr = point.lat != null ? point.lat.toFixed(6) : "—";
+  const lonStr = point.lon != null ? point.lon.toFixed(6) : "—";
+  const updatedStr = point.updatedAt
+    ? new Date(point.updatedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
     : "—";
 
   const div = document.createElement("div");
@@ -68,19 +77,23 @@ function buildPopup(point) {
     <div class="popup-row"><b>Téléphone:</b> ${telLink}</div>
     <div class="popup-row"><b>Quartier:</b> ${escapeHtml(point.quartier || "—")}</div>
     <div class="popup-row"><b>Adresse:</b> ${escapeHtml(point.address || "—")}</div>
+    <div class="popup-row"><b>Établissement:</b> ${escapeHtml(point.etablissement || "—")}</div>
+    <div class="popup-row"><b>Type d'activité:</b> ${escapeHtml(point.activityType || "—")}</div>
     <div class="popup-row"><b>Produits:</b> ${escapeHtml(point.produits || "—")}</div>
     <div class="popup-row"><b>Sexe:</b> ${escapeHtml(point.sexe || "—")}</div>
+    <div class="popup-row popup-coords">📍 ${latStr}, ${lonStr}</div>
+    <div class="popup-row popup-updated">🗓️ Mis à jour: ${updatedStr}</div>
     <div class="popup-status" style="background:${color}22;color:${color};border:1px solid ${color}">${escapeHtml(point.status)}</div>
     ${distHtml}
     <div class="btn-row">
-      <button class="go-btn" data-action="route" data-id="${point.id}">🧭 Itinéraire</button>
-      <button class="go-btn nav-btn" data-action="navigate" data-id="${point.id}">🗺️ Naviguer</button>
+      <button class="go-btn" data-action="route" data-id="${safeId}">🧭 Itinéraire</button>
+      <button class="go-btn nav-btn" data-action="navigate" data-id="${safeId}">🗺️ Naviguer</button>
     </div>
     <div class="btn-row">
-      <button class="visit-btn ${point.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${point.id}">
+      <button class="visit-btn ${point.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${safeId}">
         ${point.visited ? '🔄 Annuler la visite' : '✅ Marquer comme visité'}
       </button>
-      <button class="go-btn edit-btn" data-action="edit" data-id="${point.id}" style="background:#475569;">✏️ Éditer</button>
+      <button class="go-btn edit-btn" data-action="edit" data-id="${safeId}" style="background:#475569;">✏️ Éditer</button>
     </div>
   `;
 
@@ -236,7 +249,13 @@ export function renderMarkers(points) {
   if (moveHandler) {
     map.off("moveend", moveHandler);
   }
-  moveHandler = () => renderVisibleMarkers();
+  moveHandler = () => {
+    if (moveRaf) cancelAnimationFrame(moveRaf);
+    moveRaf = requestAnimationFrame(() => {
+      moveRaf = null;
+      renderVisibleMarkers();
+    });
+  };
   map.on("moveend", moveHandler);
 
   renderVisibleMarkers();
@@ -303,11 +322,4 @@ export function getFilteredBounds() {
 function formatDist(km) {
   if (km < 1) return Math.round(km * 1000) + " m";
   return km.toFixed(1) + " km";
-}
-
-function escapeHtml(str) {
-  if (str == null) return "";
-  const div = document.createElement("div");
-  div.textContent = String(str);
-  return div.innerHTML;
 }

@@ -12,7 +12,7 @@ import { confirmAction } from "../../core/confirmModal.js";
 
 export function initCensusFormModal() {
   const modalHtml = `
-    <div id="censusFormModal" class="census-modal" style="display:none;">
+    <div id="censusFormModal" class="census-modal" role="dialog" aria-modal="true" aria-label="Fiche de recensement" style="display:none;">
       <div class="census-modal-backdrop" id="censusModalBackdrop"></div>
       <div class="census-modal-card">
         <div class="census-modal-header">
@@ -23,7 +23,7 @@ export function initCensusFormModal() {
               <p id="censusFormSubtitle">ANAREKA-CI — Recensement Terrain</p>
             </div>
           </div>
-          <button id="censusFormCloseBtn" class="census-close-btn">✕</button>
+          <button id="censusFormCloseBtn" class="census-close-btn" aria-label="Fermer le formulaire">✕</button>
         </div>
 
         <div id="censusValidationBar" class="census-val-bar val-info">

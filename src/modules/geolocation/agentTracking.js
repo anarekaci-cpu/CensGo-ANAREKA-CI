@@ -1,7 +1,7 @@
 import maplibregl from "maplibre-gl";
 import { getSupabaseClient } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
-import { getMap, flyToPoint } from "../map/map.js";
+import { getMap } from "../map/map.js";
 
 let agentMarkers = new Map();
 let pollInterval = null;
@@ -119,14 +119,4 @@ export function stopAgentTracking() {
   }
   agentMarkers.forEach(entry => entry.marker.remove());
   agentMarkers.clear();
-}
-
-export function focusAgent(userId) {
-  const entry = agentMarkers.get(userId);
-  if (entry) {
-    const ll = entry.marker.getLngLat();
-    flyToPoint(ll.lat, ll.lng, 17);
-    const map = getMap();
-    if (map) entry.popup.addTo(map);
-  }
 }

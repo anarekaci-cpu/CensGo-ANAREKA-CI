@@ -3,7 +3,6 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs } from "../../db/database.js";
 
-let syncInterval = null;
 let isOnline = navigator.onLine;
 const MAX_CONCURRENT = 3;
 
@@ -19,7 +18,7 @@ export async function initSyncEngine() {
     store.set("sync.status", "offline");
   });
 
-  syncInterval = setInterval(() => {
+  setInterval(() => {
     if (isOnline) triggerSync();
   }, CONFIG.SYNC_INTERVAL_MS);
 
@@ -66,6 +65,7 @@ async function syncOne(supabase, item) {
     if (error) throw error;
   } else if (item.action === "upsert_point") {
     const p = item.payload;
+    const user = store.get("user");
     const { error } = await supabase
       .from(CONFIG.TABLE_NAME)
       .upsert({
@@ -84,6 +84,7 @@ async function syncOne(supabase, item) {
         visited: p.visited,
         lat: p.lat,
         lon: p.lon,
+        created_by: user?.id || null,
         updated_at: new Date().toISOString()
       }, { onConflict: "point_id" });
     if (error) throw error;
@@ -172,12 +173,5 @@ export async function resetAllVisitsOnServer() {
   } catch (err) {
     console.warn("Reset serveur échoué:", err.message);
     return { synced: false, error: err.message };
-  }
-}
-
-export function destroySyncEngine() {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
   }
 }

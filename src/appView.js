@@ -13,6 +13,7 @@ import { retryFailedSyncs, resetAllVisitsOnServer } from "./modules/sync/syncEng
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
+import { escapeHtml } from "./core/utils.js";
 
 let tourModulePromise = null;
 function getTourModule() {
@@ -29,12 +30,6 @@ let aiModulePromise = null;
 function getAiModule() {
   if (!aiModulePromise) aiModulePromise = import("./modules/ai/aiAgents.js");
   return aiModulePromise;
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str == null ? "" : String(str);
-  return div.innerHTML;
 }
 
 function debounce(fn, ms) {
@@ -58,8 +53,8 @@ export async function mountAuthenticatedApp(container) {
           <div class="header-actions">
             <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
             <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
-            <button id="logoutBtn" title="Déconnexion">🔒</button>
-            <button id="menuToggleBtn" title="Filtres">☰</button>
+            <button id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">🔒</button>
+            <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
           </div>
         </div>
       </header>
@@ -68,7 +63,7 @@ export async function mountAuthenticatedApp(container) {
         <div id="controlsInner">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #f0f0f0;">
             <span style="font-weight:700; font-size:14px; color:#1a3d2b; display:flex; align-items:center; gap:6px;">⚡ Options & Filtres</span>
-            <button id="closeControlsBtn" style="background:#f5f5f5; border:none; width:28px; height:28px; border-radius:50%; font-size:14px; cursor:pointer; color:#666; display:flex; align-items:center; justify-content:center;">✕</button>
+            <button id="closeControlsBtn" aria-label="Fermer les filtres" style="background:#f5f5f5; border:none; width:44px; height:44px; border-radius:50%; font-size:14px; cursor:pointer; color:#666; display:flex; align-items:center; justify-content:center;">✕</button>
           </div>
           <div class="action-row" style="margin-bottom:10px; display:grid; grid-template-columns: 1fr 1.2fr; gap:8px;">
             <button id="addCensusBtnControl" class="btn-add-control">➕ Nouvel Établissement</button>
@@ -135,7 +130,7 @@ export async function mountAuthenticatedApp(container) {
             <div id="navInstruction">—</div>
             <div id="navSub"></div>
           </div>
-          <button id="navStopBtn">✕</button>
+          <button id="navStopBtn" aria-label="Arrêter la navigation">✕</button>
         </div>
         
         <div id="arrivalBanner">
@@ -148,7 +143,7 @@ export async function mountAuthenticatedApp(container) {
         
         <div id="routeBanner">
           <span>🗺️ Itinéraire vers <b id="routeDestName"></b> — <span id="routeInfo"></span></span>
-          <button id="closeRouteBtn">✕</button>
+          <button id="closeRouteBtn" aria-label="Fermer l'itinéraire">✕</button>
         </div>
         
         <button id="fabNearest">🏃 Point le plus proche</button>
@@ -181,7 +176,7 @@ export async function mountAuthenticatedApp(container) {
           <div id="tourList" class="tour-list"></div>
         </div>
 
-        <div id="aiModal" class="ai-modal" style="display:none;">
+        <div id="aiModal" class="ai-modal" role="dialog" aria-modal="true" aria-label="Assistant IA" style="display:none;">
           <div class="ai-modal-backdrop" id="aiModalBackdrop"></div>
           <div class="ai-modal-card">
             <div class="ai-modal-header">
@@ -192,7 +187,7 @@ export async function mountAuthenticatedApp(container) {
                   <p>Copilot, Vision OCR, Dictée Vocale & Briefing</p>
                 </div>
               </div>
-              <button id="aiModalCloseBtn" class="ai-close-btn">✕</button>
+              <button id="aiModalCloseBtn" class="ai-close-btn" aria-label="Fermer l'assistant IA">✕</button>
             </div>
 
             <div class="ai-tabs">
