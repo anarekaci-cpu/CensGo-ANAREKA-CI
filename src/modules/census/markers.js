@@ -14,7 +14,9 @@ const iconCache = new Map();
 // markerPool: reusable { marker, el } objects — off the map, ready to recycle
 const activeMarkers = new Map();
 const markerPool = [];
+const clusterMarkers = [];
 let currentPopup = null;
+let currentPopupPointId = null;
 let moveHandler = null;
 let moveRaf = null;
 let loadedFeatures = [];
@@ -32,7 +34,15 @@ function handleMarkerClick(e) {
   closeCurrentPopup();
   const popup = createPopupForPoint(point);
   currentPopup = popup;
+  currentPopupPointId = pointId;
   popup.addTo(getMap());
+
+  popup.on("close", () => {
+    if (currentPopup === popup) {
+      currentPopup = null;
+      currentPopupPointId = null;
+    }
+  });
 
   // Store popup reference so refreshMarker can update it
   const entry = activeMarkers.get(pointId);
@@ -160,6 +170,7 @@ function closeCurrentPopup() {
   if (currentPopup) {
     currentPopup.remove();
     currentPopup = null;
+    currentPopupPointId = null;
   }
 }
 
@@ -189,6 +200,13 @@ function acquireMarker() {
 }
 
 function releaseMarker(entry) {
+  // Close popup if it belongs to this marker
+  if (entry.popup && entry.popup === currentPopup) {
+    entry.popup.remove();
+    currentPopup = null;
+    currentPopupPointId = null;
+  }
+  entry.popup = null;
   entry.marker.remove();
   entry.el._pointId = null;
   markerPool.push({ marker: entry.marker, el: entry.el });
@@ -212,21 +230,25 @@ function renderVisibleMarkers() {
 
   const clusters = cluster.getClusters(bbox, zoom);
 
-  closeCurrentPopup();
+  // Clean up old cluster markers (they are recreated each render, never pooled)
+  for (const cm of clusterMarkers) cm.remove();
+  clusterMarkers.length = 0;
 
   const allPoints = store.get("points") || [];
   const pointsById = new Map(allPoints.map(p => [p.id, p]));
 
   // Collect which pointIds should be visible
   const visibleIds = new Set();
-  const clusterFeatures = [];
 
   for (const feature of clusters) {
-    if (feature.properties.cluster) {
-      clusterFeatures.push(feature);
-    } else {
+    if (!feature.properties.cluster) {
       visibleIds.add(feature.properties.id);
     }
+  }
+
+  // Only close popup if its point is no longer visible (was recycled)
+  if (currentPopup && currentPopupPointId && !visibleIds.has(currentPopupPointId)) {
+    closeCurrentPopup();
   }
 
   // Return markers that are no longer visible to the pool
@@ -242,14 +264,15 @@ function renderVisibleMarkers() {
     const props = feature.properties;
 
     if (props.cluster) {
-      // Cluster markers: recreate (they're few and simple)
+      // Cluster markers: track for cleanup on next render
       const el = document.createElement("div");
       el.className = "cluster-marker";
       el.textContent = props.point_count;
 
-      new maplibregl.Marker({ element: el, anchor: "center" })
+      const cm = new maplibregl.Marker({ element: el, anchor: "center" })
         .setLngLat(feature.geometry.coordinates)
         .addTo(map);
+      clusterMarkers.push(cm);
 
       el.addEventListener("click", () => {
         map.easeTo({
@@ -369,7 +392,15 @@ export function openPopup(pointId) {
   closeCurrentPopup();
   const popup = createPopupForPoint(point);
   currentPopup = popup;
+  currentPopupPointId = pointId;
   popup.addTo(map);
+
+  popup.on("close", () => {
+    if (currentPopup === popup) {
+      currentPopup = null;
+      currentPopupPointId = null;
+    }
+  });
 
   const entry = activeMarkers.get(pointId);
   if (entry) entry.popup = popup;
