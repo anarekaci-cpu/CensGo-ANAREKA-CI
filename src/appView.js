@@ -9,7 +9,7 @@ import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/age
 import { logout } from "./modules/auth/auth.js";
 import { resetAllVisits } from "./db/database.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
-import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
+import { retryFailedSyncs, resetAllVisitsOnServer } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
@@ -444,15 +444,26 @@ function bindEvents() {
   document.getElementById("resetBtn").onclick = async () => {
     const ok = await confirmAction(
       "Réinitialiser les visites",
-      "Toutes les visites enregistrées localement seront supprimées. Cette action est irréversible.",
+      "Toutes les visites enregistrées seront supprimées LOCALEMENT et sur le serveur. Cette action est irréversible.",
       { danger: true }
     );
     if (ok) {
+      // 1. Reset local IndexedDB (préserve les upsert en attente)
       await resetAllVisits();
-      const points = await loadCensusData(true);
+      // 2. Pousser le reset vers Supabase en une seule requête batch
+      const serverResult = await resetAllVisitsOnServer();
+      if (!serverResult.synced) {
+        toastWarning("Visites réinitialisées localement. Le reset serveur échouera en ligne — réessayez plus tard.");
+      }
+      // 3. Recharger les données (maintenant avec visited: false partout)
+      const points = await loadCensusData();
       renderMarkers(points);
       updateStats();
-      toastSuccess("Visites réinitialisées.");
+      // 4. Réinitialiser le filtre visite sur "all" pour revoir tous les points
+      const filterVisited = document.getElementById("filterVisited");
+      if (filterVisited) filterVisited.value = "all";
+      applyFilters();
+      toastSuccess("Toutes les visites ont été réinitialisées.");
     }
   };
 

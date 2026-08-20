@@ -15,6 +15,12 @@ db.version(1).stores({
   meta: "key"
 });
 
+// Version 2 : ajouter l'index updatedAt pour permettre le tri par date de
+// modification (utile pour "récemment visités", historique, etc.)
+db.version(2).stores({
+  points: "++localId, id, block, [block+order], name, status, visited, lat, lon, syncedAt, updatedAt"
+});
+
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
@@ -23,15 +29,32 @@ export async function savePoints(pointsArray) {
   const unsynced = localPoints.filter(p => !p.syncedAt);
   const unsyncedIds = new Set(unsynced.map(p => p.id));
 
+  // Construire une Map de l'état visited local pour les points synchronisés :
+  // si un agent a basculé un point en "non visité" localement et que la sync
+  // n'a pas encore poussé ce changement vers Supabase, la valeur serveur
+  // (visited: true) ne doit PAS écraser l'intention locale.
+  const localVisitedState = new Map();
+  for (const p of localPoints) {
+    if (p.syncedAt) localVisitedState.set(p.id, !!p.visited);
+  }
+
   await db.points.clear();
 
   const withLocal = pointsArray
     .filter(p => !unsyncedIds.has(p.id))
-    .map((p, i) => ({
-      ...p,
-      localId: i + 1,
-      syncedAt: new Date().toISOString()
-    }));
+    .map((p, i) => {
+      const localVisited = localVisitedState.get(p.id);
+      // Si le point existait déjà en local ET que l'état local diffère du
+      // serveur, préserver la valeur locale (l'agent a agi hors-ligne).
+      // Si localVisited est undefined (premier chargement), utiliser la valeur serveur.
+      const mergedVisited = localVisited !== undefined ? localVisited : p.visited;
+      return {
+        ...p,
+        visited: mergedVisited,
+        localId: i + 1,
+        syncedAt: new Date().toISOString()
+      };
+    });
 
   let nextId = withLocal.length + 1;
   const unsyncedPreserved = unsynced.map(p => ({
@@ -240,5 +263,26 @@ export async function resetAllVisits() {
     p.visited = false;
     p.status = p.status || "NON DEFINI";
   });
-  await db.syncQueue.clear();
+
+  // Ne supprimer QUE les entrées "update_visit" — conserver les "upsert_point"
+  // (nouveaux points créés hors-ligne qui n'ont pas encore été synchronisés).
+  // Avant ce correctif, syncQueue.clear() détruisait silencieusement ces fiches
+  // et elles n'auraient jamais été poussées vers Supabase.
+  await db.syncQueue.where("action").equals("update_visit").delete();
+}
+
+/**
+ * Récupère l'état "visited" de tous les points depuis IndexedDB
+ * sous forme de Map<pointId, visited>. Utilisé lors du rechargement
+ * depuis Supabase pour préserver l'intention locale (un point marqué
+ * "non visité" localement ne doit pas être re-écrasé par une valeur
+ * serveur obsolète).
+ */
+export async function getLocalVisitedMap() {
+  const all = await db.points.toArray();
+  const map = new Map();
+  for (const p of all) {
+    if (p.id != null) map.set(p.id, !!p.visited);
+  }
+  return map;
 }

@@ -4,6 +4,7 @@ import { haversineKm } from "../../core/geo.js";
 
 let tourPoints = [];
 let currentIndex = 0;
+let pointsUnsub = null;
 
 export function initTour() {
   store.subscribe("tour.active", (active) => {
@@ -49,6 +50,33 @@ export function startTour(tour) {
   if (tour.length > 0) {
     goToPoint(0);
   }
+
+  // S'abonner aux changements de points pour retirer dynamiquement les
+  // points visités pendant la tournée — sinon l'agent voyait des stops
+  // déjà traités rester dans la liste et le compteur ne diminuait pas.
+  if (pointsUnsub) pointsUnsub();
+  pointsUnsub = store.subscribe("points", (allPoints) => {
+    if (!store.get("tour.active")) return;
+
+    const visitedIds = new Set(allPoints.filter(p => p.visited).map(p => p.id));
+    const filtered = tourPoints.filter(p => !visitedIds.has(p.id));
+
+    if (filtered.length === 0) {
+      stopTour();
+      return;
+    }
+
+    // Ajuster l'index courant : si le point actuel a été visité, passer au suivant
+    const currentPoint = tourPoints[currentIndex];
+    tourPoints = filtered;
+    const newIdx = currentPoint && !visitedIds.has(currentPoint.id)
+      ? filtered.findIndex(p => p.id === currentPoint.id)
+      : 0;
+    currentIndex = Math.max(0, newIdx);
+
+    store.set("tour.points", tourPoints);
+    store.set("tour.currentIndex", currentIndex);
+  });
 }
 
 export function goToNext() {
@@ -73,6 +101,10 @@ export function goToPoint(index) {
 export function stopTour() {
   tourPoints = [];
   currentIndex = 0;
+  if (pointsUnsub) {
+    pointsUnsub();
+    pointsUnsub = null;
+  }
   store.set("tour.active", false);
   store.set("tour.points", []);
   store.set("tour.currentIndex", 0);

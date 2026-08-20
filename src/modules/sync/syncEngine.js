@@ -28,6 +28,31 @@ export async function initSyncEngine() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/**
+ * Déduplique la file de sync : si plusieurs entrées "update_visit" existent
+ * pour le même pointId, ne garder que la plus récente (la dernière valeur
+ * de visited est toujours la bonne). Les "upsert_point" ne sont jamais
+ * dédupliqués car chacun contient des données différentes.
+ */
+function dedupSyncQueue(items) {
+  const latestByPoint = new Map();
+  const upserts = [];
+
+  for (const item of items) {
+    if (item.action === "update_visit") {
+      const existing = latestByPoint.get(item.pointId);
+      if (!existing || item.createdAt > existing.createdAt) {
+        if (existing) latestByPoint.delete(item.pointId);
+        latestByPoint.set(item.pointId, item);
+      }
+    } else {
+      upserts.push(item);
+    }
+  }
+
+  return [...latestByPoint.values(), ...upserts];
+}
+
 async function syncOne(supabase, item) {
   if (item.action === "update_visit") {
     const { error } = await supabase
@@ -102,7 +127,8 @@ export async function triggerSync() {
 
   try {
     const supabase = getSupabaseClient();
-    await syncWithConcurrency(pending, supabase);
+    const deduped = dedupSyncQueue(pending);
+    await syncWithConcurrency(deduped, supabase);
 
     const remaining = await getPendingSyncs();
     const dead = await getDeadSyncs();
@@ -121,6 +147,32 @@ export async function retryFailedSyncs() {
   const count = await retryDeadSyncs();
   if (count > 0 && isOnline) await triggerSync();
   return count;
+}
+
+/**
+ * Réinitialise TOUTES les visites côté serveur Supabase en une seule requête.
+ * Beaucoup plus efficace que de créer des centaines d'entrées sync individuelles.
+ * Appelé depuis le bouton "Réinitialiser" quand l'utilisateur est en ligne.
+ */
+export async function resetAllVisitsOnServer() {
+  if (!isOnline) {
+    console.warn("Hors ligne — reset serveur reporté à la prochaine connexion");
+    return { synced: false, error: null };
+  }
+
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase
+      .from(CONFIG.TABLE_NAME)
+      .update({ visited: false, updated_at: new Date().toISOString() })
+      .neq("visited", false);
+
+    if (error) throw error;
+    return { synced: true, error: null };
+  } catch (err) {
+    console.warn("Reset serveur échoué:", err.message);
+    return { synced: false, error: err.message };
+  }
 }
 
 export function destroySyncEngine() {
