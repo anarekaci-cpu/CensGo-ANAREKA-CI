@@ -8,16 +8,41 @@ import { haversineKm } from "../../core/geo.js";
 import { escapeHtml } from "../../core/utils.js";
 
 const iconCache = new Map();
-const markerRegistry = new Map();
+
+// --- Marker pool ---
+// activeMarkers: pointId -> { marker, el } — currently on the map
+// markerPool: reusable { marker, el } objects — off the map, ready to recycle
+const activeMarkers = new Map();
+const markerPool = [];
 let currentPopup = null;
 let moveHandler = null;
 let moveRaf = null;
 let loadedFeatures = [];
 
+// --- Single delegated click handler for all pooled markers ---
+function handleMarkerClick(e) {
+  const el = e.currentTarget;
+  const pointId = el._pointId;
+  if (!pointId) return;
+  e.stopPropagation();
+
+  const point = store.get("points").find(p => p.id === pointId);
+  if (!point) return;
+
+  closeCurrentPopup();
+  const popup = createPopupForPoint(point);
+  currentPopup = popup;
+  popup.addTo(getMap());
+
+  // Store popup reference so refreshMarker can update it
+  const entry = activeMarkers.get(pointId);
+  if (entry) entry.popup = popup;
+}
+
 let pendingIds = new Set();
 store.subscribe("sync.pendingPointIds", (ids) => {
   pendingIds = new Set(ids || []);
-  markerRegistry.forEach((_entry, pointId) => refreshMarker(pointId));
+  activeMarkers.forEach((_entry, pointId) => refreshMarker(pointId));
 });
 
 function isPointPending(pointId) {
@@ -149,6 +174,28 @@ function createPopupForPoint(point) {
   return popup;
 }
 
+// --- Pool helpers ---
+
+function acquireMarker() {
+  const pooled = markerPool.pop();
+  if (pooled) return pooled;
+  const el = document.createElement("div");
+  el.style.cursor = "pointer";
+  el.addEventListener("click", handleMarkerClick);
+  return {
+    el,
+    marker: new maplibregl.Marker({ element: el, anchor: "bottom" })
+  };
+}
+
+function releaseMarker(entry) {
+  entry.marker.remove();
+  entry.el._pointId = null;
+  markerPool.push({ marker: entry.marker, el: entry.el });
+}
+
+// --- Core rendering ---
+
 function renderVisibleMarkers() {
   const map = getMap();
   const cluster = getClusterGroup();
@@ -167,18 +214,35 @@ function renderVisibleMarkers() {
 
   closeCurrentPopup();
 
-  markerRegistry.forEach((entry) => {
-    entry.marker.remove();
-  });
-  markerRegistry.clear();
-
   const allPoints = store.get("points") || [];
   const pointsById = new Map(allPoints.map(p => [p.id, p]));
 
-  clusters.forEach((feature) => {
+  // Collect which pointIds should be visible
+  const visibleIds = new Set();
+  const clusterFeatures = [];
+
+  for (const feature of clusters) {
+    if (feature.properties.cluster) {
+      clusterFeatures.push(feature);
+    } else {
+      visibleIds.add(feature.properties.id);
+    }
+  }
+
+  // Return markers that are no longer visible to the pool
+  for (const [pointId, entry] of activeMarkers) {
+    if (!visibleIds.has(pointId)) {
+      releaseMarker(entry);
+      activeMarkers.delete(pointId);
+    }
+  }
+
+  // Create or update markers for visible points
+  for (const feature of clusters) {
     const props = feature.properties;
 
     if (props.cluster) {
+      // Cluster markers: recreate (they're few and simple)
       const el = document.createElement("div");
       el.className = "cluster-marker";
       el.textContent = props.point_count;
@@ -198,35 +262,32 @@ function renderVisibleMarkers() {
     } else {
       const pointId = props.id;
       const point = pointsById.get(pointId);
-      if (!point) return;
+      if (!point) continue;
 
+      const existing = activeMarkers.get(pointId);
+      if (existing) {
+        // Already on screen — update innerHTML only if icon changed
+        const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
+        const newHtml = buildIconHTML(color, point.visited, isPointPending(pointId));
+        if (existing.el.innerHTML !== newHtml) {
+          existing.el.innerHTML = newHtml;
+        }
+        existing.marker.setLngLat([point.lon, point.lat]);
+        continue;
+      }
+
+      // Acquire a marker from the pool or create new
+      const { marker, el } = acquireMarker();
       const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-      const el = document.createElement("div");
       el.innerHTML = buildIconHTML(color, point.visited, isPointPending(pointId));
-      el.style.cursor = "pointer";
+      el._pointId = pointId;
 
-      const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
-        .setLngLat([point.lon, point.lat])
-        .addTo(map);
+      marker.setLngLat([point.lon, point.lat]);
+      marker.addTo(map);
 
-      const popup = createPopupForPoint(point);
-
-      // Ne pas utiliser marker.setPopup(popup) : MapLibre y attache son propre
-      // gestionnaire de clic qui bascule le popup (ouvre/ferme), en plus de
-      // celui ci-dessous qui gère l'ouverture manuellement — les deux se
-      // marchaient dessus et le popup finissait par ne plus s'ouvrir du tout.
-
-      marker.getElement().addEventListener("click", (e) => {
-        e.stopPropagation();
-        closeCurrentPopup();
-        currentPopup = popup;
-        popup.addTo(map);
-      });
-
-      marker.pointId = pointId;
-      markerRegistry.set(pointId, { marker, popup, point });
+      activeMarkers.set(pointId, { marker, el, popup: null });
     }
-  });
+  }
 }
 
 export function renderMarkers(points) {
@@ -234,8 +295,11 @@ export function renderMarkers(points) {
   const cluster = getClusterGroup();
   if (!map || !cluster) return;
 
-  markerRegistry.forEach((entry) => entry.marker.remove());
-  markerRegistry.clear();
+  // Return all active markers to the pool
+  for (const [, entry] of activeMarkers) {
+    releaseMarker(entry);
+  }
+  activeMarkers.clear();
   closeCurrentPopup();
 
   loadedFeatures = points.map(p => ({
@@ -262,7 +326,7 @@ export function renderMarkers(points) {
 }
 
 export function upsertMarker(point) {
-  const existing = markerRegistry.get(point.id);
+  const existing = activeMarkers.get(point.id);
   if (existing) {
     refreshMarker(point.id);
     return;
@@ -282,37 +346,42 @@ export function upsertMarker(point) {
 }
 
 export function refreshMarker(pointId) {
-  const entry = markerRegistry.get(pointId);
+  const entry = activeMarkers.get(pointId);
   const point = store.get("points").find(p => p.id === pointId);
   if (!entry || !point) return;
 
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-  entry.marker.getElement().innerHTML = buildIconHTML(color, point.visited, isPointPending(pointId));
-
-  if (entry.popup.isOpen()) {
-    entry.popup.setDOMContent(buildPopup(point));
+  const newHtml = buildIconHTML(color, point.visited, isPointPending(pointId));
+  if (entry.el.innerHTML !== newHtml) {
+    entry.el.innerHTML = newHtml;
   }
 
-  entry.point = point;
+  if (entry.popup && entry.popup.isOpen()) {
+    entry.popup.setDOMContent(buildPopup(point));
+  }
 }
 
 export function openPopup(pointId) {
-  const entry = markerRegistry.get(pointId);
-  if (!entry) return;
+  const point = store.get("points").find(p => p.id === pointId);
+  if (!point) return;
 
   const map = getMap();
   closeCurrentPopup();
-  currentPopup = entry.popup;
-  entry.popup.addTo(map);
+  const popup = createPopupForPoint(point);
+  currentPopup = popup;
+  popup.addTo(map);
+
+  const entry = activeMarkers.get(pointId);
+  if (entry) entry.popup = popup;
 }
 
 export function getFilteredBounds() {
-  if (markerRegistry.size === 0) return null;
+  if (activeMarkers.size === 0) return null;
   const map = getMap();
   if (!map) return null;
 
   const bounds = new maplibregl.LngLatBounds();
-  markerRegistry.forEach((entry) => {
+  activeMarkers.forEach((entry) => {
     bounds.extend(entry.marker.getLngLat());
   });
 
