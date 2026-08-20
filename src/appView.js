@@ -15,6 +15,15 @@ import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZ
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml } from "./core/utils.js";
 
+let emptyStateEl = null;
+
+function removeEmptyState() {
+  if (emptyStateEl) {
+    emptyStateEl.remove();
+    emptyStateEl = null;
+  }
+}
+
 let tourModulePromise = null;
 function getTourModule() {
   if (!tourModulePromise) {
@@ -277,18 +286,20 @@ async function initApp() {
 
   if (points.length === 0) {
     const mapEl = document.getElementById("main");
-    if (mapEl) {
-      const emptyState = document.createElement("div");
-      emptyState.className = "empty-state";
-      emptyState.innerHTML = `
+    if (mapEl && !emptyStateEl) {
+      emptyStateEl = document.createElement("div");
+      emptyStateEl.className = "empty-state";
+      emptyStateEl.innerHTML = `
         <div class="empty-state-icon">📍</div>
         <div class="empty-state-title">Aucun point de recensement</div>
         <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
         <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
       `;
-      mapEl.appendChild(emptyState);
+      mapEl.appendChild(emptyStateEl);
       document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
     }
+  } else {
+    removeEmptyState();
   }
 
   document.getElementById("tourBtn").disabled = false;
@@ -686,9 +697,13 @@ function bindAiEvents() {
 }
 
 function bindStoreListeners() {
-  store.subscribe("points", () => {
+  store.subscribe("points", (points) => {
     updateStats();
     renderQuartierCoverage();
+    if (points && points.length > 0) {
+      removeEmptyState();
+      renderMarkers(points);
+    }
   });
 
   const renderSyncStatus = () => {
