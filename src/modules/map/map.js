@@ -2,24 +2,29 @@ import maplibregl from "maplibre-gl";
 import Supercluster from "supercluster";
 import { CONFIG } from "../../core/config.js";
 
-const osmStyle = {
+const basemapStyle = {
   version: 8,
   sources: {
-    osm: {
+    carto: {
       type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      // CARTO Voyager au lieu de tile.openstreetmap.org : le serveur public
+      // OSM applique une politique anti-usage-app (rate-limiting / blocage
+      // des PWAs) et ses réponses d'erreur n'ont pas d'en-tête CORS, d'où
+      // les tempêtes de "TypeError: Failed to fetch". CARTO est conçu pour
+      // la production, sert des en-têtes CORS corrects et autorise l'usage
+      // applicatif avec attribution. Tuiles servies jusqu'au zoom 20.
+      tiles: [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+      ],
       tileSize: 256,
-      // OSM ne sert pas au-delà du zoom 19. Sans cette limite, MapLibre
-      // (tileSize 256 => il demande une tuile au-dessus du zoom caméra,
-      // maxzoom source par défaut : 22) requêtait des tuiles z=20 inexistantes
-      // -> réponses sans header CORS -> net::ERR_FAILED -> tempête d'erreurs
-      // "no-response" dans le service worker. Au-delà de 19, MapLibre
-      // agrandit simplement les tuiles z=19 (overzoom), comportement voulu.
-      maxzoom: 19,
-      attribution: "© OpenStreetMap contributors"
+      maxzoom: 20,
+      attribution:
+        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://carto.com/attributions\">CARTO</a>"
     }
   },
-  layers: [{ id: "osm", type: "raster", source: "osm" }]
+  layers: [{ id: "carto", type: "raster", source: "carto" }]
 };
 
 let mapInstance = null;
@@ -32,7 +37,7 @@ export function initMap(containerId = "map") {
 
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: osmStyle,
+    style: basemapStyle,
     center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
     zoom: CONFIG.MAP_ZOOM,
     maxZoom: CONFIG.MAP_MAX_ZOOM,

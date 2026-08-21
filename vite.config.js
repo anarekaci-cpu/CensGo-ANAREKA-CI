@@ -31,10 +31,13 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/,
+            // Tuiles du fond de carte : CARTO (principal) + OSM (transition).
+            // Nouveau cache "map-tiles" : départ propre, l'ancien cache
+            // "osm-tiles" peut contenir des entrées de la période cassée.
+            urlPattern: /^https:\/\/([abcd]\.)?basemaps\.cartocdn\.com\/.*/,
             handler: "CacheFirst",
             options: {
-              cacheName: "osm-tiles",
+              cacheName: "map-tiles",
               expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 },
               // Ne cacher QUE les réponses valides : sans ça, une réponse
               // d'erreur du serveur de tuiles pouvait être persistée et
