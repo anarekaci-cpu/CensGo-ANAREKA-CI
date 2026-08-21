@@ -7,7 +7,7 @@ import { openCensusForm } from "./censusFormModal.js";
 import { toGeoJSONCoordinates } from "../../core/geo.js";
 import { escapeHtml, normalizePointId } from "../../core/utils.js";
 import { toastWarning, toastError } from "../../core/toast.js";
-import { log } from "../../core/debug.js";
+import { log, isVerbose } from "../../core/debug.js";
 import { buildPopupModel } from "./popupModel.js";
 
 const iconCache = new Map();
@@ -61,33 +61,53 @@ function getPointById(pointId) {
 
 // --- Single delegated click handler for all pooled markers ---
 function handleMarkerClick(e) {
+  log.trace("MARKER_CLICK", "START");
   const el = e.currentTarget;
   const rawId = el._pointId;
   const pointId = normalizePointId(rawId);
-  if (!pointId) return;
+  log.trace("MARKER_CLICK", "pointId =", rawId, "| typeof =", typeof rawId);
+  if (!pointId) {
+    // Cas B : clic détecté mais pointId invalide (marqueur recyclé entre le
+    // mousedown et le click) — sortie silencieuse rendue explicite.
+    log.trace("MARKER_CLICK", "STOP: pointId vide (marqueur en cours de recyclage)");
+    return;
+  }
   e.stopPropagation();
 
   // Diagnostic terrain (Problème #3) : tracer exactement ce qui arrive au clic.
   log.info("MARKER_CLICK", `pointId="${pointId}" type=${typeof rawId}`);
+  log.trace("MARKER_CLICK", "store.points.length =", (store.get("points") || []).length);
 
   const point = getPointById(pointId);
   log.debug("POINT_LOOKUP",
     `store points=${(store.get("points") || []).length}`,
     `found=${Boolean(point)}`,
     point ? `point.id="${normalizePointId(point.id)}"` : "");
+  log.trace("MARKER_CLICK", "pointFound =", Boolean(point));
   if (!point) {
-    // Garde-fou anti-affichage croisé : jamais les infos d'un autre point,
-    // et jamais un échec muet — l'agent sait que quelque chose cloche.
+    // Cas C : id valide mais point absent du store (désalignement).
+    log.trace("MARKER_CLICK", "STOP: point introuvable dans store pour id", pointId);
     toastWarning("Fiche introuvable dans les données locales. Rechargement…");
     return;
   }
+  log.trace("MARKER_CLICK", "point =", point.name, `(${point.lat}, ${point.lon})`);
 
   closeCurrentPopup();
+  log.trace("POPUP", "build START");
   const popup = createPopupForPoint(point);
+  log.trace("POPUP", "build RESULT =", popup ? "OK" : "NULL");
   currentPopup = popup;
   currentPopupPointId = pointId;
+  log.trace("POPUP", "addTo START");
   popup.addTo(getMap());
+  log.trace("POPUP", "addTo END");
+  // Audit (efficiency) : verifyPopupVisible() force un reflow synchrone
+  // (getComputedStyle + getBoundingClientRect) — coûteux sur chaque tap si
+  // on l'exécute inconditionnellement. Réservé au diagnostic terrain
+  // (localStorage.DEBUG=1), comme le reste du traçage verbeux.
+  if (isVerbose()) verifyPopupVisible(point);
   log.debug("POPUP", `created=true added=true id="${pointId}" name="${point.name}"`);
+  log.trace("MARKER_CLICK", "END");
 
   popup.on("close", () => {
     if (currentPopup === popup) {
@@ -99,6 +119,33 @@ function handleMarkerClick(e) {
   // Store popup reference so refreshMarker can update it
   const entry = activeMarkers.get(pointId);
   if (entry) entry.popup = popup;
+}
+
+/**
+ * Auto-vérification du rendu réel (Cas E/G — popup créé mais invisible) :
+ * inspecte le DOM MapLibre et les styles calculés juste après l'ouverture.
+ */
+function verifyPopupVisible(point) {
+  try {
+    const popupEl = document.querySelector(".maplibregl-popup");
+    if (!popupEl) {
+      log.traceAlways("POPUP", "⚠️ DOM: aucun élément .maplibregl-popup trouvé après addTo");
+      return;
+    }
+    const cs = getComputedStyle(popupEl);
+    const content = popupEl.querySelector(".maplibregl-popup-content");
+    const rect = content ? content.getBoundingClientRect() : null;
+    const onScreen = rect && rect.width > 0 && rect.height > 0 &&
+      rect.bottom > 0 && rect.right > 0 &&
+      rect.top < window.innerHeight && rect.left < window.innerWidth;
+    log.traceAlways("POPUP",
+      `DOM=présent display=${cs.display} visibility=${cs.visibility} opacity=${cs.opacity}`,
+      `zIndex=${cs.zIndex} taille=${rect ? Math.round(rect.width) + "x" + Math.round(rect.height) : "?"}`,
+      `à-l'écran=${onScreen}`,
+      `titre="${point.name}"`);
+  } catch (err) {
+    log.warn("POPUP", "vérification DOM impossible:", err.message);
+  }
 }
 
 let pendingIds = new Set();
@@ -194,15 +241,29 @@ function handlePopupAction(e) {
   const btn = e.currentTarget;
   const action = btn.dataset.action;
   const id = normalizePointId(btn.dataset.id);
+  log.trace("ROUTE", `CLICK action=${action} pointId=${id}`);
   const point = getPointById(id);
+  log.trace("ROUTE", "pointFound =", Boolean(point));
   if (!point) {
+    // Cas B : le bouton reçoit le clic mais le point n'est plus dans le store.
+    log.trace("ROUTE", "STOP: point introuvable pour id", id);
     toastWarning("Fiche introuvable dans les données locales.");
     return;
   }
 
   if (action === "route") {
     // Itinéraire interne : OSRM + tracé sur la carte (navigation.js)
-    store.set("navigation.destination", point);
+    log.trace("ROUTE", `latitude=${point.lat} longitude=${point.lon}`);
+    // BUG (audit) : store.set() ignore silencieusement une valeur si elle a
+    // la MÊME RÉFÉRENCE que l'ancienne (core/store.js). `point` vient de
+    // pointIndex et garde la même référence tant que le store "points" n'a
+    // pas changé — donc un premier échec (GPS pas encore fixé, OSRM en
+    // timeout...) laissait chaque clic "Itinéraire" suivant sur CE MÊME point
+    // ne rien faire du tout : ni navigation.destination ni navigation.active
+    // ne changeaient de valeur, aucun abonné ne se redéclenchait, aucune
+    // erreur console. Cloner l'objet garantit une référence différente à
+    // chaque clic, donc un nouvel essai systématique.
+    store.set("navigation.destination", { ...point });
     store.set("navigation.active", true);
   } else if (action === "navigate") {
     openExternalNavigation(point);
@@ -320,17 +381,23 @@ function renderVisibleMarkers() {
   for (const cm of clusterMarkers) cm.remove();
   clusterMarkers.length = 0;
 
-  // Collect which pointIds should be visible
+  // Collect which pointIds should be visible — ids NORMALISÉS obligatoire :
+  // feature.properties.id peut être un number (vieux cache IndexedDB) alors
+  // que activeMarkers et currentPopupPointId sont des strings normalisées.
+  // Sans cette normalisation, chaque moveend (recentrage GPS, pan…) croyait
+  // le popup courant "plus visible" et le FERMAIT immédiatement après son
+  // ouverture, en recyclant tous les marqueurs — sans aucune erreur console.
   const visibleIds = new Set();
 
   for (const feature of clusters) {
     if (!feature.properties.cluster) {
-      visibleIds.add(feature.properties.id);
+      visibleIds.add(normalizePointId(feature.properties.id));
     }
   }
 
   // Only close popup if its point is no longer visible (was recycled)
   if (currentPopup && currentPopupPointId && !visibleIds.has(currentPopupPointId)) {
+    log.trace("POPUP", `fermé par renderVisibleMarkers (id "${currentPopupPointId}" hors viewport)`);
     closeCurrentPopup();
   }
 

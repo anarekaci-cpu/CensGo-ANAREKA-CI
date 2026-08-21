@@ -815,11 +815,30 @@ function bindStoreListeners() {
   store.subscribe("navigation.active", (active) => {
     const banner = document.getElementById("routeBanner");
     if (banner) banner.style.display = active ? "flex" : "none";
+    // BUG (diagnostic itinéraire) : #navPanel contenait le texte réel de
+    // l'instruction (distance/durée, erreur, "GPS indisponible"...) mais son
+    // display:none initial (style.css) n'était JAMAIS levé nulle part dans le
+    // code — le panneau restait invisible pour toujours, même quand la route
+    // était calculée avec succès et la logique métier parfaitement correcte.
+    // Aucune erreur console : juste un panneau qui ne s'ouvrait jamais.
+    const panel = document.getElementById("navPanel");
+    if (panel) panel.style.display = active ? "flex" : "none";
+  });
+
+  store.subscribe("navigation.destination", (destination) => {
+    // BUG : #routeDestName et #routeInfo (bandeau du haut) étaient déclarés
+    // dans le HTML mais jamais remplis par aucun code JS — le bandeau
+    // s'affichait bien (display:flex) mais totalement vide ("Itinéraire
+    // vers  — "), sans nom de destination ni info de trajet.
+    const nameEl = document.getElementById("routeDestName");
+    if (nameEl) nameEl.textContent = destination?.name || "";
   });
 
   store.subscribe("navigation.instruction", (text) => {
     const el = document.getElementById("navInstruction");
     if (el) el.textContent = text || "—";
+    const infoEl = document.getElementById("routeInfo");
+    if (infoEl) infoEl.textContent = text || "";
   });
 
   store.subscribe("navigation.arrived", (arrived) => {

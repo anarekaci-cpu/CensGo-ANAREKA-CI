@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS census_points (
 ALTER TABLE census_points ADD COLUMN IF NOT EXISTS etablissement TEXT NOT NULL DEFAULT '';
 ALTER TABLE census_points ADD COLUMN IF NOT EXISTS activity_type TEXT NOT NULL DEFAULT '';
 ALTER TABLE census_points ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+-- created_at / zone : le code applicatif (normalize.js, popupModel.js) sait
+-- déjà lire ces champs, mais ils n'étaient jamais réellement présents sur
+-- census_points — les demander dans le SELECT de dataLoader.js faisait
+-- échouer CHAQUE synchro avec l'erreur PostgREST 42703 (colonne inconnue).
+-- Après avoir exécuté cette migration, "created_at" peut être remis dans
+-- le SELECT de src/modules/census/dataLoader.js.
+ALTER TABLE census_points ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE census_points ADD COLUMN IF NOT EXISTS zone TEXT;
 
 -- 2. Index pour les requêtes fréquentes
 CREATE INDEX IF NOT EXISTS idx_census_points_block_order

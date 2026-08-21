@@ -6,6 +6,8 @@ import { initSyncEngine } from "./modules/sync/syncEngine.js";
 import { initGeolocation } from "./modules/geolocation/geolocation.js";
 import { App } from "./appShell.js";
 import { db } from "./db/database.js";
+import { store } from "./core/store.js";
+import { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } from "./core/diagnostics.js";
 
 async function bootstrap() {
   const app = document.getElementById("app");
@@ -22,10 +24,19 @@ async function bootstrap() {
     await db.open();
     console.log("📦 IndexedDB prête");
 
+    // Mode diagnostic (localStorage.DIAG=1) : session factice + données de
+    // test pour reproduire le flux complet sans identifiants. Inertre sinon.
+    if (isDiagEnabled()) {
+      diagInstallFakeUser();
+      await diagSeedPointsIfEmpty(db);
+    }
+
     // Auth AVANT sync : le moteur de synchronisation envoie des mutations
     // vers Supabase — sans session restaurée, RLS refuserait chaque envoi
     // et brûlerait les tentatives de retry pour rien.
-    await initAuth();
+    if (!store.get("user")) {
+      await initAuth();
+    }
     await initSyncEngine();
 
     const appInstance = new App(app);

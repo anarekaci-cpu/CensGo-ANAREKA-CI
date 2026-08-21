@@ -51,15 +51,20 @@ export function initNavigation() {
 
 async function startNavigation() {
   const destination = store.get("navigation.destination");
-  if (!destination) return;
+  log.trace("ROUTE", "startNavigation START destination =", destination?.name);
+  if (!destination) {
+    log.trace("ROUTE", "STOP: aucune destination");
+    return;
+  }
 
-  log.info("GPS", `navigation vers "${destination.name}" (${destination.lat},${destination.lon})`);
-
+  log.trace("ROUTE", `destination = [${destination.lat}, ${destination.lon}]`);
   const position = store.get("geo.position");
+  log.trace("ROUTE", "currentPosition =", position ? `[${position.lat}, ${position.lng}]` : "null");
   if (!position) {
-    // Erreur CLAIRE (Problème #7) au lieu d'un silence ou d'un simple texte
-    // passif : l'agent sait immédiatement quoi faire. Le calcul partira
-    // automatiquement dès la première position GPS reçue (abonnement ci-dessus).
+    // Cas D : position GPS absente — erreur CLAIRE (Problème #7) au lieu
+    // d'un silence. Le calcul partira automatiquement dès la première
+    // position GPS reçue (abonnement geo.position ci-dessus).
+    log.trace("ROUTE", "STOP: GPS absent — message affiché, calcul en attente de fix");
     store.set("navigation.instruction", "📍 Position actuelle indisponible. Activez la localisation pour calculer l'itinéraire.");
     if (!gpsWaitToastShown) {
       gpsWaitToastShown = true;
@@ -71,11 +76,14 @@ async function startNavigation() {
   store.set("navigation.instruction", "⏳ Calcul de l'itinéraire...");
   try {
     const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
+    log.trace("ROUTE", "geometry =", route.geometry?.coordinates?.length, "points");
     store.set("navigation.route", route);
     showRouteDestination(destination.lat, destination.lon);
     displayRoute(route.geometry);
     store.set("navigation.instruction", `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`);
+    log.trace("ROUTE", "END: route affichée + fitBounds demandé");
   } catch (err) {
+    log.trace("ROUTE", "STOP: échec calcul —", err.message);
     store.set("navigation.instruction", "⚠️ Itinéraire indisponible — vérifiez votre connexion");
   }
 }

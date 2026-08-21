@@ -175,6 +175,36 @@ describe("chaîne marker -> point -> popup (ids mixtes)", () => {
     expect(store.get("navigation.destination").name).toBe("Kiosque Bamba");
   });
 
+  it("Audit : un second clic Itinéraire sur LE MÊME point (retry après échec) redéclenche bien le calcul", async () => {
+    // Bug trouvé à l'audit : store.set() ignore une valeur si elle a la
+    // MÊME RÉFÉRENCE que l'ancienne (core/store.js). getPointById() renvoie
+    // toujours la même référence tant que store.points n'a pas changé, donc
+    // après un premier échec (GPS non fixé, timeout OSRM...), chaque clic
+    // "Itinéraire" suivant sur CE MÊME point ne déclenchait plus aucun
+    // abonné — aucune erreur, mais plus aucune tentative non plus.
+    // store.set() (core/store.js) n'avertit les abonnés QUE si la nouvelle
+    // valeur diffère par référence (oldValue !== value) de l'ancienne. La
+    // preuve directe et déterministe du correctif est donc : deux clics sur
+    // le même point doivent produire deux références DIFFÉRENTES pour
+    // navigation.destination (sinon le second clic serait un no-op silencieux
+    // pour tout abonné, exactement le bug observé en terrain).
+    renderMarkers(store.get("points"));
+
+    clickMarker(123);
+    const popup1 = state.popups[state.popups.length - 1];
+    popup1.content.querySelector('[data-action="route"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const dest1 = store.get("navigation.destination");
+
+    clickMarker(123);
+    const popup2 = state.popups[state.popups.length - 1];
+    popup2.content.querySelector('[data-action="route"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const dest2 = store.get("navigation.destination");
+
+    expect(dest1).not.toBe(dest2); // références différentes -> le store notifiera bien les abonnés
+    expect(normalizePointId(dest1.id)).toBe("123");
+    expect(normalizePointId(dest2.id)).toBe("123");
+  });
+
   it("popup complet : téléphone, quartier, adresse, statut présents", () => {
     renderMarkers(store.get("points"));
     clickMarker(123);

@@ -13,21 +13,31 @@ import { log } from "../../core/debug.js";
  * du globe.
  */
 export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
+  log.trace("ROUTE", "request START");
+  log.trace("ROUTE", `origin = [${fromLat}, ${fromLng}] destination = [${toLat}, ${toLng}]`);
+  log.trace("ROUTE", "provider = OSRM (CONFIG.OSRM_URL)");
   if (!isValidLatLng(fromLat, fromLng) || !isValidLatLng(toLat, toLng)) {
+    // Cas C/E : coordonnées absentes ou inversées — rejet explicite AVANT
+    // tout appel réseau plutôt que route absurde de l'autre côté du globe.
     log.error("ROUTE", `coordonnées invalides origin=(${fromLat},${fromLng}) destination=(${toLat},${toLng})`);
+    log.trace("ROUTE", "STOP: validation coordonnées échouée");
     throw new Error("Coordonnées invalides pour le calcul d'itinéraire");
   }
 
   const url = `${CONFIG.OSRM_URL}/route/v1/foot/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson&steps=true`;
   log.info("ROUTE", `request started origin=[${fromLat},${fromLng}] destination=[${toLat},${toLng}]`);
+  log.trace("ROUTE", "request URL =", url);
 
   try {
     const res = await fetch(url);
     log.debug("ROUTE", `response ${res.status}`);
+    log.trace("ROUTE", "response STATUS =", res.status);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     if (data.code !== "Ok" || !data.routes?.[0]) {
+      // Cas H : requête réussie mais réponse inattendue.
+      log.trace("ROUTE", "STOP: réponse OSRM code =", data.code, "(routes vides ?)");
       throw new Error("Itinéraire impossible");
     }
 
@@ -42,7 +52,9 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
       steps: route.legs[0]?.steps || []
     };
   } catch (err) {
+    // Cas F/G : requête jamais lancée (offline) ou échec réseau/HTTP.
     log.error("ROUTE", "échec:", err.message);
+    log.trace("ROUTE", "STOP: erreur =", err.message);
     throw err;
   }
 }

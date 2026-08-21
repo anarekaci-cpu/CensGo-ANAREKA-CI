@@ -2,12 +2,14 @@ import { store } from "../../core/store.js";
 import { getMap, flyToPoint, showUserLocation } from "../map/map.js";
 import { reportPosition } from "./agentTracking.js";
 import { haversineKm } from "../../core/geo.js";
+import { log } from "../../core/debug.js";
 
 let position = null;
 let hasAutoCentered = false;
 
 export function initGeolocation() {
   if (!navigator.geolocation) {
+    log.traceAlways("GPS", "navigator.geolocation INDISPONIBLE");
     store.set("geo.error", "Géolocalisation non supportée");
     return;
   }
@@ -21,6 +23,7 @@ export function initGeolocation() {
         heading: pos.coords.heading,
         timestamp: pos.timestamp
       };
+      log.debug("GPS", `fix lat=${position.lat} lng=${position.lng} accuracy=${position.accuracy}m`);
       store.set("geo.position", position);
       store.set("geo.tracking", true);
       store.set("geo.error", null);

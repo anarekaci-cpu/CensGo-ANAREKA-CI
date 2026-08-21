@@ -17,6 +17,12 @@ const VERBOSE = (() => {
   }
 })();
 
+/** Expose le flag DEBUG aux appelants qui doivent éviter du travail coûteux
+ * (ex: forcer un reflow pour un diagnostic) quand le mode verbeux est off. */
+export function isVerbose() {
+  return VERBOSE;
+}
+
 function fmt(parts) {
   return [`%c${parts[0]}`, "font-weight:700;color:#0e7490;", ...parts.slice(1)];
 }
@@ -36,5 +42,17 @@ export const log = {
   debug(tag, ...args) {
     if (!VERBOSE) return;
     console.log(...fmt([`[${tag}]`, ...args]));
+  },
+  /**
+   * Traçage de flux au format [DEBUG][TAG] — suit exactement l'exécution
+   * (START/END/gardes silencieux). Actif avec localStorage.DEBUG=1.
+   */
+  trace(tag, ...args) {
+    if (!VERBOSE) return;
+    console.log(`[DEBUG][${tag}]`, ...args);
+  },
+  /** Traçage toujours affiché (diagnostic terrain ponctuel). */
+  traceAlways(tag, ...args) {
+    console.log(`[DEBUG][${tag}]`, ...args);
   }
 };

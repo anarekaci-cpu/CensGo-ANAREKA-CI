@@ -1,6 +1,7 @@
 import maplibregl from "maplibre-gl";
 import Supercluster from "supercluster";
 import { CONFIG } from "../../core/config.js";
+import { log } from "../../core/debug.js";
 
 const basemapStyle = {
   version: 8,
@@ -75,12 +76,16 @@ export function fitToBounds(bounds, padding = [40, 40]) {
 }
 
 export function addRouteLayer(geojson) {
-  if (!mapInstance) return;
+  if (!mapInstance) {
+    log.trace("ROUTE", "STOP addRouteLayer: mapInstance null");
+    return;
+  }
 
   // addSource/addLayer lèvent une erreur ("Style is not done loading") si le
   // style du fond de carte n'a pas fini de charger — ça peut arriver si un
   // agent clique sur "Itinéraire" tout de suite après l'ouverture de l'app.
   if (!mapInstance.isStyleLoaded()) {
+    log.trace("ROUTE", "style pas prêt — ajout de la route différé à 'idle'");
     mapInstance.once("idle", () => addRouteLayer(geojson));
     return;
   }
@@ -101,6 +106,9 @@ export function addRouteLayer(geojson) {
     paint: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8 }
   });
 
+  log.traceAlways("ROUTE",
+    `map source="route-line" ajoutée, layer="route-line-layer" ajouté`,
+    `${geojson?.coordinates?.length || 0} points de tracé`);
   return { sourceId: "route-line", layerId: "route-line-layer" };
 }
 
@@ -141,7 +149,10 @@ export function clearRouteLayers() {
  * @param {{coordinates: [number, number][]}} geometry - LineString GeoJSON
  */
 export function fitRouteBounds(geometry) {
-  if (!mapInstance || !geometry?.coordinates?.length) return;
+  if (!mapInstance || !geometry?.coordinates?.length) {
+    log.trace("ROUTE", "STOP fitRouteBounds: geometry vide");
+    return;
+  }
   const bounds = new maplibregl.LngLatBounds();
   for (const c of geometry.coordinates) bounds.extend(c);
   // Padding haut plus grand : laisse la place au bandeau de navigation en bas.
@@ -150,6 +161,7 @@ export function fitRouteBounds(geometry) {
     duration: 800,
     maxZoom: 17
   });
+  log.trace("ROUTE", "fitBounds appliqué sur le tracé");
 }
 
 /** Marqueur visuel de destination pendant une navigation. */
