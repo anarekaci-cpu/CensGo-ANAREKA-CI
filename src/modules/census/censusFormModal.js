@@ -38,7 +38,7 @@ export function initCensusFormModal() {
           <div class="form-group">
             <label for="cf_name">Nom & Prénoms / Raison Sociale <span class="req">*</span></label>
             <div class="input-with-icon">
-              <input type="text" id="cf_name" placeholder="Ex: Kouadio Koffi Jean" required autocomplete="off" />
+              <input type="text" id="cf_name" placeholder="Ex: Kouadio Koffi Jean" required autocomplete="off" enterkeyhint="next" />
               <span id="cf_name_val" class="input-val-badge"></span>
             </div>
             <div id="cf_name_err" class="input-hint">Nom du restaurateur / responsable de l'établissement.</div>
@@ -48,7 +48,7 @@ export function initCensusFormModal() {
           <div class="form-group">
             <label for="cf_tel">Numéro Téléphone (Côte d'Ivoire) <span class="req">*</span></label>
             <div class="input-with-icon">
-              <input type="tel" id="cf_tel" placeholder="Ex: 07 08 09 10 11" maxlength="14" autocomplete="off" />
+              <input type="tel" id="cf_tel" placeholder="Ex: 07 08 09 10 11" maxlength="14" autocomplete="off" enterkeyhint="next" inputmode="numeric" />
               <span id="cf_tel_val" class="input-val-badge"></span>
             </div>
             <div id="cf_tel_err" class="input-hint">Format CI 10 chiffres (début 01, 05, 07...).</div>
@@ -301,6 +301,29 @@ export async function closeCensusForm() {
 function bindFormEvents() {
   document.getElementById("censusFormCloseBtn")?.addEventListener("click", () => closeCensusForm());
   document.getElementById("censusModalBackdrop")?.addEventListener("click", () => closeCensusForm());
+
+  // Clavier virtuel : quand un champ prend le focus, on le centre dans la
+  // partie visible. Sans ça, sur les Android d'entrée de gamme qui
+  // redimensionnent (ou pire, panent) la fenêtre à l'ouverture du clavier,
+  // le champ actif restait masqué derrière le clavier et l'agent tapait
+  // "dans le vide".
+  document.getElementById("censusForm")?.addEventListener("focusin", (e) => {
+    if (!e.target.matches("input, textarea, select")) return;
+    setTimeout(() => {
+      e.target.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 300);
+  });
+
+  // Touche Entrée / bouton "Suivant" du clavier virtuel : passe au champ
+  // suivant au lieu de soumettre la fiche à moitié remplie (comportement
+  // par défaut d'un <form> avec bouton submit).
+  document.getElementById("censusForm")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !e.target.matches('input[type="text"], input[type="tel"]')) return;
+    e.preventDefault();
+    const focusables = [...e.currentTarget.querySelectorAll('input[type="text"], input[type="tel"], button.chip-a')];
+    const idx = focusables.indexOf(e.target);
+    focusables[idx + 1]?.focus();
+  });
 
   // Inputs live validation
   document.getElementById("cf_name")?.addEventListener("input", validateFormRealtime);

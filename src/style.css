@@ -254,7 +254,12 @@ header {
   box-shadow: var(--shadow-lg) !important;
   padding: 18px !important;
   border: 1px solid rgba(0,0,0,0.06);
-  overflow: hidden;
+  /* Avant : overflow:hidden coupait le bas du popup (boutons d'action)
+     dès que la fiche était longue ou l'écran petit — contenu illisible
+     et inaccessible. Maintenant : hauteur bornée + scroll tactile. */
+  max-height: min(62dvh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   min-width: 270px;
   margin: 0 !important;
 }
@@ -432,13 +437,69 @@ header {
 }
 .tour-list { font-size: 13px; }
 .tour-jump-btn {
-  padding: 8px 12px !important; min-height: 36px !important;
+  padding: 8px 12px !important; min-height: 44px !important;
 }
 
 .maplibregl-marker { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
 .maplibregl-map { font-family: inherit !important; }
+
+/* === Zones tactiles & usage terrain smartphone === */
+
+/* Zone tactile élargie pour les pins : le visuel SVG reste identique
+   (26x34) mais l'élément cliquable couvre au moins 44x52px. Sans ça,
+   les agents rataient le tap du bout du doigt et insistaient — perçu
+   comme un "double-tap nécessaire". align-items:flex-end garde la pointe
+   du pin collée aux coordonnées (anchor: bottom). */
+.pin-hit {
+  width: 44px; height: 52px;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+
+/* Contrôles natifs MapLibre (~29px par défaut) portés à la norme 44px */
+.maplibregl-ctrl-group button {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+/* FAB "+ Ajouter un point" : action principale du terrain, doit être
+   atteignable du pouce en usage une main — donc en bas à droite,
+   au-dessus du FAB "point le plus proche". Le bouton header seul
+   obligeait à étirer l'index en haut de l'écran. */
+#fabAdd {
+  position: absolute; bottom: 84px; right: 18px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white; border: 1px solid rgba(255,255,255,0.25);
+  font-size: 26px; line-height: 1; cursor: pointer; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px rgba(5, 150, 105, 0.4);
+  margin-bottom: var(--safe-bottom);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+#fabAdd:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(5, 150, 105, 0.5); }
+#fabAdd:active { transform: scale(0.94); }
+
+/* Sur écran tactile : police des champs de saisie à 16px minimum.
+   1) iOS Safari zoome automatiquement toute page au focus d'un input
+      < 16px (zoom intempestif qui casse la mise en page).
+   2) 16px reste lisible en plein soleil pour la saisie terrain. */
+@media (pointer: coarse) {
+  #controls select,
+  #controls input[type="text"],
+  #searchBox,
+  #newZoneInput,
+  .input-with-icon input,
+  .form-group input[type="text"],
+  .form-group input[type="tel"],
+  .form-group input[type="number"],
+  #aiCopilotInput,
+  #aiVoiceNoteText,
+  #loginBox input {
+    font-size: 16px !important;
+  }
+}
 .cluster-marker {
-  width: 40px; height: 40px; border-radius: 50%;
+  width: 44px; height: 44px; border-radius: 50%;
   background: rgba(26, 61, 43, 0.85); color: white;
   font-size: 14px; font-weight: 700;
   display: flex; align-items: center; justify-content: center;
@@ -553,7 +614,7 @@ header {
 .ai-quick-prompts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
 .chip-prompt {
   background: #e8f5e9; color: #1a3d2b; border: 1px solid #c8e6c9;
-  padding: 8px 14px; min-height: 36px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  padding: 8px 14px; min-height: 44px; border-radius: 20px; font-size: 11px; font-weight: 600;
   cursor: pointer; transition: background 0.15s ease;
 }
 .chip-prompt:hover { background: #c8e6c9; }
@@ -721,7 +782,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
 }
 .chip-q, .chip-p, .chip-a {
-  padding: 8px 14px; min-height: 40px; border-radius: 20px; border: 1px solid #cbd5e1;
+  padding: 8px 14px; min-height: 44px; border-radius: 20px; border: 1px solid #cbd5e1;
   background: var(--bg-surface); color: #334155; font-size: 12px; font-weight: 700;
   cursor: pointer; transition: all 0.15s ease;
 }
@@ -738,7 +799,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .gps-header { display: flex; align-items: center; justify-content: space-between; }
 .btn-capture-gps {
   background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
-  padding: 8px 14px; min-height: 40px; border-radius: 8px; font-size: 12px; font-weight: 700;
+  padding: 8px 14px; min-height: 44px; border-radius: 8px; font-size: 12px; font-weight: 700;
   cursor: pointer; transition: background 0.15s ease;
 }
 .btn-capture-gps:hover { background: #dbeafe; }
@@ -832,7 +893,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .toast-dismiss {
   background: none; border: none; color: inherit;
   opacity: 0.7; cursor: pointer; font-size: 16px;
-  width: 36px; height: 36px; display: flex;
+  width: 44px; height: 44px; display: flex;
   align-items: center; justify-content: center;
   flex-shrink: 0; margin-left: 4px;
   padding: 0;
@@ -873,6 +934,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   .census-modal-card, .ai-modal-card { max-width: 100%; height: 100%; max-height: 100vh; max-height: 100dvh; border-radius: 0; }
   .legend { bottom: 16px; left: 12px; font-size: 11px; padding: 10px 12px; }
   #fabNearest { bottom: 16px; right: 12px; padding: 11px 16px; font-size: 12px; }
+  #fabAdd { bottom: 76px; right: 12px; width: 52px; height: 52px; }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {

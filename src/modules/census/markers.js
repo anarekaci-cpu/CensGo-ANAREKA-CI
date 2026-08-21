@@ -86,6 +86,9 @@ function buildIconHTML(color, isVisited, isPending) {
 
 function buildPopup(point) {
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
+  // Texte du badge statut en variante assombrie : le jaune vif #f1c40f en
+  // police sur fond clair était illisible en plein soleil (contraste ~1.9:1).
+  const textColor = CONFIG.STATUS_TEXT_COLORS[point.status] || "#566573";
   const userPos = store.get("geo.position");
   let distHtml = "";
 
@@ -118,7 +121,7 @@ function buildPopup(point) {
     <div class="popup-row"><b>Sexe:</b> ${escapeHtml(point.sexe || "—")}</div>
     <div class="popup-row popup-coords">📍 ${latStr}, ${lonStr}</div>
     <div class="popup-row popup-updated">🗓️ Mis à jour: ${updatedStr}</div>
-    <div class="popup-status" style="background:${color}22;color:${color};border:1px solid ${color}">${escapeHtml(point.status)}</div>
+    <div class="popup-status" style="background:${color}22;color:${textColor};border:1px solid ${color}">${escapeHtml(point.status)}</div>
     ${distHtml}
     <div class="btn-row">
       <button class="go-btn" data-action="route" data-id="${safeId}">🧭 Itinéraire</button>
@@ -178,7 +181,9 @@ function createPopupForPoint(point) {
   const popup = new maplibregl.Popup({
     offset: [0, -30],
     closeButton: true,
-    maxWidth: "320px",
+    // Responsive : 92% de la largeur d'écran sur smartphone (max 340px)
+    // au lieu d'un 320px fixe qui débordait sur les petits écrans.
+    maxWidth: "min(92vw, 340px)",
     closeOnClick: false
   });
   popup.setDOMContent(buildPopup(point));
@@ -191,6 +196,7 @@ function acquireMarker() {
   const pooled = markerPool.pop();
   if (pooled) return pooled;
   const el = document.createElement("div");
+  el.className = "pin-hit";
   el.style.cursor = "pointer";
   el.addEventListener("click", handleMarkerClick);
   return {

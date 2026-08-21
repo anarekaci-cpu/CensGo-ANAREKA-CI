@@ -156,6 +156,7 @@ export async function mountAuthenticatedApp(container) {
         </div>
         
         <button id="fabNearest">🏃 Point le plus proche</button>
+        <button id="fabAdd" aria-label="Ajouter un point de recensement">➕</button>
         
         <div class="legend">
           <div><b>Statut</b></div>
@@ -381,6 +382,14 @@ function bindEvents() {
   };
 
   document.getElementById("fabNearest").onclick = () => document.getElementById("nearestBtn").click();
+
+  // FAB "+" : action la plus fréquente du terrain, placée en bas à droite
+  // pour être atteignable du pouce en usage une main (le bouton header
+  // "➕ Saisie" reste disponible mais oblige à étirer l'index).
+  document.getElementById("fabAdd")?.addEventListener("click", () => {
+    openCensusForm();
+    closeControls();
+  });
 
   document.getElementById("fitFilteredBtn").onclick = () => {
     const bounds = getFilteredBounds();

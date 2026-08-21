@@ -46,6 +46,19 @@ export const CONFIG = {
     'NON DEFINI': '#95a5a6'
   },
 
+  // Variantes assombries pour le TEXTE des badges de statut. Les couleurs
+  // vives ci-dessus (surtout le jaune #f1c40f) ont un contraste défaillant
+  // (< 3:1) sur fond clair quand elles servent de police — illisible en
+  // plein soleil pour l'info critique "statut". Ces teintes gardent la
+  // sémantique de la couleur mais passent les seuils WCAG AA.
+  STATUS_TEXT_COLORS: {
+    'VERT (Joignable)': '#1b7a43',
+    'JAUNE (Injoignable)': '#8a6400',
+    'ROUGE (Refus)': '#b03a2e',
+    'VIOLET (A verifier)': '#6c3483',
+    'NON DEFINI': '#566573'
+  },
+
   // Stockage offline
   DB_NAME: 'anareka-recensement-db',
   DB_VERSION: 1,
