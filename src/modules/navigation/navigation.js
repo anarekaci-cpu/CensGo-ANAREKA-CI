@@ -1,10 +1,14 @@
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { calculateRoute, displayRoute, clearRoute, formatDuration, formatDistance } from "../routing/routing.js";
+import { calculateRoute, displayRoute, clearRoute, formatDuration, formatDistance, showRouteDestination } from "../routing/routing.js";
 import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
+import { normalizePointId } from "../../core/utils.js";
+import { toastWarning } from "../../core/toast.js";
+import { log } from "../../core/debug.js";
 
 let navUnsubs = [];
+let gpsWaitToastShown = false;
 
 /**
  * Met en place les abonnements qui pilotent la navigation :
@@ -34,10 +38,10 @@ export function initNavigation() {
   navUnsubs.push(store.subscribe("geo.position", (position) => {
     if (!store.get("navigation.active") || !position) return;
     // Le calcul initial attendait une position déjà connue et abandonnait
-    // silencieusement si le GPS n'avait pas encore de fix (cas fréquent au
-    // premier clic) : dès qu'une position arrive, on calcule enfin l'itinéraire
-    // au lieu de rester bloqué sans aucun message.
+    // silencieusement si le GPS n'avait pas de fix (cas fréquent au premier
+    // clic) : dès qu'une position arrive, on calcule enfin l'itinéraire.
     if (!store.get("navigation.route")) {
+      gpsWaitToastShown = false;
       startNavigation();
     } else {
       updateNavigationProgress(position);
@@ -49,9 +53,18 @@ async function startNavigation() {
   const destination = store.get("navigation.destination");
   if (!destination) return;
 
+  log.info("GPS", `navigation vers "${destination.name}" (${destination.lat},${destination.lon})`);
+
   const position = store.get("geo.position");
   if (!position) {
-    store.set("navigation.instruction", "📍 En attente de votre position GPS...");
+    // Erreur CLAIRE (Problème #7) au lieu d'un silence ou d'un simple texte
+    // passif : l'agent sait immédiatement quoi faire. Le calcul partira
+    // automatiquement dès la première position GPS reçue (abonnement ci-dessus).
+    store.set("navigation.instruction", "📍 Position actuelle indisponible. Activez la localisation pour calculer l'itinéraire.");
+    if (!gpsWaitToastShown) {
+      gpsWaitToastShown = true;
+      toastWarning("Position actuelle indisponible. Activez la localisation pour calculer l'itinéraire.");
+    }
     return;
   }
 
@@ -59,6 +72,7 @@ async function startNavigation() {
   try {
     const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
     store.set("navigation.route", route);
+    showRouteDestination(destination.lat, destination.lon);
     displayRoute(route.geometry);
     store.set("navigation.instruction", `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`);
   } catch (err) {
@@ -91,12 +105,13 @@ export async function markArrivedVisited() {
 
   await updatePointVisit(destination.id, true, destination.status);
 
-  const points = store.get("points").map(p =>
-    p.id === destination.id ? { ...p, visited: true } : p
+  const pid = normalizePointId(destination.id);
+  const points = (store.get("points") || []).map(p =>
+    normalizePointId(p.id) === pid ? { ...p, visited: true } : p
   );
   store.set("points", points);
 
-  refreshMarker(destination.id);
+  refreshMarker(pid);
 
   clearRoute();
   store.set("navigation.arrived", false);

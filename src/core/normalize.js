@@ -77,7 +77,10 @@ export function normalizePoint(raw) {
     lat: coordsOk ? lat : null,
     lon: coordsOk ? lon : null,
     updatedAt: toStr(raw.updatedAt ?? raw.updated_at) || null,
-    createdAt: toStr(raw.createdAt ?? raw.created_at) || null
+    createdAt: toStr(raw.createdAt ?? raw.created_at) || null,
+    // Agent ayant recensé le point + zone de rattachement (affichés popup)
+    createdBy: toStr(raw.createdBy ?? raw.created_by) || null,
+    zone: toStr(raw.zone ?? raw.zone_name) || null
   };
 
   if (!coordsOk && (lat != null || lon != null)) {
@@ -108,7 +111,9 @@ function _emptyPoint() {
     lat: null,
     lon: null,
     updatedAt: null,
-    createdAt: null
+    createdAt: null,
+    createdBy: null,
+    zone: null
   };
 }
 

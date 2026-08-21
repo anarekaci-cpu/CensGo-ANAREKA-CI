@@ -30,6 +30,7 @@ const basemapStyle = {
 let mapInstance = null;
 let clusterInstance = null;
 let userLocationMarker = null;
+let destinationMarker = null;
 
 export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
@@ -131,5 +132,43 @@ export function clearRouteLayers() {
   }
   if (mapInstance.getSource("route-line")) {
     mapInstance.removeSource("route-line");
+  }
+}
+
+/**
+ * Cadre la caméra sur la totalité du tracé d'itinéraire (Problème #5).
+ * Sans cela, une route calculée hors du viewport courant restait invisible.
+ * @param {{coordinates: [number, number][]}} geometry - LineString GeoJSON
+ */
+export function fitRouteBounds(geometry) {
+  if (!mapInstance || !geometry?.coordinates?.length) return;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const c of geometry.coordinates) bounds.extend(c);
+  // Padding haut plus grand : laisse la place au bandeau de navigation en bas.
+  mapInstance.fitBounds(bounds, {
+    padding: { top: 80, bottom: 160, left: 60, right: 60 },
+    duration: 800,
+    maxZoom: 17
+  });
+}
+
+/** Marqueur visuel de destination pendant une navigation. */
+export function showDestinationMarker(lat, lon) {
+  if (!mapInstance || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (!destinationMarker) {
+    const el = document.createElement("div");
+    el.className = "destination-flag";
+    el.textContent = "🎯";
+    el.style.fontSize = "30px";
+    el.style.textShadow = "0 2px 6px rgba(0,0,0,0.4)";
+    destinationMarker = new maplibregl.Marker({ element: el, anchor: "bottom" });
+  }
+  destinationMarker.setLngLat([lon, lat]).addTo(mapInstance);
+}
+
+export function hideDestinationMarker() {
+  if (destinationMarker) {
+    destinationMarker.remove();
+    destinationMarker = null;
   }
 }

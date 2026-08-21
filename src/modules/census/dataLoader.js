@@ -82,7 +82,7 @@ async function fetchAllPages(supabase) {
       .from(CONFIG.TABLE_NAME)
       // Colonnes explicites plutôt que select(*) : pas de colonne inutile
       // téléchargée (le volume transféré compte sur lien 3G terrain).
-      .select("point_id,block,order,name,tel,etablissement,activity_type,quartier,address,produits,sexe,status,visited,lat,lon,updated_at")
+      .select("point_id,block,order,name,tel,etablissement,activity_type,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_at,created_by")
       .order("block", { ascending: true })
       .order("order", { ascending: true })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)

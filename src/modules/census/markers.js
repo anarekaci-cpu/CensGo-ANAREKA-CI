@@ -4,9 +4,11 @@ import { store } from "../../core/store.js";
 import { getClusterGroup, getMap } from "../map/map.js";
 import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
-import { haversineKm } from "../../core/geo.js";
-import { escapeHtml } from "../../core/utils.js";
-import { toastWarning } from "../../core/toast.js";
+import { toGeoJSONCoordinates } from "../../core/geo.js";
+import { escapeHtml, normalizePointId } from "../../core/utils.js";
+import { toastWarning, toastError } from "../../core/toast.js";
+import { log } from "../../core/debug.js";
+import { buildPopupModel } from "./popupModel.js";
 
 const iconCache = new Map();
 
@@ -31,7 +33,7 @@ let pointIndex = new Map();
 function rebuildPointIndex() {
   const all = store.get("points") || [];
   const idx = new Map();
-  for (const p of all) idx.set(String(p.id), p);
+  for (const p of all) idx.set(normalizePointId(p.id), p);
   pointIndex = idx;
 }
 
@@ -39,19 +41,19 @@ store.subscribe("points", () => rebuildPointIndex());
 rebuildPointIndex();
 
 /**
- * Retrouve un point par son id — O(1). Ne retourne JAMAIS silencieusement
- * null sans trace : un marqueur dont le point a disparu du store signale un
- * désalignement (données rechargées, filtre, course de sync) qu'il faut
- * pouvoir diagnostiquer.
+ * Retrouve un point par son id — O(1), id normalisé via normalizePointId().
+ * Ne retourne JAMAIS silencieusement null sans trace : un marqueur dont le
+ * point a disparu du store signale un désalignement (données rechargées,
+ * filtre, course de sync) qu'il faut pouvoir diagnostiquer.
  */
 function getPointById(pointId) {
-  const key = String(pointId);
+  const key = normalizePointId(pointId);
   let point = pointIndex.get(key);
   if (!point) {
     // Fallback sur le store (cas: set() entre le rAF batch et la notification)
-    const found = (store.get("points") || []).find(p => String(p.id) === key);
+    const found = (store.get("points") || []).find(p => normalizePointId(p.id) === key);
     if (found) return found;
-    console.warn(`[MARKERS] Point introuvable pour l'id "${key}" — marqueur/store désalignés.`);
+    log.warn("MARKER", `Point introuvable pour l'id "${key}" — marqueur/store désalignés.`);
     return null;
   }
   return point;
@@ -60,11 +62,19 @@ function getPointById(pointId) {
 // --- Single delegated click handler for all pooled markers ---
 function handleMarkerClick(e) {
   const el = e.currentTarget;
-  const pointId = el._pointId;
+  const rawId = el._pointId;
+  const pointId = normalizePointId(rawId);
   if (!pointId) return;
   e.stopPropagation();
 
+  // Diagnostic terrain (Problème #3) : tracer exactement ce qui arrive au clic.
+  log.info("MARKER_CLICK", `pointId="${pointId}" type=${typeof rawId}`);
+
   const point = getPointById(pointId);
+  log.debug("POINT_LOOKUP",
+    `store points=${(store.get("points") || []).length}`,
+    `found=${Boolean(point)}`,
+    point ? `point.id="${normalizePointId(point.id)}"` : "");
   if (!point) {
     // Garde-fou anti-affichage croisé : jamais les infos d'un autre point,
     // et jamais un échec muet — l'agent sait que quelque chose cloche.
@@ -77,6 +87,7 @@ function handleMarkerClick(e) {
   currentPopup = popup;
   currentPopupPointId = pointId;
   popup.addTo(getMap());
+  log.debug("POPUP", `created=true added=true id="${pointId}" name="${point.name}"`);
 
   popup.on("close", () => {
     if (currentPopup === popup) {
@@ -92,12 +103,12 @@ function handleMarkerClick(e) {
 
 let pendingIds = new Set();
 store.subscribe("sync.pendingPointIds", (ids) => {
-  pendingIds = new Set(ids || []);
+  pendingIds = new Set((ids || []).map(normalizePointId));
   activeMarkers.forEach((_entry, pointId) => refreshMarker(pointId));
 });
 
 function isPointPending(pointId) {
-  return pendingIds.has(pointId);
+  return pendingIds.has(normalizePointId(pointId));
 }
 
 function buildIconHTML(color, isVisited, isPending) {
@@ -131,46 +142,43 @@ function buildPopup(point) {
   // police sur fond clair était illisible en plein soleil (contraste ~1.9:1).
   const textColor = CONFIG.STATUS_TEXT_COLORS[point.status] || "#566573";
   const userPos = store.get("geo.position");
-  let distHtml = "";
+  const m = buildPopupModel(point, userPos);
 
-  if (userPos && point.lat != null && point.lon != null) {
-    const d = haversineKm(userPos.lat, userPos.lng, point.lat, point.lon);
-    distHtml = `<div class="popup-dist">📍 ${formatDist(d)} de vous</div>`;
-  }
-
-  const telLink = point.tel
-    ? `<a href="tel:${escapeHtml(point.tel)}" style="color:#166534; font-weight:700; text-decoration:none; background:#f0fdf4; padding:2px 8px; border-radius:6px; border:1px solid #bbf7d0;">📞 ${escapeHtml(point.tel)}</a>`
+  const telLink = m.tel
+    ? `<a href="tel:${escapeHtml(m.tel)}" style="color:#166534; font-weight:700; text-decoration:none; background:#f0fdf4; padding:2px 8px; border-radius:6px; border:1px solid #bbf7d0;">📞 ${escapeHtml(m.tel)}</a>`
     : "—";
 
-  const safeId = escapeHtml(point.id);
-  const latStr = point.lat != null ? point.lat.toFixed(6) : "—";
-  const lonStr = point.lon != null ? point.lon.toFixed(6) : "—";
-  const updatedStr = point.updatedAt
-    ? new Date(point.updatedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
-    : "—";
+  const safeId = escapeHtml(m.id);
+  const latStr = m.lat != null ? m.lat.toFixed(6) : "—";
+  const lonStr = m.lon != null ? m.lon.toFixed(6) : "—";
+  const row = (label, value) =>
+    `<div class="popup-row"><b>${label}:</b> ${value || "—"}</div>`;
 
   const div = document.createElement("div");
   div.innerHTML = `
-    <div class="popup-title">${escapeHtml(point.order)}. ${escapeHtml(point.name || "(sans nom)")}${point.visited ? ' <span style="color:#15803d; font-size:12px;">✓ Visité</span>' : ''}</div>
-    <div class="popup-row"><b>Bloc:</b> ${String(point.block).padStart(2, "0")} — Ordre ${escapeHtml(point.order)}</div>
+    <div class="popup-title">${escapeHtml(m.order ?? "—")}. ${escapeHtml(m.name)}${m.visited ? ' <span style="color:#15803d; font-size:12px;">✓ Visité</span>' : ''}</div>
+    <div class="popup-row"><b>Bloc:</b> ${String(m.block ?? 0).padStart(2, "0")} — Ordre ${escapeHtml(m.order ?? "—")}</div>
     <div class="popup-row"><b>Téléphone:</b> ${telLink}</div>
-    <div class="popup-row"><b>Quartier:</b> ${escapeHtml(point.quartier || "—")}</div>
-    <div class="popup-row"><b>Adresse:</b> ${escapeHtml(point.address || "—")}</div>
-    <div class="popup-row"><b>Établissement:</b> ${escapeHtml(point.etablissement || "—")}</div>
-    <div class="popup-row"><b>Type d'activité:</b> ${escapeHtml(point.activityType || "—")}</div>
-    <div class="popup-row"><b>Produits:</b> ${escapeHtml(point.produits || "—")}</div>
-    <div class="popup-row"><b>Sexe:</b> ${escapeHtml(point.sexe || "—")}</div>
+    ${row("Quartier", escapeHtml(m.quartier))}
+    ${row("Adresse", escapeHtml(m.address))}
+    ${row("Établissement", escapeHtml(m.etablissement))}
+    ${row("Type d'activité", escapeHtml(m.activityType))}
+    ${row("Produits", escapeHtml(m.produits))}
+    ${row("Sexe", escapeHtml(m.sexe))}
+    ${m.zone ? row("Zone", escapeHtml(m.zone)) : ""}
     <div class="popup-row popup-coords">📍 ${latStr}, ${lonStr}</div>
-    <div class="popup-row popup-updated">🗓️ Mis à jour: ${updatedStr}</div>
-    <div class="popup-status" style="background:${color}22;color:${textColor};border:1px solid ${color}">${escapeHtml(point.status)}</div>
-    ${distHtml}
+    ${m.createdAt ? `<div class="popup-row popup-updated">🗓️ Recensé le: ${escapeHtml(m.createdAt)}</div>` : ""}
+    ${m.updatedAt ? `<div class="popup-row popup-updated">🔄 Mis à jour: ${escapeHtml(m.updatedAt)}</div>` : ""}
+    ${m.agent ? `<div class="popup-row popup-updated">👤 Agent: ${escapeHtml(m.agent)}</div>` : ""}
+    <div class="popup-status" style="background:${color}22;color:${textColor};border:1px solid ${color}">${escapeHtml(m.status)}</div>
+    ${m.distanceLabel ? `<div class="popup-dist">${escapeHtml(m.distanceLabel)}</div>` : ""}
     <div class="btn-row">
       <button class="go-btn" data-action="route" data-id="${safeId}">🧭 Itinéraire</button>
       <button class="go-btn nav-btn" data-action="navigate" data-id="${safeId}">🗺️ Naviguer</button>
     </div>
     <div class="btn-row">
-      <button class="visit-btn ${point.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${safeId}">
-        ${point.visited ? '🔄 Annuler la visite' : '✅ Marquer comme visité'}
+      <button class="visit-btn ${m.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${safeId}">
+        ${m.visited ? '🔄 Annuler la visite' : '✅ Marquer comme visité'}
       </button>
       <button class="go-btn edit-btn" data-action="edit" data-id="${safeId}" style="background:#475569;">✏️ Éditer</button>
     </div>
@@ -185,13 +193,19 @@ function buildPopup(point) {
 function handlePopupAction(e) {
   const btn = e.currentTarget;
   const action = btn.dataset.action;
-  const id = btn.dataset.id;
+  const id = normalizePointId(btn.dataset.id);
   const point = getPointById(id);
-  if (!point) return;
+  if (!point) {
+    toastWarning("Fiche introuvable dans les données locales.");
+    return;
+  }
 
-  if (action === "route" || action === "navigate") {
+  if (action === "route") {
+    // Itinéraire interne : OSRM + tracé sur la carte (navigation.js)
     store.set("navigation.destination", point);
     store.set("navigation.active", true);
+  } else if (action === "navigate") {
+    openExternalNavigation(point);
   } else if (action === "visit") {
     toggleVisit(point);
   } else if (action === "edit") {
@@ -199,15 +213,40 @@ function handlePopupAction(e) {
   }
 }
 
+/**
+ * Navigation externe (Problème #8) : délègue à l'app Maps du téléphone.
+ * URL universelle Google Maps — s'ouvre dans l'app native sur Android/iOS,
+ * dans le site web sur desktop. destination=lat,lng correspond EXACTEMENT
+ * aux coordonnées du point sélectionné ; travelmode=walking cohérent avec
+ * le profil piéton des itinéraires internes.
+ */
+function openExternalNavigation(point) {
+  if (point.lat == null || point.lon == null) {
+    toastError("Ce point n'a pas de coordonnées GPS exploitables.");
+    return;
+  }
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=walking`;
+  log.info("NAV_EXTERNAL", `destination=${point.lat},${point.lon}`);
+  window.open(url, "_blank", "noopener");
+}
+
 async function toggleVisit(point) {
   const newVisited = !point.visited;
   await updatePointVisit(point.id, newVisited, point.status);
 
-  const points = store.get("points").map(p =>
-    p.id === point.id ? { ...p, visited: newVisited } : p
+  const pid = normalizePointId(point.id);
+  const points = (store.get("points") || []).map(p =>
+    normalizePointId(p.id) === pid ? { ...p, visited: newVisited } : p
   );
   store.set("points", points);
-  refreshMarker(point.id);
+  refreshMarker(pid);
+
+  // Le popup OUVERT doit refléter immédiatement le nouvel état (avant ce
+  // correctif il fallait fermer/rouvrir la fiche pour voir le badge changer).
+  if (currentPopup && currentPopupPointId === pid) {
+    const updated = points.find(p => normalizePointId(p.id) === pid);
+    if (updated) currentPopup.setDOMContent(buildPopup(updated));
+  }
 }
 
 function closeCurrentPopup() {
@@ -327,7 +366,7 @@ function renderVisibleMarkers() {
       });
 
     } else {
-      const pointId = props.id;
+      const pointId = normalizePointId(props.id);
       const point = getPointById(pointId);
       if (!point) continue;
 
@@ -339,7 +378,8 @@ function renderVisibleMarkers() {
         if (existing.el.innerHTML !== newHtml) {
           existing.el.innerHTML = newHtml;
         }
-        existing.marker.setLngLat([point.lon, point.lat]);
+        const coords = toGeoJSONCoordinates(point.lat, point.lon);
+        if (coords) existing.marker.setLngLat(coords);
         continue;
       }
 
@@ -349,7 +389,8 @@ function renderVisibleMarkers() {
       el.innerHTML = buildIconHTML(color, point.visited, isPointPending(pointId));
       el._pointId = pointId;
 
-      marker.setLngLat([point.lon, point.lat]);
+      const coords = toGeoJSONCoordinates(point.lat, point.lon);
+      if (coords) marker.setLngLat(coords);
       marker.addTo(map);
 
       activeMarkers.set(pointId, { marker, el, popup: null });
@@ -370,13 +411,15 @@ export function renderMarkers(points) {
   closeCurrentPopup();
 
   const t0 = performance.now();
-  // Garde-fou : un point sans coordonnées fiables ne produit JAMAIS de
-  // feature GeoJSON [null, null] (casserait le clustering / atterrirait à (0,0)).
+  // Conversion centralisée via toGeoJSONCoordinates() : un point sans
+  // coordonnées fiables ne produit JAMAIS de feature [null, null] ni de
+  // paire inversée [lat, lon] (atterrissage à (0,0) ou mauvais hémisphère).
   loadedFeatures = (Array.isArray(points) ? points : [])
-    .filter(p => p.lat != null && p.lon != null)
-    .map(p => ({
+    .map(p => ({ p, coords: toGeoJSONCoordinates(p.lat, p.lon) }))
+    .filter(({ coords }) => coords !== null)
+    .map(({ p, coords }) => ({
       type: "Feature",
-      geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+      geometry: { type: "Point", coordinates: coords },
       properties: { ...p }
     }));
 
@@ -402,21 +445,21 @@ export function renderMarkers(points) {
 }
 
 export function upsertMarker(point) {
-  const existing = activeMarkers.get(point.id);
+  const pid = normalizePointId(point.id);
+  const existing = activeMarkers.get(pid);
   if (existing) {
-    refreshMarker(point.id);
+    refreshMarker(pid);
     return;
   }
 
   const cluster = getClusterGroup();
   if (!cluster) return;
-  // Un point sans coordonnées fiables ne doit jamais produire de feature
-  // GeoJSON [null, null] (casserait le clustering / atterrirait à (0,0)).
-  if (point.lat == null || point.lon == null) return;
+  const coords = toGeoJSONCoordinates(point.lat, point.lon);
+  if (!coords) return;
 
   loadedFeatures.push({
     type: "Feature",
-    geometry: { type: "Point", coordinates: [point.lon, point.lat] },
+    geometry: { type: "Point", coordinates: coords },
     properties: { ...point }
   });
 
@@ -425,12 +468,13 @@ export function upsertMarker(point) {
 }
 
 export function refreshMarker(pointId) {
-  const entry = activeMarkers.get(pointId);
-  const point = getPointById(pointId);
+  const pid = normalizePointId(pointId);
+  const entry = activeMarkers.get(pid);
+  const point = getPointById(pid);
   if (!entry || !point) return;
 
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
-  const newHtml = buildIconHTML(color, point.visited, isPointPending(pointId));
+  const newHtml = buildIconHTML(color, point.visited, isPointPending(pid));
   if (entry.el.innerHTML !== newHtml) {
     entry.el.innerHTML = newHtml;
   }
@@ -441,14 +485,15 @@ export function refreshMarker(pointId) {
 }
 
 export function openPopup(pointId) {
-  const point = getPointById(pointId);
+  const pid = normalizePointId(pointId);
+  const point = getPointById(pid);
   if (!point) return;
 
   const map = getMap();
   closeCurrentPopup();
   const popup = createPopupForPoint(point);
   currentPopup = popup;
-  currentPopupPointId = pointId;
+  currentPopupPointId = pid;
   popup.addTo(map);
 
   popup.on("close", () => {
@@ -458,7 +503,7 @@ export function openPopup(pointId) {
     }
   });
 
-  const entry = activeMarkers.get(pointId);
+  const entry = activeMarkers.get(pid);
   if (entry) entry.popup = popup;
 }
 
@@ -473,9 +518,4 @@ export function getFilteredBounds() {
   });
 
   return [[bounds.getWest(), bounds.getSouth()], [bounds.getEast(), bounds.getNorth()]];
-}
-
-function formatDist(km) {
-  if (km < 1) return Math.round(km * 1000) + " m";
-  return km.toFixed(1) + " km";
 }

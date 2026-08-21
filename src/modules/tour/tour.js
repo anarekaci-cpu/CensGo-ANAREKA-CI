@@ -1,6 +1,7 @@
 import { store } from "../../core/store.js";
 import { flyToPoint } from "../map/map.js";
 import { generateOptimizedTour } from "../../core/tourPlanner.js";
+import { normalizePointId } from "../../core/utils.js";
 
 let tourPoints = [];
 let currentIndex = 0;
@@ -32,8 +33,8 @@ export function startTour(tour) {
   pointsUnsub = store.subscribe("points", (allPoints) => {
     if (!store.get("tour.active")) return;
 
-    const visitedIds = new Set(allPoints.filter(p => p.visited).map(p => p.id));
-    const filtered = tourPoints.filter(p => !visitedIds.has(p.id));
+    const visitedIds = new Set(allPoints.filter(p => p.visited).map(p => normalizePointId(p.id)));
+    const filtered = tourPoints.filter(p => !visitedIds.has(normalizePointId(p.id)));
 
     if (filtered.length === 0) {
       stopTour();
@@ -43,8 +44,8 @@ export function startTour(tour) {
     // Ajuster l'index courant : si le point actuel a été visité, passer au suivant
     const currentPoint = tourPoints[currentIndex];
     tourPoints = filtered;
-    const newIdx = currentPoint && !visitedIds.has(currentPoint.id)
-      ? filtered.findIndex(p => p.id === currentPoint.id)
+    const newIdx = currentPoint && !visitedIds.has(normalizePointId(currentPoint.id))
+      ? filtered.findIndex(p => normalizePointId(p.id) === normalizePointId(currentPoint.id))
       : 0;
     currentIndex = Math.max(0, newIdx);
 

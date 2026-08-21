@@ -1,5 +1,6 @@
 import Dexie from "dexie";
 import { CONFIG } from "../core/config.js";
+import { normalizePointId } from "../core/utils.js";
 
 export const db = new Dexie(CONFIG.DB_NAME);
 
@@ -247,7 +248,7 @@ export async function findNearbyPoints(lat, lon, radiusM = 25, excludeId = null)
   const all = await db.points.toArray();
   const R = 6371000;
   return all.filter(p => {
-    if (p.id === excludeId || p.lat == null || p.lon == null) return false;
+    if (normalizePointId(p.id) === normalizePointId(excludeId) || p.lat == null || p.lon == null) return false;
     const dLat = (p.lat - lat) * Math.PI / 180;
     const dLon = (p.lon - lon) * Math.PI / 180;
     const a = Math.sin(dLat / 2) ** 2 +

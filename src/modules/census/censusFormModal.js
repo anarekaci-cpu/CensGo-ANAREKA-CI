@@ -5,6 +5,7 @@ import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
+import { normalizePointId } from "../../core/utils.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -426,7 +427,12 @@ function bindFormEvents() {
     }
 
     const id = document.getElementById("cf_id").value;
-    const existingPoint = id ? (store.get("points") || []).find(p => p.id === id) : null;
+    // Comparaison par id NORMALISÉ : un vieux point du cache peut porter un
+    // id numérique (123) alors que le champ caché du formulaire contient
+    // "123" (string) — sans normalisation, l'édition créerait un DOUBLON.
+    const existingPoint = id
+      ? (store.get("points") || []).find(p => normalizePointId(p.id) === normalizePointId(id))
+      : null;
 
     // Validation des coordonnées (#9) : lat ∈ [-90,90], lon ∈ [-180,180].
     // Une donnée invalide ne doit JAMAIS casser la carte (feature GeoJSON
@@ -470,16 +476,17 @@ function bindFormEvents() {
     // par référence) — les marqueurs, stats et la tournée ne se mettaient
     // alors à jour que grâce au upsertMarker manuel ci-dessous.
     const points = store.get("points") || [];
-    const idx = points.findIndex(p => p.id === updated.id);
+    const updatedId = normalizePointId(updated.id);
+    const idx = points.findIndex(p => normalizePointId(p.id) === updatedId);
     const nextPoints = idx >= 0
-      ? points.map(p => (p.id === updated.id ? updated : p))
+      ? points.map(p => (normalizePointId(p.id) === updatedId ? updated : p))
       : [...points, updated];
     store.set("points", nextPoints);
 
     // Affiche tout de suite le badge "en attente d'envoi" sans attendre le prochain
     // passage du moteur de sync (qui tourne toutes les 30s).
-    const pendingIds = new Set(store.get("sync.pendingPointIds") || []);
-    pendingIds.add(updated.id);
+    const pendingIds = new Set((store.get("sync.pendingPointIds") || []).map(normalizePointId));
+    pendingIds.add(updatedId);
     store.set("sync.pendingPointIds", [...pendingIds]);
 
     // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
