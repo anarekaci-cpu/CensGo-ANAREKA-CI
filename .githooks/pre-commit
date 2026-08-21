@@ -1,0 +1,19 @@
+#!/bin/sh
+# Bloque tout commit qui inclut un fichier .env réel (pas .env.example).
+# Existe parce que le leak précédent est passé par un `git mv .env.example .env` :
+# .gitignore n'empêche pas un fichier déjà suivi (ou renommé depuis un fichier suivi)
+# d'être committé, seulement les nouveaux fichiers non suivis.
+
+blocked=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env(\.[a-zA-Z0-9_-]+)?$' | grep -v '\.env\.example$')
+
+if [ -n "$blocked" ]; then
+  echo "✋ Commit bloqué : fichier(s) .env détecté(s) dans le staging :"
+  echo "$blocked" | sed 's/^/   /'
+  echo ""
+  echo "Ces fichiers contiennent normalement des clés réelles et ne doivent jamais être committés."
+  echo "Si c'est une erreur : git restore --staged <fichier>"
+  echo "Si vous êtes absolument certain de vouloir committer ce fichier : git commit --no-verify"
+  exit 1
+fi
+
+exit 0
