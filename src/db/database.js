@@ -24,50 +24,65 @@ db.version(2).stores({
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
-  // Préserver les points créés localement qui n'ont pas encore été synchronisés
-  const localPoints = await db.points.toArray();
-  const unsynced = localPoints.filter(p => !p.syncedAt);
-  const unsyncedIds = new Set(unsynced.map(p => p.id));
+  // TRANSACTION obligatoire : sans elle, deux chargements concurrents
+  // (ex: double montage de l'app ou sync + refresh manuel) pouvaient
+  // s'entrelacer — A.clear(), B.clear(), A.bulkAdd(505), B.bulkAdd(505) —
+  // produisant des doublons ou une table vide. Dexie exécute maintenant
+  // lecture + effacement + réécriture de façon atomique.
+  return db.transaction("rw", db.points, async () => {
+    const localPoints = await db.points.toArray();
+    const unsynced = localPoints.filter(p => !p.syncedAt);
+    const unsyncedIds = new Set(unsynced.map(p => p.id));
 
-  // Construire une Map de l'état visited local pour les points synchronisés :
-  // si un agent a basculé un point en "non visité" localement et que la sync
-  // n'a pas encore poussé ce changement vers Supabase, la valeur serveur
-  // (visited: true) ne doit PAS écraser l'intention locale.
-  const localVisitedState = new Map();
-  for (const p of localPoints) {
-    if (p.syncedAt) localVisitedState.set(p.id, !!p.visited);
-  }
+    // Construire une Map de l'état visited local pour les points synchronisés :
+    // si un agent a basculé un point en "non visité" localement et que la sync
+    // n'a pas encore poussé ce changement vers Supabase, la valeur serveur
+    // (visited: true) ne doit PAS écraser l'intention locale.
+    const localVisitedState = new Map();
+    for (const p of localPoints) {
+      if (p.syncedAt) localVisitedState.set(p.id, !!p.visited);
+    }
 
-  await db.points.clear();
+    await db.points.clear();
 
-  const withLocal = pointsArray
-    .filter(p => !unsyncedIds.has(p.id))
-    .map((p, i) => {
-      const localVisited = localVisitedState.get(p.id);
-      // Si le point existait déjà en local ET que l'état local diffère du
-      // serveur, préserver la valeur locale (l'agent a agi hors-ligne).
-      // Si localVisited est undefined (premier chargement), utiliser la valeur serveur.
-      const mergedVisited = localVisited !== undefined ? localVisited : p.visited;
-      return {
-        ...p,
-        visited: mergedVisited,
-        localId: i + 1,
-        syncedAt: new Date().toISOString()
-      };
-    });
+    const withLocal = pointsArray
+      .filter(p => !unsyncedIds.has(p.id))
+      .map((p, i) => {
+        const localVisited = localVisitedState.get(p.id);
+        // Si le point existait déjà en local ET que l'état local diffère du
+        // serveur, préserver la valeur locale (l'agent a agi hors-ligne).
+        // Si localVisited est undefined (premier chargement), utiliser la valeur serveur.
+        const mergedVisited = localVisited !== undefined ? localVisited : p.visited;
+        return {
+          ...p,
+          visited: mergedVisited,
+          localId: i + 1,
+          syncedAt: new Date().toISOString()
+        };
+      });
 
-  let nextId = withLocal.length + 1;
-  const unsyncedPreserved = unsynced.map(p => ({
-    ...p,
-    localId: nextId++
-  }));
+    let nextId = withLocal.length + 1;
+    const unsyncedPreserved = unsynced.map(p => ({
+      ...p,
+      localId: nextId++
+    }));
 
-  await db.points.bulkAdd([...withLocal, ...unsyncedPreserved]);
-  return withLocal.length + unsyncedPreserved.length;
+    await db.points.bulkAdd([...withLocal, ...unsyncedPreserved]);
+    return withLocal.length + unsyncedPreserved.length;
+  });
 }
 
 export async function getAllPoints() {
-  return await db.points.toArray();
+  const all = await db.points.toArray();
+  // Déduplication défensive par id (dernier gagnant) : des résidus de
+  // doublons créés avant l'introduction de la transaction ci-dessus ne
+  // doivent jamais remonter dans le store (marqueurs en double, stats
+  // faussées). Le coût est négligeable même sur 10 000 points.
+  const byId = new Map();
+  for (const p of all) {
+    if (p.id != null) byId.set(p.id, p);
+  }
+  return [...byId.values()];
 }
 
 export async function getPointsByFilter(filters) {

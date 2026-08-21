@@ -6,70 +6,64 @@ Entre les commits `f67073f` et `09d5296`, un fichier `.env` contenant la vraie
 URL de projet Supabase et la clé `anon` a été committé (7 commits), avant
 d'être retiré du suivi. Le dépôt étant public, **ces valeurs restent
 récupérables dans l'historique Git tant qu'elles n'ont pas été régénérées** —
-voir l'étape "Régénérer les clés API" ci-dessous, à traiter en priorité.
+voir l'étape « Régénérer les clés API » ci-dessous, à traiter en priorité.
 Réécrire l'historique (`git filter-repo`) est possible mais nécessite un
 force-push et la recréation des clones existants ; ce n'est utile qu'après
 rotation de la clé, pour éviter de laisser traîner une référence morte.
 
-## ⚠️ Actions immédiates requises
+> ⚠️ La clé exposée est la clé **anon** (publique par conception, protégée par
+> RLS). Aucune clé `service_role` ne doit JAMAIS être placée dans le frontend :
+> elle contourne RLS. Si une `service_role` a un jour été exposée, la révoquer
+> immédiatement depuis le dashboard Supabase.
 
-### 1. Activer Row Level Security (RLS)
+## ✅ Modèle d'accès actuel (supabase/reset_rls.sql)
 
-Dans le dashboard Supabase, exécutez ces commandes SQL :
+Le script `supabase/reset_rls.sql` crée les tables et applique les policies
+suivantes. C'est la référence à exécuter dans le dashboard Supabase — les
+exemples plus anciens de ce document (table `agent_zones`, colonne `bloc`)
+ne correspondent PAS au schéma réel.
 
-```sql
--- Activer RLS sur la table principale
-ALTER TABLE census_points ENABLE ROW LEVEL SECURITY;
+### Table `census_points`
 
--- Politique : les agents ne voient que les points de leur zone
-CREATE POLICY "Agents can read their zone points"
-  ON census_points
-  FOR SELECT
-  TO authenticated
-  USING (
-    bloc IN (
-      SELECT bloc FROM agent_zones WHERE agent_id = auth.uid()
-    )
-  );
+| Opération | Qui | Condition |
+|-----------|-----|-----------|
+| SELECT | tout utilisateur authentifié | `USING (true)` — modèle collaboratif : chaque agent voit toutes les fiches pour couvrir sa zone |
+| INSERT | agent | uniquement ses propres lignes (`created_by = auth.uid()`) ; admin : tout |
+| UPDATE | agent | uniquement ses propres lignes ; admin : tout |
+| DELETE | admin uniquement | rôle vérifié via `user_roles` |
 
--- Politique : les agents peuvent mettre à jour les champs de suivi
-CREATE POLICY "Agents can update visit status"
-  ON census_points
-  FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (
-    -- Seuls les champs de suivi sont modifiables
-    -- Les données personnelles (nom, tel, adresse) sont en lecture seule
-    true
-  );
+> ℹ️ Le SELECT global est un choix produit assumé (recensement collaboratif).
+> Pour restreindre par zone, ajouter une table d'affectation
+> `agent_zones(agent_id, zone)` et remplacer le `USING (true)` par un filtre
+> sur `quartier`/zone — la structure RLS ci-dessous s'y prête déjà.
 
--- Politique : les superviseurs peuvent tout voir
-CREATE POLICY "Supervisors can read all"
-  ON census_points
-  FOR SELECT
-  TO authenticated
-  USING (
-    auth.uid() IN (SELECT user_id FROM supervisors)
-  );
-```
+### Tables de support
 
-### 2. Régénérer les clés API
+- `user_roles(user_id UNIQUE, role IN ('agent','admin'))` — lecture de son
+  propre rôle seulement ; écriture réservée à `service_role`.
+- `agent_positions` — chacun ne peut écrire/lire que SA position
+  (`user_id = auth.uid()`) ; l'admin lit toutes les positions.
+- `target_zones` — lecture pour tous les authentifiés ; gestion admin.
 
-1. Allez dans **Project Settings > API** sur Supabase
-2. Cliquez sur **"Regenerate"** pour la clé `anon`
-3. Mettez à jour votre fichier `.env` (NE PAS committer)
-4. Révoquez l'ancienne clé immédiatement
+### ⚠️ Point d'attention documenté
 
-### 3. Restreindre les domaines autorisés (CORS)
+La policy `USING (true)` en SELECT signifie : « toute personne authentifiée
+peut lire toutes les fiches ». Ce n'est PAS une faille ouverte au public
+anonyme (le rôle `anon` n'a aucun accès), mais un agent peut lire des fiches
+hors de sa zone. Si le besoin de cloisonnement par zone devient réel,
+appliquer la restriction décrite ci-dessus.
 
-Dans **Authentication > URL Configuration** :
-- Site URL : `https://anarekaci-cpu.github.io`
-- Redirect URLs : `https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/`
+## ⚠️ Actions requises avant production
 
-### 4. Activer l'authentification à 2 facteurs (2FA)
-
-Recommandé pour les comptes superviseurs.
+1. **Exécuter `supabase/reset_rls.sql`** dans le SQL Editor Supabase
+   (idempotent : crée les tables manquantes, remplace les policies, ne
+   supprime aucune donnée).
+2. **Régénérer les clés API** : Project Settings → API → Regenerate `anon`,
+   mettre à jour `.env` (jamais commité), révoquer l'ancienne.
+3. **Restreindre les domaines** (Authentication → URL Configuration) :
+   - Site URL : `https://anarekaci-cpu.github.io`
+   - Redirect URLs : `https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/`
+4. Activer la 2FA sur les comptes superviseurs/admins.
 
 ---
 
@@ -77,12 +71,15 @@ Recommandé pour les comptes superviseurs.
 
 | Pratique | Statut |
 |----------|--------|
-| Clés API dans `.env` (pas dans le code) | ✅ À implémenter |
-| RLS activé sur toutes les tables | ⚠️ URGENT |
+| Clés API dans `.env` uniquement (hook pre-commit anti-`.env`) | ✅ |
+| RLS activé sur toutes les tables + policies par rôle | ✅ reset_rls.sql |
+| Rotation de la clé anon exposée | ⚠️ À faire côté dashboard |
 | HTTPS obligatoire | ✅ GitHub Pages |
-| Validation côté serveur des données | ⚠️ À ajouter |
+| Pas de secret serveur / service_role dans le client | ✅ (anon only) |
+| Échappement HTML systématique des données affichées | ✅ escapeHtml |
+| Validation des coordonnées GPS côté client | ✅ isValidLatLng |
 | Audit log des modifications | ⚠️ À ajouter |
-| Rate limiting sur l'API | ⚠️ À configurer |
+| Rate limiting sur l'API | ⚠️ Configurable côté Supabase |
 
 ---
 

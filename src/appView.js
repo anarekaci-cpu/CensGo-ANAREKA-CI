@@ -14,6 +14,8 @@ import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml } from "./core/utils.js";
+import { computeStats } from "./core/analytics.js";
+import { filterPoints } from "./core/filters.js";
 
 let emptyStateEl = null;
 
@@ -274,31 +276,34 @@ async function initApp() {
   initNavigation();
   initCensusFormModal();
 
+  // CHARGEMENT PROGRESSIF (#26) : les listeners store sont câblés AVANT le
+  // chargement des données. Dès que loadCensusData publie les points du
+  // cache IndexedDB (en ~50ms), la carte, les marqueurs et les statistiques
+  // s'affichent — SANS attendre la réponse Supabase qui mettra à jour
+  // l'affichage en arrière-plan quand elle arrivera.
+  bindEvents();
+  bindStoreListeners();
+
   const points = await loadCensusData();
-  renderMarkers(points);
+
   populateBlockFilter(points);
   updateStats();
-
-  store.set("targetZones", await loadTargetZones());
   renderQuartierCoverage();
+
+  // Zones cibles : requête réseau non bloquante — le panneau se remplit
+  // dès réception via l'abonnement "targetZones".
+  loadTargetZones().then(zones => store.set("targetZones", zones))
+    .catch(() => { /* table absente / hors-ligne : zones simplement vides */ });
 
   const loading = document.getElementById("loading");
   if (loading) loading.style.display = "none";
 
-  if (points.length === 0) {
-    const mapEl = document.getElementById("main");
-    if (mapEl && !emptyStateEl) {
-      emptyStateEl = document.createElement("div");
-      emptyStateEl.className = "empty-state";
-      emptyStateEl.innerHTML = `
-        <div class="empty-state-icon">📍</div>
-        <div class="empty-state-title">Aucun point de recensement</div>
-        <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
-        <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
-      `;
-      mapEl.appendChild(emptyStateEl);
-      document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
-    }
+  // Empty-state seulement si le chargement est VRAIMENT terminé sans aucun
+  // point (offline, erreur, ou base vide) — pas pendant la phase "syncing"
+  // où Supabase peut encore amener des données en arrière-plan.
+  const syncStatus = store.get("sync.status");
+  if (points.length === 0 && syncStatus !== "syncing") {
+    createEmptyStateIfNeeded(points);
   } else {
     removeEmptyState();
   }
@@ -306,8 +311,33 @@ async function initApp() {
   document.getElementById("tourBtn").disabled = false;
   document.getElementById("nearestBtn").disabled = false;
 
+  // Rôle admin : requête réseau NON bloquante (elle ne doit pas retarder
+  // d'un aller-retour HTTP l'interface déjà affichée).
+  refreshAdminRole();
+
+  applyFiltersFromStore();
+}
+
+function createEmptyStateIfNeeded(points) {
+  if (points.length > 0 || emptyStateEl) return;
+  const mapEl = document.getElementById("main");
+  if (!mapEl) return;
+  emptyStateEl = document.createElement("div");
+  emptyStateEl.className = "empty-state";
+  emptyStateEl.innerHTML = `
+    <div class="empty-state-icon">📍</div>
+    <div class="empty-state-title">Aucun point de recensement</div>
+    <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
+    <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
+  `;
+  mapEl.appendChild(emptyStateEl);
+  document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
+}
+
+async function refreshAdminRole() {
   try {
     const user = store.get("user");
+    if (!user?.id) return;
     const supabase = getSupabaseClient();
     // maybeSingle() et non single() : un agent sans entrée dans user_roles
     // renvoie 0 ligne, et single() transforme ce cas NORMAL en erreur HTTP
@@ -318,14 +348,12 @@ async function initApp() {
       .eq("user_id", user.id)
       .maybeSingle();
     const isAdmin = data?.role === "admin";
+    store.set("ui.isAdmin", isAdmin);
     const adminRow = document.getElementById("adminTrackingRow");
     if (adminRow) adminRow.style.display = isAdmin ? "flex" : "none";
   } catch {
     // Table user_roles pas encore créée ou pas d'accès — mode agent
   }
-
-  bindEvents();
-  bindStoreListeners();
 }
 
 function bindEvents() {
@@ -473,10 +501,9 @@ function bindEvents() {
       if (!serverResult.synced) {
         toastWarning("Visites réinitialisées localement. Le reset serveur échouera en ligne — réessayez plus tard.");
       }
-      // 3. Recharger les données (maintenant avec visited: false partout)
-      const points = await loadCensusData();
-      renderMarkers(points);
-      updateStats();
+      // 3. Recharger les données (maintenant avec visited: false partout).
+      // L'abonnement "points" met à jour marqueurs + stats automatiquement.
+      await loadCensusData(undefined, { forceRefresh: true });
       // 4. Réinitialiser le filtre visite sur "all" pour revoir tous les points
       const filterVisited = document.getElementById("filterVisited");
       if (filterVisited) filterVisited.value = "all";
@@ -712,10 +739,18 @@ function bindStoreListeners() {
   store.subscribe("points", (points) => {
     updateStats();
     renderQuartierCoverage();
+    populateBlockFilter(points);
     if (points && points.length > 0) {
       removeEmptyState();
-      renderMarkers(points);
+      // Respecter les filtres actifs : l'arrivée de données fraîches ne doit
+      // jamais faire réapparaître des points que l'agent a filtrés.
+      applyFiltersFromStore();
     }
+  });
+
+  // Les zones cibles arrivent en asynchrone (loadTargetZones non bloquant).
+  store.subscribe("targetZones", () => {
+    renderQuartierCoverage();
   });
 
   const renderSyncStatus = () => {
@@ -818,11 +853,14 @@ function renderTourDetails() {
   }
 
   if (list && points.length) {
+    // escapeHtml obligatoire : nom/quartier/produits sont saisis par les
+    // agents et affichés via innerHTML — sans échappement c'est une faille
+    // XSS directe depuis n'importe quelle fiche.
     list.innerHTML = points.map((p, i) => `
       <div class="tour-item ${i === idx ? 'active' : ''}" style="padding: 8px 10px; margin-bottom: 6px; border-radius: 8px; background: ${i === idx ? '#e8f5e9' : '#f9f9f9'}; border: 1px solid ${i === idx ? '#2ecc71' : '#eee'}; display: flex; align-items: center; justify-content: space-between;">
         <div>
-          <b>${i + 1}. ${p.name || 'Point ' + p.id}</b> <span style="font-size: 11px; color: #666;">(Bloc ${p.block})</span>
-          <div style="font-size: 11px; color: #888;">${p.quartier || ''} — ${p.produits || ''}</div>
+          <b>${i + 1}. ${escapeHtml(p.name || 'Point ' + p.id)}</b> <span style="font-size: 11px; color: #666;">(Bloc ${String(p.block).padStart(2, "0")})</span>
+          <div style="font-size: 11px; color: #888;">${escapeHtml(p.quartier || '')} — ${escapeHtml(p.produits || '')}</div>
         </div>
         <button data-tour-index="${i}" class="tour-jump-btn" style="padding: 4px 8px; border: none; border-radius: 6px; background: #1a3d2b; color: white; font-size: 11px; cursor: pointer;">Voir</button>
       </div>
@@ -848,75 +886,81 @@ function applyFilters() {
   };
   store.set("filters", filters);
 
+  // Filtre 100% LOCAL (#33) : aucune requête Supabase, on filtre les données
+  // déjà en mémoire puis on met à jour les marqueurs.
   const points = store.get("points");
-  const filtered = points.filter(p => passesFilters(p, filters));
+  const filtered = filterPoints(points, filters);
   renderMarkers(filtered);
 }
 
-function passesFilters(point, filters) {
-  if (filters.block !== "all" && String(point.block) !== filters.block) return false;
-  if (filters.status !== "all" && point.status !== filters.status) return false;
-  if (filters.visited === "yes" && !point.visited) return false;
-  if (filters.visited === "no" && point.visited) return false;
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    const hay = `${point.name || ""} ${point.quartier || ""} ${point.address || ""} ${point.tel || ""} ${point.produits || ""} ${point.id || ""} ${point.order || ""}`.toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
-  return true;
+/**
+ * Rendu des marqueurs conforme aux filtres actifs du store — utilisé par
+ * l'abonnement "points" pour que l'arrivée de données fraîches (cache →
+ * Supabase) ne réinitialise PAS visuellement le filtre choisi par l'agent.
+ */
+function applyFiltersFromStore() {
+  const filters = store.get("filters") || { block: "all", status: "all", visited: "all", search: "" };
+  const filtered = filterPoints(store.get("points"), filters);
+  renderMarkers(filtered);
 }
 
 function populateBlockFilter(points) {
   const select = document.getElementById("filterBlock");
   if (!select) return;
   const blocks = [...new Set(points.map(p => p.block))].sort((a, b) => a - b);
+  const signature = blocks.join(",");
+  // Idempotent : appelé à chaque arrivée de données (cache puis Supabase),
+  // on ne reconstruit les options QUE si la liste des blocs a changé —
+  // sinon la sélection courante de l'agent serait réinitialisée.
+  if (select.dataset.signature === signature) return;
+  select.dataset.signature = signature;
+  const current = select.value;
+  select.innerHTML = `<option value="all">Tous</option>`;
   blocks.forEach(b => {
     const opt = document.createElement("option");
     opt.value = String(b);
     opt.textContent = `Bloc ${String(b).padStart(2, "0")}`;
     select.appendChild(opt);
   });
+  // Restaurer la sélection si elle existe toujours
+  if ([...select.options].some(o => o.value === current)) {
+    select.value = current;
+  }
 }
 
 function updateStats() {
+  // Source unique : computeStats() (core/analytics.js), un seul passage O(N)
+  // partagé avec le panneau de couverture via le cache ci-dessous.
   const points = store.get("points");
-  const visited = points.filter(p => p.visited === true).length;
-  const total = points.length;
-  const pct = total > 0 ? Math.round((visited / total) * 100) : 0;
+  const targetZones = store.get("targetZones") || [];
+  lastComputedStats = computeStats(points, targetZones);
+  const { visited, total, coveragePct } = lastComputedStats;
   const el = document.getElementById("statsHeader");
   if (el) {
     el.innerHTML = `
-      <span>${visited} / ${total} visités (${pct}%)</span>
+      <span>${visited} / ${total} visités (${coveragePct}%)</span>
       <div class="progress-bar-wrap">
-        <div class="progress-bar-fill" style="width:${pct}%"></div>
+        <div class="progress-bar-fill" style="width:${coveragePct}%"></div>
       </div>
     `;
   }
 }
 
+// Cache du dernier calcul computeStats() : renderQuartierCoverage est appelée
+// séparément (targetZones asynchrone) et ne doit PAS refaire un passage O(N).
+let lastComputedStats = null;
+
 function renderQuartierCoverage() {
   const container = document.getElementById("quartierCoverageList");
   if (!container) return;
 
-  const points = store.get("points") || [];
   const targetZones = store.get("targetZones") || [];
-  const byQuartier = new Map();
-
-  targetZones.forEach(z => {
-    byQuartier.set(z.name, { total: 0, visited: 0, targetZoneId: z.id });
-  });
-
-  points.forEach(p => {
-    const q = (p.quartier || "").trim() || "Non renseigné";
-    if (!byQuartier.has(q)) byQuartier.set(q, { total: 0, visited: 0 });
-    const entry = byQuartier.get(q);
-    entry.total++;
-    if (p.visited) entry.visited++;
-  });
-
-  const rows = [...byQuartier.entries()]
-    .map(([q, s]) => ({ q, ...s, pct: s.total ? Math.round((s.visited / s.total) * 100) : 0 }))
-    .sort((a, b) => a.pct - b.pct || b.total - a.total);
+  const stats = computeStats(store.get("points"), targetZones);
+  lastComputedStats = stats;
+  const rows = stats.byQuartier;
+  // computeStats ne connaît pas les ids de zones : map nom -> id pour le
+  // bouton de suppression des zones cibles.
+  const zoneIdByName = new Map(targetZones.map(z => [z.name, z.id]));
 
   if (rows.length === 0) {
     container.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Aucune zone définie pour l'instant — ajoutez-en une ci-dessous.</div>`;
@@ -925,12 +969,13 @@ function renderQuartierCoverage() {
 
   container.innerHTML = rows.map(r => {
     const color = r.total === 0 ? "#94a3b8" : r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
-    const removeBtn = r.targetZoneId
-      ? `<button type="button" class="remove-zone-btn" data-zone-id="${r.targetZoneId}" title="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
+    const zoneId = zoneIdByName.get(r.quartier);
+    const removeBtn = zoneId
+      ? `<button type="button" class="remove-zone-btn" data-zone-id="${escapeHtml(zoneId)}" title="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
       : "";
     return `
       <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
-        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.q)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.q)}</span>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.quartier)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.quartier)}</span>
         <span style="color:#64748b; min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
         <div style="width:44px; height:6px; border-radius:3px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
           <div style="height:100%; width:${r.pct}%; background:${color};"></div>

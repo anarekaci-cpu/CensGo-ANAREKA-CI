@@ -10,7 +10,16 @@ export async function initAuth() {
     store.set("user", null);
   }
   onAuthStateChange((session) => {
-    store.set("user", session?.user || null);
+    const next = session?.user || null;
+    const prev = store.get("user");
+    // Supabase émet INITIAL_SESSION, SIGNED_IN puis TOKEN_REFRESHED avec à
+    // chaque fois un NOUVEL objet user (même identité). Comparer par id et
+    // non par référence : sinon chaque événement déclenchait un re-render
+    // COMPLET de l'application (remontée du boot screen, réinitialisation de
+    // la carte, re-téléchargement des 500+ points, listeners dupliqués).
+    if ((next?.id || null) !== (prev?.id || null)) {
+      store.set("user", next);
+    }
   });
 }
 

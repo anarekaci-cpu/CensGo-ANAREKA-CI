@@ -22,8 +22,11 @@ async function bootstrap() {
     await db.open();
     console.log("📦 IndexedDB prête");
 
-    await initSyncEngine();
+    // Auth AVANT sync : le moteur de synchronisation envoie des mutations
+    // vers Supabase — sans session restaurée, RLS refuserait chaque envoi
+    // et brûlerait les tentatives de retry pour rien.
     await initAuth();
+    await initSyncEngine();
 
     const appInstance = new App(app);
     await appInstance.mount();

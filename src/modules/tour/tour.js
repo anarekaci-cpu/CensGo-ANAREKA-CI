@@ -1,6 +1,6 @@
 import { store } from "../../core/store.js";
 import { flyToPoint } from "../map/map.js";
-import { haversineKm } from "../../core/geo.js";
+import { generateOptimizedTour } from "../../core/tourPlanner.js";
 
 let tourPoints = [];
 let currentIndex = 0;
@@ -12,33 +12,7 @@ export function initTour() {
   });
 }
 
-export function generateOptimizedTour(points, startPos) {
-  const unvisited = points.filter(p => !p.visited);
-  if (unvisited.length === 0) return [];
-
-  const tour = [];
-  let current = { lat: startPos.lat, lng: startPos.lng };
-  const remaining = [...unvisited];
-
-  while (remaining.length > 0) {
-    let nearestIdx = 0;
-    let minDist = Infinity;
-
-    for (let i = 0; i < remaining.length; i++) {
-      const d = haversineKm(current.lat, current.lng, remaining[i].lat, remaining[i].lon);
-      if (d < minDist) {
-        minDist = d;
-        nearestIdx = i;
-      }
-    }
-
-    const next = remaining.splice(nearestIdx, 1)[0];
-    tour.push({ ...next, distanceFromPrev: minDist });
-    current = { lat: next.lat, lng: next.lon };
-  }
-
-  return tour;
-}
+export { generateOptimizedTour };
 
 export function startTour(tour) {
   tourPoints = tour;

@@ -6,6 +6,7 @@ import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
 import { haversineKm } from "../../core/geo.js";
 import { escapeHtml } from "../../core/utils.js";
+import { toastWarning } from "../../core/toast.js";
 
 const iconCache = new Map();
 
@@ -21,6 +22,41 @@ let moveHandler = null;
 let moveRaf = null;
 let loadedFeatures = [];
 
+// Index id -> point reconstruit à chaque changement de "points" dans le
+// store (abonnement module ci-dessous). Les recherches au clic passent d'un
+// O(N) sur tout le store à un O(1), y compris pendant les pans de carte où
+// renderVisibleMarkers s'exécute en boucle.
+let pointIndex = new Map();
+
+function rebuildPointIndex() {
+  const all = store.get("points") || [];
+  const idx = new Map();
+  for (const p of all) idx.set(String(p.id), p);
+  pointIndex = idx;
+}
+
+store.subscribe("points", () => rebuildPointIndex());
+rebuildPointIndex();
+
+/**
+ * Retrouve un point par son id — O(1). Ne retourne JAMAIS silencieusement
+ * null sans trace : un marqueur dont le point a disparu du store signale un
+ * désalignement (données rechargées, filtre, course de sync) qu'il faut
+ * pouvoir diagnostiquer.
+ */
+function getPointById(pointId) {
+  const key = String(pointId);
+  let point = pointIndex.get(key);
+  if (!point) {
+    // Fallback sur le store (cas: set() entre le rAF batch et la notification)
+    const found = (store.get("points") || []).find(p => String(p.id) === key);
+    if (found) return found;
+    console.warn(`[MARKERS] Point introuvable pour l'id "${key}" — marqueur/store désalignés.`);
+    return null;
+  }
+  return point;
+}
+
 // --- Single delegated click handler for all pooled markers ---
 function handleMarkerClick(e) {
   const el = e.currentTarget;
@@ -28,8 +64,13 @@ function handleMarkerClick(e) {
   if (!pointId) return;
   e.stopPropagation();
 
-  const point = store.get("points").find(p => p.id === pointId);
-  if (!point) return;
+  const point = getPointById(pointId);
+  if (!point) {
+    // Garde-fou anti-affichage croisé : jamais les infos d'un autre point,
+    // et jamais un échec muet — l'agent sait que quelque chose cloche.
+    toastWarning("Fiche introuvable dans les données locales. Rechargement…");
+    return;
+  }
 
   closeCurrentPopup();
   const popup = createPopupForPoint(point);
@@ -145,7 +186,7 @@ function handlePopupAction(e) {
   const btn = e.currentTarget;
   const action = btn.dataset.action;
   const id = btn.dataset.id;
-  const point = store.get("points").find(p => p.id === id);
+  const point = getPointById(id);
   if (!point) return;
 
   if (action === "route" || action === "navigate") {
@@ -240,9 +281,6 @@ function renderVisibleMarkers() {
   for (const cm of clusterMarkers) cm.remove();
   clusterMarkers.length = 0;
 
-  const allPoints = store.get("points") || [];
-  const pointsById = new Map(allPoints.map(p => [p.id, p]));
-
   // Collect which pointIds should be visible
   const visibleIds = new Set();
 
@@ -290,7 +328,7 @@ function renderVisibleMarkers() {
 
     } else {
       const pointId = props.id;
-      const point = pointsById.get(pointId);
+      const point = getPointById(pointId);
       if (!point) continue;
 
       const existing = activeMarkers.get(pointId);
@@ -331,11 +369,16 @@ export function renderMarkers(points) {
   activeMarkers.clear();
   closeCurrentPopup();
 
-  loadedFeatures = points.map(p => ({
-    type: "Feature",
-    geometry: { type: "Point", coordinates: [p.lon, p.lat] },
-    properties: { ...p }
-  }));
+  const t0 = performance.now();
+  // Garde-fou : un point sans coordonnées fiables ne produit JAMAIS de
+  // feature GeoJSON [null, null] (casserait le clustering / atterrirait à (0,0)).
+  loadedFeatures = (Array.isArray(points) ? points : [])
+    .filter(p => p.lat != null && p.lon != null)
+    .map(p => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+      properties: { ...p }
+    }));
 
   cluster.load(loadedFeatures);
 
@@ -352,6 +395,10 @@ export function renderMarkers(points) {
   map.on("moveend", moveHandler);
 
   renderVisibleMarkers();
+  const ms = Math.round(performance.now() - t0);
+  // Instrumentation perf (#23) : visible dans l'onglet Performance / console.
+  // Un cluster.load > 100ms sur ce volume signalerait une régression.
+  console.info(`🗺️ [PERF] CLUSTERING+MARKERS ${ms}ms · ${loadedFeatures.length} features`);
 }
 
 export function upsertMarker(point) {
@@ -363,6 +410,9 @@ export function upsertMarker(point) {
 
   const cluster = getClusterGroup();
   if (!cluster) return;
+  // Un point sans coordonnées fiables ne doit jamais produire de feature
+  // GeoJSON [null, null] (casserait le clustering / atterrirait à (0,0)).
+  if (point.lat == null || point.lon == null) return;
 
   loadedFeatures.push({
     type: "Feature",
@@ -376,7 +426,7 @@ export function upsertMarker(point) {
 
 export function refreshMarker(pointId) {
   const entry = activeMarkers.get(pointId);
-  const point = store.get("points").find(p => p.id === pointId);
+  const point = getPointById(pointId);
   if (!entry || !point) return;
 
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
@@ -391,7 +441,7 @@ export function refreshMarker(pointId) {
 }
 
 export function openPopup(pointId) {
-  const point = store.get("points").find(p => p.id === pointId);
+  const point = getPointById(pointId);
   if (!point) return;
 
   const map = getMap();

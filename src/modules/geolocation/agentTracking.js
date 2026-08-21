@@ -2,6 +2,7 @@ import maplibregl from "maplibre-gl";
 import { getSupabaseClient } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
 import { getMap } from "../map/map.js";
+import { escapeHtml } from "../../core/utils.js";
 
 let agentMarkers = new Map();
 let pollInterval = null;
@@ -38,9 +39,11 @@ export async function loadAgentPositions() {
 
   try {
     const supabase = getSupabaseClient();
+    // Colonnes explicites (pas de select *) : la table ne contient que ces
+    // champs, et on évite de télécharger d'éventuelles colonnes futures.
     const { data, error } = await supabase
       .from("agent_positions")
-      .select("*")
+      .select("user_id,email,lat,lon,accuracy,updated_at")
       .order("updated_at", { ascending: false });
 
     if (error) throw error;
@@ -81,9 +84,10 @@ export function renderAgentMarkers(agents) {
       .addTo(map);
 
     const popup = new maplibregl.Popup({ offset: [0, -20], closeButton: true });
+    // escapeHtml : l'email provient de la base — ne jamais l'injecter brut.
     popup.setHTML(`
       <div style="min-width:150px">
-        <b>👤 ${agent.email}</b><br>
+        <b>👤 ${escapeHtml(agent.email)}</b><br>
         <span style="font-size:12px; color:#666">
           Position: ${agent.lat.toFixed(5)}, ${agent.lon.toFixed(5)}<br>
           ${isStale ? `⚠️ Inactif depuis ${ageMinutes} min` : `✅ Actif (${ageMinutes} min)`}

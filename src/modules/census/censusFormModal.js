@@ -1,10 +1,10 @@
 import { store } from "../../core/store.js";
 import { CONFIG } from "../../core/config.js";
 import { upsertPoint, findNearbyPoints } from "../../db/database.js";
-import { upsertMarker } from "./markers.js";
 import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
+import { isValidLatLng } from "../../core/normalize.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -427,6 +427,26 @@ function bindFormEvents() {
 
     const id = document.getElementById("cf_id").value;
     const existingPoint = id ? (store.get("points") || []).find(p => p.id === id) : null;
+
+    // Validation des coordonnées (#9) : lat ∈ [-90,90], lon ∈ [-180,180].
+    // Une donnée invalide ne doit JAMAIS casser la carte (feature GeoJSON
+    // corrompue) ni atterrir silencieusement au mauvais endroit.
+    const rawLat = parseFloat(document.getElementById("cf_lat").value);
+    const rawLon = parseFloat(document.getElementById("cf_lon").value);
+    let lat = rawLat;
+    let lon = rawLon;
+    if (!isValidLatLng(rawLat, rawLon)) {
+      if (Number.isFinite(rawLat) || Number.isFinite(rawLon)) {
+        toastWarning("Coordonnées GPS invalides — position du centre de carte utilisée par défaut.");
+      }
+      lat = CONFIG.MAP_CENTER[0];
+      lon = CONFIG.MAP_CENTER[1];
+    }
+
+    // NB : pas de normalizePoint() ici volontairement — ses valeurs par
+    // défaut (block:0, order:null) écraseraient les défauts métier posés
+    // par upsertPoint() (block:1, order:maxLocalId+1). Les types produits
+    // par le formulaire sont déjà conformes au format normalisé.
     const pointData = {
       id: id || undefined,
       name: document.getElementById("cf_name").value.trim(),
@@ -439,21 +459,22 @@ function bindFormEvents() {
       quartier: document.getElementById("cf_quartier").value.trim(),
       address: document.getElementById("cf_address").value.trim(),
       produits: document.getElementById("cf_produits").value.trim(),
-      lat: parseFloat(document.getElementById("cf_lat").value) || CONFIG.MAP_CENTER[0],
-      lon: parseFloat(document.getElementById("cf_lon").value) || CONFIG.MAP_CENTER[1]
+      lat,
+      lon
     };
 
     const updated = await upsertPoint(pointData);
 
-    // Mettre à jour le store local
+    // Mettre à jour le store avec un NOUVEAU tableau : muter l'ancien et le
+    // repasser à store.set() ne déclenche AUCUNE notification (comparaison
+    // par référence) — les marqueurs, stats et la tournée ne se mettaient
+    // alors à jour que grâce au upsertMarker manuel ci-dessous.
     const points = store.get("points") || [];
     const idx = points.findIndex(p => p.id === updated.id);
-    if (idx >= 0) {
-      points[idx] = updated;
-    } else {
-      points.push(updated);
-    }
-    store.set("points", points);
+    const nextPoints = idx >= 0
+      ? points.map(p => (p.id === updated.id ? updated : p))
+      : [...points, updated];
+    store.set("points", nextPoints);
 
     // Affiche tout de suite le badge "en attente d'envoi" sans attendre le prochain
     // passage du moteur de sync (qui tourne toutes les 30s).
@@ -461,7 +482,9 @@ function bindFormEvents() {
     pendingIds.add(updated.id);
     store.set("sync.pendingPointIds", [...pendingIds]);
 
-    upsertMarker(updated);
+    // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
+    // marqueurs en respectant les filtres actifs (un point créé hors filtre
+    // n'apparaît pas, ce qui est le comportement attendu).
 
     toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
     closeCensusForm();

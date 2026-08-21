@@ -24,6 +24,7 @@ export class App {
     this.container = container;
     this.unsubs = [];
     this._appModule = null;
+    this._appMounted = false;
   }
 
   async mount() {
@@ -36,10 +37,18 @@ export class App {
   render() {
     const user = store.get("user");
     if (!user) {
+      this._appMounted = false;
       this.renderLogin();
-    } else {
-      this.renderApp();
+      return;
     }
+    // Garde-fou : si l'application authentifiée est déjà à l'écran, ne JAMAIS
+    // la démonter pour la remonter (le boot screen réapparaîtrait, la carte
+    // serait réinitialisée, les données retéléchargées et les listeners
+    // document-level se cumuleraient). Seule une déconnexion repasse par
+    // renderLogin() qui remet _appMounted à false.
+    if (this._appMounted) return;
+    this._appMounted = true;
+    this.renderApp();
   }
 
   renderLogin() {
