@@ -58,12 +58,19 @@ CREATE INDEX IF NOT EXISTS idx_census_points_created_by
 ALTER TABLE census_points ENABLE ROW LEVEL SECURITY;
 
 -- 4. Supprimer les anciennes politiques si elles existent
+-- NOTE : cette liste doit contenir TOUS les noms de policy créés plus bas
+-- (y compris les noms remplacés lors de révisions passées) pour que le
+-- script reste réellement idempotent — un nom de CREATE POLICY oublié ici
+-- fait échouer toute réexécution avec "policy ... already exists" (42710).
 DROP POLICY IF EXISTS "Authenticated read access" ON census_points;
 DROP POLICY IF EXISTS "Authenticated insert access" ON census_points;
 DROP POLICY IF EXISTS "Authenticated update access" ON census_points;
 DROP POLICY IF EXISTS "Authenticated delete access" ON census_points;
 DROP POLICY IF EXISTS "Anonymous read access" ON census_points;
 DROP POLICY IF EXISTS "Admin full access" ON census_points;
+DROP POLICY IF EXISTS "Authenticated insert own or admin" ON census_points;
+DROP POLICY IF EXISTS "Authenticated update own or admin" ON census_points;
+DROP POLICY IF EXISTS "Admin delete access" ON census_points;
 
 -- 5. Recréer les politiques avec scoping par rôle
 --    Lecture : tous les agents authentifiés peuvent lire tous les points
