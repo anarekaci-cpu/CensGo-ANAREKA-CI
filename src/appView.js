@@ -309,11 +309,14 @@ async function initApp() {
   try {
     const user = store.get("user");
     const supabase = getSupabaseClient();
+    // maybeSingle() et non single() : un agent sans entrée dans user_roles
+    // renvoie 0 ligne, et single() transforme ce cas NORMAL en erreur HTTP
+    // 406 (bruit console + rejet de promesse). maybeSingle() renvoie null.
     const { data } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .single();
+      .maybeSingle();
     const isAdmin = data?.role === "admin";
     const adminRow = document.getElementById("adminTrackingRow");
     if (adminRow) adminRow.style.display = isAdmin ? "flex" : "none";

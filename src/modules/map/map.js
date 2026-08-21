@@ -9,6 +9,13 @@ const osmStyle = {
       type: "raster",
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
+      // OSM ne sert pas au-delà du zoom 19. Sans cette limite, MapLibre
+      // (tileSize 256 => il demande une tuile au-dessus du zoom caméra,
+      // maxzoom source par défaut : 22) requêtait des tuiles z=20 inexistantes
+      // -> réponses sans header CORS -> net::ERR_FAILED -> tempête d'erreurs
+      // "no-response" dans le service worker. Au-delà de 19, MapLibre
+      // agrandit simplement les tuiles z=19 (overzoom), comportement voulu.
+      maxzoom: 19,
       attribution: "© OpenStreetMap contributors"
     }
   },

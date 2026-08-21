@@ -35,7 +35,11 @@ export default defineConfig({
             handler: "CacheFirst",
             options: {
               cacheName: "osm-tiles",
-              expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 }
+              expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 },
+              // Ne cacher QUE les réponses valides : sans ça, une réponse
+              // d'erreur du serveur de tuiles pouvait être persistée et
+              // resservie depuis le cache pendant toute sa durée de vie.
+              cacheableResponse: { statuses: [200] }
             }
           },
           {
