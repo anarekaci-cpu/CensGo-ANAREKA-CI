@@ -6,7 +6,7 @@ import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
 import { toGeoJSONCoordinates } from "../../core/geo.js";
 import { escapeHtml, normalizePointId } from "../../core/utils.js";
-import { toastWarning, toastError } from "../../core/toast.js";
+import { toastWarning } from "../../core/toast.js";
 import { log, isVerbose } from "../../core/debug.js";
 import { buildPopupModel } from "./popupModel.js";
 
@@ -213,7 +213,6 @@ function buildPopup(point) {
     ${m.distanceLabel ? `<div class="popup-dist">${escapeHtml(m.distanceLabel)}</div>` : ""}
     <div class="btn-row">
       <button class="go-btn" data-action="route" data-id="${safeId}">🧭 Itinéraire</button>
-      <button class="go-btn nav-btn" data-action="navigate" data-id="${safeId}">🗺️ Naviguer</button>
     </div>
     <div class="btn-row">
       <button class="visit-btn ${m.visited ? 'btn-unvisit' : 'btn-visit'}" data-action="visit" data-id="${safeId}">
@@ -257,30 +256,11 @@ function handlePopupAction(e) {
     // chaque clic, donc un nouvel essai systématique.
     store.set("navigation.destination", { ...point });
     store.set("navigation.active", true);
-  } else if (action === "navigate") {
-    openExternalNavigation(point);
   } else if (action === "visit") {
     toggleVisit(point);
   } else if (action === "edit") {
     openCensusForm(point);
   }
-}
-
-/**
- * Navigation externe (Problème #8) : délègue à l'app Maps du téléphone.
- * URL universelle Google Maps — s'ouvre dans l'app native sur Android/iOS,
- * dans le site web sur desktop. destination=lat,lng correspond EXACTEMENT
- * aux coordonnées du point sélectionné ; travelmode=walking cohérent avec
- * le profil piéton des itinéraires internes.
- */
-function openExternalNavigation(point) {
-  if (point.lat == null || point.lon == null) {
-    toastError("Ce point n'a pas de coordonnées GPS exploitables.");
-    return;
-  }
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=walking`;
-  log.info("NAV_EXTERNAL", `destination=${point.lat},${point.lon}`);
-  window.open(url, "_blank", "noopener");
 }
 
 async function toggleVisit(point) {
