@@ -5,11 +5,38 @@ import { getSupabaseClient } from "../../core/supabase.js";
  * Service pour interagir avec les Agents IA ANAREKA-CI
  */
 
+/**
+ * Réduit chaque point aux seuls champs utiles à l'analyse IA avant l'envoi
+ * à l'edge function (puis à Gemini). Le point complet porte aussi des
+ * champs de bookkeeping interne (localId, syncedAt, createdBy = UUID,
+ * order, zone) qui n'apportent rien aux 3 analyses (tournée / audit /
+ * briefing) mais alourdissent chaque requête payante et exposent un
+ * identifiant interne à un tiers sans nécessité — inutile de les envoyer.
+ */
+function toAiPayload(points) {
+  if (!Array.isArray(points)) return points;
+  return points.map(p => ({
+    id: p.id,
+    block: p.block,
+    name: p.name,
+    tel: p.tel,
+    etablissement: p.etablissement,
+    activityType: p.activityType,
+    quartier: p.quartier,
+    address: p.address,
+    produits: p.produits,
+    status: p.status,
+    visited: p.visited,
+    lat: p.lat,
+    lon: p.lon
+  }));
+}
+
 export async function askAiAgent(action, { prompt, points, userPos, imageBase64, mimeType } = {}) {
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.functions.invoke("ai-agent", {
-      body: { action, prompt, points, userPos, imageBase64, mimeType }
+      body: { action, prompt, points: toAiPayload(points), userPos, imageBase64, mimeType }
     });
 
     if (error) {
