@@ -1,116 +1,80 @@
-// === Store centralisé (pattern Observer) ===
-class Store {
-  constructor() {
-    this.state = {
-      user: null,
-      points: [],
-      targetZones: [],
-      filters: {
-        block: "all",
-        status: "all",
-        visited: "all",
-        search: ""
-      },
-      geo: {
-        position: null,
-        heading: 0,
-        accuracy: null,
-        tracking: false,
-        error: null,
-        // Boussole terrain (capteur d'orientation du téléphone) — distincte
-        // de position.heading (cap GPS, souvent null à l'arrêt).
-        compassActive: false,
-        compassError: null
-      },
-      navigation: {
-        active: false,
-        destination: null,
-        route: null,
-        instruction: "",
-        arrived: false
-      },
-      tour: {
-        active: false,
-        points: [],
-        currentIndex: 0
-      },
-      sync: {
-        status: "idle", // idle | syncing | error | offline
-        lastSync: null,
-        pendingCount: 0,
-        deadCount: 0,
-        pendingPointIds: []
-      },
-      ui: {
-        loading: true,
-        error: null,
-        controlsOpen: false,
-        selectedPointId: null
-      }
-    };
-    this.listeners = new Map();
-    this.batch = new Set();
-    this.frame = null;
-  }
-
-  get(key) {
-    if (!key) return { ...this.state };
-    const keys = key.split(".");
-    let target = this.state;
-    for (const k of keys) {
-      if (target == null) return undefined;
-      target = target[k];
-    }
-    return target;
-  }
-
-  set(path, value) {
-    const keys = path.split(".");
-    let target = this.state;
-    for (let i = 0; i < keys.length - 1; i++) {
-      target = target[keys[i]];
-    }
-    const oldValue = target[keys[keys.length - 1]];
-    target[keys[keys.length - 1]] = value;
-
-    if (oldValue !== value) {
-      this._notify(path, value, oldValue);
-    }
-  }
-
-  update(path, updater) {
-    const current = this.get(path);
-    const next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
-    this.set(path, next);
-  }
-
-  subscribe(path, callback) {
-    if (!this.listeners.has(path)) {
-      this.listeners.set(path, new Set());
-    }
-    this.listeners.get(path).add(callback);
-    return () => this.listeners.get(path).delete(callback);
-  }
-
-  _notify(path, value, oldValue) {
-    this.batch.add({ path, value, oldValue });
-    if (this.frame) cancelAnimationFrame(this.frame);
-    this.frame = requestAnimationFrame(() => {
-      this.batch.forEach(({ path, value, oldValue }) => {
-        // Notifier les listeners exacts
-        const exact = this.listeners.get(path);
-        if (exact) exact.forEach(cb => cb(value, oldValue));
-
-        // Notifier les listeners wildcard (e.g. "sync.*")
-        const parent = path.split(".").slice(0, -1).join(".");
-        if (parent) {
-          const parentListeners = this.listeners.get(parent + ".*");
-          if (parentListeners) parentListeners.forEach(cb => cb(this.get(parent), null));
-        }
-      });
-      this.batch.clear();
-    });
-  }
+/**
+ * Distance en km entre deux points GPS (Haversine)
+ */
+export function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export const store = new Store();
+/**
+ * Conversion centrale lat/lon -> coordonnées GeoJSON/MapLibre (Problème #6).
+ *
+ * MapLibre et le format GeoJSON attendent STRICTEMENT [longitude, latitude],
+ * alors que l'API Geolocation du navigateur et la base fournissent lat d'abord.
+ * Toute construction de coordonnées pour la carte DOIT passer par ici afin
+ * d'éliminer définitivement les inversions [lat, lon] <-> [lon, lat].
+ *
+ * @param {number|null} lat
+ * @param {number|null} lon
+ * @returns {[number, number]|null} [longitude, latitude] ou null si invalide
+ */
+export function toGeoJSONCoordinates(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return [lon, lat];
+}
+
+/**
+ * Cap (bearing) en degrés [0, 360) entre deux points GPS, mesuré depuis
+ * le nord vrai dans le sens horaire.
+ *
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @returns {number} cap en degrés, dans [0, 360)
+ */
+export function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const dLon = toRad(lon2 - lon1);
+
+  const y = Math.sin(dLon) * Math.cos(phi2);
+  const x =
+    Math.cos(phi1) * Math.sin(phi2) -
+    Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+const CARDINAL_LABELS = [
+  "Nord",
+  "Nord-Est",
+  "Est",
+  "Sud-Est",
+  "Sud",
+  "Sud-Ouest",
+  "Ouest",
+  "Nord-Ouest"
+];
+
+/**
+ * Convertit un cap en degrés en libellé cardinal français (8 directions).
+ *
+ * @param {number} deg cap en degrés (peut dépasser [0, 360))
+ * @returns {string} libellé cardinal, ou "" si deg n'est pas un nombre fini
+ */
+export function cardinalLabel(deg) {
+  if (!Number.isFinite(deg)) return "";
+  const normalized = ((deg % 360) + 360) % 360;
+  const index = Math.round(normalized / 45) % 8;
+  return CARDINAL_LABELS[index];
+}
