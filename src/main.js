@@ -8,6 +8,7 @@ import { App } from "./appShell.js";
 import { db } from "./db/database.js";
 import { store } from "./core/store.js";
 import { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } from "./core/diagnostics.js";
+import { escapeHtml } from "./core/utils.js";
 
 async function bootstrap() {
   const app = document.getElementById("app");
@@ -50,10 +51,16 @@ async function bootstrap() {
       <div id="boot-error">
         <div class="boot-icon">⚠️</div>
         <h2>Impossible de démarrer</h2>
-        <p>${err.message}</p>
-        <button onclick="location.reload()">Réessayer</button>
+        <p>${escapeHtml(err.message || "Erreur inconnue")}</p>
+        <button id="bootRetryBtn">Réessayer</button>
       </div>
     `;
+    // addEventListener plutôt qu'un attribut onclick inline : le CSP
+    // (script-src 'self', sans unsafe-inline) bloque silencieusement les
+    // gestionnaires d'événements inline — le bouton ne faisait rien.
+    document.getElementById("bootRetryBtn")?.addEventListener("click", () => {
+      location.reload();
+    });
   }
 }
 
