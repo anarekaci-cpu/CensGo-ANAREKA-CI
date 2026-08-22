@@ -705,7 +705,7 @@ function bindAiEvents() {
         currentImageBase64 = evt.target.result;
         if (imgPreview) {
           imgPreview.style.display = "block";
-          imgPreview.innerHTML = `<img src="${currentImageBase64}" style="max-width:100%; max-height:180px; border-radius:10px; margin-top:8px; border:1px solid #ddd;" />`;
+          imgPreview.innerHTML = `<img src="${currentImageBase64}" alt="Aperçu de la photo sélectionnée" style="max-width:100%; max-height:180px; border-radius:10px; margin-top:8px; border:1px solid #ddd;" />`;
         }
         if (runVisionBtn) runVisionBtn.style.display = "block";
       };
