@@ -1,31 +1,116 @@
-/**
- * Distance en km entre deux points GPS (Haversine)
- */
-export function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+// === Store centralisé (pattern Observer) ===
+class Store {
+  constructor() {
+    this.state = {
+      user: null,
+      points: [],
+      targetZones: [],
+      filters: {
+        block: "all",
+        status: "all",
+        visited: "all",
+        search: ""
+      },
+      geo: {
+        position: null,
+        heading: 0,
+        accuracy: null,
+        tracking: false,
+        error: null,
+        // Boussole terrain (capteur d'orientation du téléphone) — distincte
+        // de position.heading (cap GPS, souvent null à l'arrêt).
+        compassActive: false,
+        compassError: null
+      },
+      navigation: {
+        active: false,
+        destination: null,
+        route: null,
+        instruction: "",
+        arrived: false
+      },
+      tour: {
+        active: false,
+        points: [],
+        currentIndex: 0
+      },
+      sync: {
+        status: "idle", // idle | syncing | error | offline
+        lastSync: null,
+        pendingCount: 0,
+        deadCount: 0,
+        pendingPointIds: []
+      },
+      ui: {
+        loading: true,
+        error: null,
+        controlsOpen: false,
+        selectedPointId: null
+      }
+    };
+    this.listeners = new Map();
+    this.batch = new Set();
+    this.frame = null;
+  }
+
+  get(key) {
+    if (!key) return { ...this.state };
+    const keys = key.split(".");
+    let target = this.state;
+    for (const k of keys) {
+      if (target == null) return undefined;
+      target = target[k];
+    }
+    return target;
+  }
+
+  set(path, value) {
+    const keys = path.split(".");
+    let target = this.state;
+    for (let i = 0; i < keys.length - 1; i++) {
+      target = target[keys[i]];
+    }
+    const oldValue = target[keys[keys.length - 1]];
+    target[keys[keys.length - 1]] = value;
+
+    if (oldValue !== value) {
+      this._notify(path, value, oldValue);
+    }
+  }
+
+  update(path, updater) {
+    const current = this.get(path);
+    const next = typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    this.set(path, next);
+  }
+
+  subscribe(path, callback) {
+    if (!this.listeners.has(path)) {
+      this.listeners.set(path, new Set());
+    }
+    this.listeners.get(path).add(callback);
+    return () => this.listeners.get(path).delete(callback);
+  }
+
+  _notify(path, value, oldValue) {
+    this.batch.add({ path, value, oldValue });
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = requestAnimationFrame(() => {
+      this.batch.forEach(({ path, value, oldValue }) => {
+        // Notifier les listeners exacts
+        const exact = this.listeners.get(path);
+        if (exact) exact.forEach(cb => cb(value, oldValue));
+
+        // Notifier les listeners wildcard (e.g. "sync.*")
+        const parent = path.split(".").slice(0, -1).join(".");
+        if (parent) {
+          const parentListeners = this.listeners.get(parent + ".*");
+          if (parentListeners) parentListeners.forEach(cb => cb(this.get(parent), null));
+        }
+      });
+      this.batch.clear();
+    });
+  }
 }
 
-/**
- * Conversion centrale lat/lon -> coordonnées GeoJSON/MapLibre (Problème #6).
- *
- * MapLibre et le format GeoJSON attendent STRICTEMENT [longitude, latitude],
- * alors que l'API Geolocation du navigateur et la base fournissent lat d'abord.
- * Toute construction de coordonnées pour la carte DOIT passer par ici afin
- * d'éliminer définitivement les inversions [lat, lon] <-> [lon, lat].
- *
- * @param {number|null} lat
- * @param {number|null} lon
- * @returns {[number, number]|null} [longitude, latitude] ou null si invalide
- */
-export function toGeoJSONCoordinates(lat, lon) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return [lon, lat];
-}
+export const store = new Store();
