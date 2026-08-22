@@ -64,13 +64,13 @@ export function initCensusFormModal() {
           <!-- Type d'activité -->
           <div class="form-group">
             <label>Type d'activité <span class="req">*</span></label>
-            <div class="chips-row" id="cf_activity_group">
-              <button type="button" class="chip-a" data-activity="Kiosque d'attiéké fixe">🏪 Kiosque fixe</button>
-              <button type="button" class="chip-a" data-activity="Restaurant traditionnel">🍽️ Restaurant</button>
-              <button type="button" class="chip-a" data-activity="Vendeur ambulant">🚶 Vendeur ambulant</button>
-              <button type="button" class="chip-a" data-activity="Producteur d'attiéké">🌾 Producteur</button>
-              <button type="button" class="chip-a" data-activity="Maquis / Gargote">🍲 Maquis / Gargote</button>
-              <button type="button" class="chip-a" data-activity="Autre">➕ Autre</button>
+            <div class="chips-row" id="cf_activity_group" role="group" aria-label="Type d'activité">
+              <button type="button" class="chip-a" data-activity="Kiosque d'attiéké fixe" aria-pressed="false">🏪 Kiosque fixe</button>
+              <button type="button" class="chip-a" data-activity="Restaurant traditionnel" aria-pressed="false">🍽️ Restaurant</button>
+              <button type="button" class="chip-a" data-activity="Vendeur ambulant" aria-pressed="false">🚶 Vendeur ambulant</button>
+              <button type="button" class="chip-a" data-activity="Producteur d'attiéké" aria-pressed="false">🌾 Producteur</button>
+              <button type="button" class="chip-a" data-activity="Maquis / Gargote" aria-pressed="false">🍲 Maquis / Gargote</button>
+              <button type="button" class="chip-a" data-activity="Autre" aria-pressed="false">➕ Autre</button>
             </div>
             <input type="hidden" id="cf_activity" value="" />
           </div>
@@ -78,9 +78,9 @@ export function initCensusFormModal() {
           <!-- Genre du responsable -->
           <div class="form-group">
             <label>Genre du responsable</label>
-            <div class="segmented-control" id="cf_sexe_group">
-              <button type="button" class="segment-btn active" data-sexe="Homme">👨 Homme</button>
-              <button type="button" class="segment-btn" data-sexe="Femme">👩 Femme</button>
+            <div class="segmented-control" id="cf_sexe_group" role="group" aria-label="Genre du responsable">
+              <button type="button" class="segment-btn active" data-sexe="Homme" aria-pressed="true">👨 Homme</button>
+              <button type="button" class="segment-btn" data-sexe="Femme" aria-pressed="false">👩 Femme</button>
             </div>
             <input type="hidden" id="cf_sexe" value="Homme" />
           </div>
@@ -113,13 +113,13 @@ export function initCensusFormModal() {
           <!-- Produits & Spécialités Multi-select Chips -->
           <div class="form-group">
             <label>Produits / Spécialités proposées</label>
-            <div class="multi-chips-group" id="cf_produits_group">
-              <button type="button" class="chip-p" data-p="Attiéké Poisson">🐟 Attiéké Poisson</button>
-              <button type="button" class="chip-p" data-p="Attiéké Poulet">🍗 Attiéké Poulet</button>
-              <button type="button" class="chip-p" data-p="Attiéké Viande/Grillades">🍖 Viande/Grillades</button>
-              <button type="button" class="chip-p" data-p="Attiéké Nature">🍚 Attiéké Nature</button>
-              <button type="button" class="chip-p" data-p="Garba">🥘 Garba</button>
-              <button type="button" class="chip-p" data-p="Boissons/Jus">🥤 Boissons/Jus</button>
+            <div class="multi-chips-group" id="cf_produits_group" role="group" aria-label="Produits / Spécialités proposées">
+              <button type="button" class="chip-p" data-p="Attiéké Poisson" aria-pressed="false">🐟 Attiéké Poisson</button>
+              <button type="button" class="chip-p" data-p="Attiéké Poulet" aria-pressed="false">🍗 Attiéké Poulet</button>
+              <button type="button" class="chip-p" data-p="Attiéké Viande/Grillades" aria-pressed="false">🍖 Viande/Grillades</button>
+              <button type="button" class="chip-p" data-p="Attiéké Nature" aria-pressed="false">🍚 Attiéké Nature</button>
+              <button type="button" class="chip-p" data-p="Garba" aria-pressed="false">🥘 Garba</button>
+              <button type="button" class="chip-p" data-p="Boissons/Jus" aria-pressed="false">🥤 Boissons/Jus</button>
             </div>
             <input type="hidden" id="cf_produits" value="" />
           </div>
@@ -338,8 +338,12 @@ function bindFormEvents() {
   const segmentBtns = document.querySelectorAll("#cf_sexe_group .segment-btn");
   segmentBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      segmentBtns.forEach(b => b.classList.remove("active"));
+      segmentBtns.forEach(b => {
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
       btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
       document.getElementById("cf_sexe").value = btn.dataset.sexe;
     });
   });
@@ -352,8 +356,12 @@ function bindFormEvents() {
   const activityBtns = document.querySelectorAll("#cf_activity_group .chip-a");
   activityBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-      activityBtns.forEach(b => b.classList.remove("active"));
+      activityBtns.forEach(b => {
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
       btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
       document.getElementById("cf_activity").value = btn.dataset.activity;
       validateFormRealtime();
     });
@@ -362,7 +370,8 @@ function bindFormEvents() {
   // Multi Products Chips
   document.querySelectorAll(".chip-p").forEach(chip => {
     chip.addEventListener("click", () => {
-      chip.classList.toggle("active");
+      const nowActive = chip.classList.toggle("active");
+      chip.setAttribute("aria-pressed", String(nowActive));
       updateProduitsFromChips();
     });
   });
@@ -501,21 +510,27 @@ function bindFormEvents() {
 function syncSegmentedSexe() {
   const current = document.getElementById("cf_sexe").value;
   document.querySelectorAll("#cf_sexe_group .segment-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.sexe === current);
+    const isActive = b.dataset.sexe === current;
+    b.classList.toggle("active", isActive);
+    b.setAttribute("aria-pressed", String(isActive));
   });
 }
 
 function syncActivityChips() {
   const current = document.getElementById("cf_activity").value;
   document.querySelectorAll("#cf_activity_group .chip-a").forEach(c => {
-    c.classList.toggle("active", c.dataset.activity === current);
+    const isActive = c.dataset.activity === current;
+    c.classList.toggle("active", isActive);
+    c.setAttribute("aria-pressed", String(isActive));
   });
 }
 
 function syncProduitsChips() {
   const val = document.getElementById("cf_produits").value || "";
   document.querySelectorAll("#cf_produits_group .chip-p").forEach(c => {
-    c.classList.toggle("active", val.includes(c.dataset.p));
+    const isActive = val.includes(c.dataset.p);
+    c.classList.toggle("active", isActive);
+    c.setAttribute("aria-pressed", String(isActive));
   });
 }
 
