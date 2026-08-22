@@ -86,7 +86,7 @@ async function startNavigation() {
 
   store.set("navigation.instruction", "⏳ Calcul de l'itinéraire...");
   osrmRequestCount++;
-  console.log(`[DEBUG][ROUTE]\nclick = true\ndestination = ${destination.name} (${destination.lat}, ${destination.lon})\nGPS = [${position.lat}, ${position.lng}]\nOSRM requests = ${osrmRequestCount}`);
+  log.trace("ROUTE", `click = true\ndestination = ${destination.name} (${destination.lat}, ${destination.lon})\nGPS = [${position.lat}, ${position.lng}]\nOSRM requests = ${osrmRequestCount}`);
 
   try {
     const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
