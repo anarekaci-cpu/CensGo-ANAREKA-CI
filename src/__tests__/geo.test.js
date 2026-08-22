@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { haversineKm, toGeoJSONCoordinates } from "../core/geo.js";
+import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel } from "../core/geo.js";
 
 describe("haversineKm", () => {
   it("returns 0 for same point", () => {
@@ -42,5 +42,54 @@ describe("toGeoJSONCoordinates", () => {
   it("accepts boundary values", () => {
     expect(toGeoJSONCoordinates(90, 180)).toEqual([180, 90]);
     expect(toGeoJSONCoordinates(-90, -180)).toEqual([-180, -90]);
+  });
+});
+
+describe("bearingDeg", () => {
+  it("un point plein Nord donne un cap de 0°", () => {
+    const b = bearingDeg(5.36, -3.97, 5.40, -3.97);
+    expect(b).toBeCloseTo(0, 0);
+  });
+
+  it("un point plein Est (même latitude) donne un cap proche de 90°", () => {
+    const b = bearingDeg(5.36, -3.97, 5.36, -3.90);
+    expect(b).toBeGreaterThan(85);
+    expect(b).toBeLessThan(95);
+  });
+
+  it("un point plein Sud donne un cap de 180°", () => {
+    const b = bearingDeg(5.36, -3.97, 5.30, -3.97);
+    expect(b).toBeCloseTo(180, 0);
+  });
+
+  it("reste toujours dans [0, 360)", () => {
+    const b = bearingDeg(5.36, -3.97, 5.36, -4.10); // plein Ouest
+    expect(b).toBeGreaterThanOrEqual(0);
+    expect(b).toBeLessThan(360);
+    expect(b).toBeGreaterThan(265);
+    expect(b).toBeLessThan(275);
+  });
+});
+
+describe("cardinalLabel", () => {
+  it("mappe les 8 directions cardinales", () => {
+    expect(cardinalLabel(0)).toBe("Nord");
+    expect(cardinalLabel(45)).toBe("Nord-Est");
+    expect(cardinalLabel(90)).toBe("Est");
+    expect(cardinalLabel(135)).toBe("Sud-Est");
+    expect(cardinalLabel(180)).toBe("Sud");
+    expect(cardinalLabel(225)).toBe("Sud-Ouest");
+    expect(cardinalLabel(270)).toBe("Ouest");
+    expect(cardinalLabel(315)).toBe("Nord-Ouest");
+  });
+
+  it("boucle correctement près de 360°", () => {
+    expect(cardinalLabel(359)).toBe("Nord");
+    expect(cardinalLabel(361)).toBe("Nord");
+  });
+
+  it("retourne une chaîne vide pour une valeur non numérique", () => {
+    expect(cardinalLabel(NaN)).toBe("");
+    expect(cardinalLabel(undefined)).toBe("");
   });
 });
