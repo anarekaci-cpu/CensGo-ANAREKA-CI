@@ -62,8 +62,8 @@ export async function mountAuthenticatedApp(container) {
         <div class="right">
           <div id="syncStatus">🌐 Connexion...</div>
           <div class="header-actions">
-            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
-            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
+            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
+            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 <span class="btn-label">Agents IA</span></button>
             <button id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">🔒</button>
             <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
           </div>
