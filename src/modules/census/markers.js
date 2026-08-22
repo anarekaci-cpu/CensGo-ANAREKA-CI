@@ -319,6 +319,13 @@ function createPopupForPoint(point) {
     maxWidth: "min(92vw, 340px)",
     closeOnClick: false
   });
+  // Sans setLngLat(), MapLibre n'a aucune coordonnée où positionner le
+  // popup : _update() sort en silence (pas d'erreur console) et le popup
+  // reste invisible malgré addTo() — "created = true, added = true,
+  // visible = false" à chaque clic. Coordonnées passées en [lon, lat]
+  // comme partout ailleurs dans ce fichier (toGeoJSONCoordinates).
+  const coords = toGeoJSONCoordinates(point.lat, point.lon);
+  if (coords) popup.setLngLat(coords);
   popup.setDOMContent(buildPopup(point));
   return popup;
 }
