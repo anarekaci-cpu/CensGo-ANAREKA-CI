@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel } from "../core/geo.js";
+import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel, distanceToPolylineMeters } from "../core/geo.js";
 
 describe("haversineKm", () => {
   it("returns 0 for same point", () => {
@@ -91,5 +91,40 @@ describe("cardinalLabel", () => {
   it("retourne une chaîne vide pour une valeur non numérique", () => {
     expect(cardinalLabel(NaN)).toBe("");
     expect(cardinalLabel(undefined)).toBe("");
+  });
+});
+
+describe("distanceToPolylineMeters", () => {
+  // Segment nord-sud (longitude fixe) — sert à détecter un écart de tracé
+  // pendant la navigation (voir modules/navigation/navigation.js).
+  const segment = [[-3.97, 5.36], [-3.97, 5.40]];
+
+  it("retourne ~0 pour un point situé sur le segment", () => {
+    const d = distanceToPolylineMeters(5.38, -3.97, segment);
+    expect(d).toBeLessThan(1);
+  });
+
+  it("mesure l'écart perpendiculaire pour un point décalé d'environ 0.001°", () => {
+    const d = distanceToPolylineMeters(5.38, -3.969, segment);
+    expect(d).toBeGreaterThan(90);
+    expect(d).toBeLessThan(130);
+  });
+
+  it("projette sur l'extrémité la plus proche pour un point hors du segment", () => {
+    const d = distanceToPolylineMeters(5.50, -3.97, segment);
+    const expected = haversineKm(5.50, -3.97, 5.40, -3.97) * 1000;
+    expect(Math.abs(d - expected)).toBeLessThan(5);
+  });
+
+  it("gère une polyligne à un seul point (distance directe)", () => {
+    const d = distanceToPolylineMeters(5.36, -3.97, [[-3.99, 5.40]]);
+    const expected = haversineKm(5.36, -3.97, 5.40, -3.99) * 1000;
+    expect(Math.abs(d - expected)).toBeLessThan(5);
+  });
+
+  it("retourne Infinity pour une entrée vide ou invalide", () => {
+    expect(distanceToPolylineMeters(5.36, -3.97, [])).toBe(Infinity);
+    expect(distanceToPolylineMeters(NaN, -3.97, segment)).toBe(Infinity);
+    expect(distanceToPolylineMeters(5.36, -3.97, null)).toBe(Infinity);
   });
 });
