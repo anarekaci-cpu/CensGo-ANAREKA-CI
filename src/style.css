@@ -300,8 +300,6 @@ header {
 }
 .go-btn { background: #1a3d2b; color: white; box-shadow: 0 2px 8px rgba(26, 61, 43, 0.2); }
 .go-btn:hover { background: #275940; }
-.nav-btn { background: #1d4ed8; color: white; box-shadow: 0 2px 8px rgba(29, 78, 216, 0.2); }
-.nav-btn:hover { background: #2563eb; }
 .btn-visit { background: #16a34a; color: white; box-shadow: 0 2px 8px rgba(22, 163, 74, 0.2); }
 .btn-visit:hover { background: #22c55e; }
 .btn-unvisit { background: #f1f5f9; color: var(--text-secondary); border: 1px solid #cbd5e1; }
