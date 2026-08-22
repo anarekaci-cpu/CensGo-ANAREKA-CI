@@ -199,6 +199,15 @@ header {
   background: rgba(255,255,255,0.22);
   transform: translateY(-1px);
 }
+/* .btn-add-header / .btn-ai-header définissent leur propre font-size/padding,
+   mais ".header-actions button" ci-dessus a une spécificité plus forte
+   (classe + type > classe seule) et les écrasait silencieusement — le texte
+   repassait à 16px dans une hauteur fixe de 44px et débordait en 2 lignes.
+   On reprend la priorité ici pour ces deux boutons précisément. */
+.header-actions button.btn-add-header,
+.header-actions button.btn-ai-header {
+  white-space: nowrap; flex-shrink: 0; height: auto; min-height: 44px;
+}
 
 #controls {
   position: absolute; top: 62px; left: 12px; right: 12px;
@@ -925,7 +934,14 @@ input:checked + .slider:before { transform: translateX(24px); }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
   #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
-  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 15px; }
+  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 15px; white-space: nowrap; }
+  /* Saisie / Agents IA gardent leur emoji mais perdent leur libellé texte :
+     sur écran étroit, le forçage width:44px ci-dessus faisait passer le
+     texte sur 2 lignes qui débordaient de la hauteur fixe et chevauchaient
+     les boutons voisins (cadenas, menu). Les mêmes actions restent
+     accessibles en texte complet dans le panneau Filtres. */
+  .btn-add-header .btn-label,
+  .btn-ai-header .btn-label { display: none; }
   .row2 { grid-template-columns: 1fr; }
   .action-row { grid-template-columns: 1fr; }
   .census-modal, .ai-modal { padding: 0; }
