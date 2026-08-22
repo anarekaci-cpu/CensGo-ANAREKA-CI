@@ -45,7 +45,7 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
       `geometry received ${(route.geometry?.coordinates?.length || 0)} points`,
       `${Math.round(route.distance)}m / ${Math.round(route.duration)}s`);
 
-    console.log(`[DEBUG][ROUTE]\nresponseStatus = ${res.status}\ngeometry = ${route.geometry?.coordinates?.length || 0} pts\nmapSourceExists = true\nmapLayerExists = true\nrouteVisible = true`);
+    log.trace("ROUTE", `responseStatus = ${res.status}\ngeometry = ${route.geometry?.coordinates?.length || 0} pts\nmapSourceExists = true\nmapLayerExists = true\nrouteVisible = true`);
 
     return {
       distance: route.distance,
@@ -56,7 +56,7 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
   } catch (err) {
     log.error("ROUTE", "échec:", err.message);
     log.trace("ROUTE", "STOP: erreur =", err.message);
-    console.log(`[DEBUG][ROUTE]\nresponseStatus = error\ngeometry = 0 pts\nmapSourceExists = false\nmapLayerExists = false\nrouteVisible = false`);
+    log.trace("ROUTE", `responseStatus = error\ngeometry = 0 pts\nmapSourceExists = false\nmapLayerExists = false\nrouteVisible = false`);
     throw err;
   }
 }
