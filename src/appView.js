@@ -43,12 +43,32 @@ function getAiModule() {
   return aiModulePromise;
 }
 
+let compassModulePromise = null;
+function getCompassModule() {
+  if (!compassModulePromise) {
+    compassModulePromise = import("./modules/compass/compassView.js").then(mod => {
+      mod.mountCompass();
+      return mod;
+    });
+  }
+  return compassModulePromise;
+}
+
 function debounce(fn, ms) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
 export async function mountAuthenticatedApp(container) {
+  // Un re-montage (déconnexion puis reconnexion sans recharger la page)
+  // remplace tout le contenu de #main ci-dessous — sans ce nettoyage, le
+  // module boussole (déjà chargé) resterait accroché à des nœuds DOM
+  // détachés : abonnements store et capteur d'orientation actifs pour rien.
+  if (compassModulePromise) {
+    compassModulePromise.then(mod => mod.unmountCompass()).catch(() => {});
+    compassModulePromise = null;
+  }
+
   container.innerHTML = `
     <div id="app-container">
       <header>
@@ -158,6 +178,7 @@ export async function mountAuthenticatedApp(container) {
         </div>
         
         <button id="fabNearest">🏃 Point le plus proche</button>
+        <button id="fabCompass" aria-label="Ouvrir la boussole terrain" title="Boussole terrain">🧭</button>
         <button id="fabAdd" aria-label="Ajouter un point de recensement">➕</button>
         
         <div class="legend">
@@ -413,6 +434,13 @@ function bindEvents() {
   };
 
   document.getElementById("fabNearest").onclick = () => document.getElementById("nearestBtn").click();
+
+  // Boussole terrain : module chargé à la demande (comme Tour/IA) pour ne
+  // pas alourdir le bundle initial d'une fonctionnalité optionnelle.
+  document.getElementById("fabCompass")?.addEventListener("click", async () => {
+    const mod = await getCompassModule();
+    mod.openCompassPanel();
+  });
 
   // FAB "+" : action la plus fréquente du terrain, placée en bas à droite
   // pour être atteignable du pouce en usage une main (le bouton header
