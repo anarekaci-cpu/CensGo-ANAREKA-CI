@@ -4,7 +4,7 @@
   --bg-surface: #f8fafc;
   --text-primary: #1a1a1a;
   --text-secondary: #475569;
-  --text-muted: #64748b;
+  --text-muted: #5b6b82;
   --border: #e2e8f0;
   --border-focus: #2ecc71;
   --green-dark: #1a3d2b;
@@ -198,15 +198,6 @@ header {
 .header-actions button:hover {
   background: rgba(255,255,255,0.22);
   transform: translateY(-1px);
-}
-/* .btn-add-header / .btn-ai-header définissent leur propre font-size/padding,
-   mais ".header-actions button" ci-dessus a une spécificité plus forte
-   (classe + type > classe seule) et les écrasait silencieusement — le texte
-   repassait à 16px dans une hauteur fixe de 44px et débordait en 2 lignes.
-   On reprend la priorité ici pour ces deux boutons précisément. */
-.header-actions button.btn-add-header,
-.header-actions button.btn-ai-header {
-  white-space: nowrap; flex-shrink: 0; height: auto; min-height: 44px;
 }
 
 #controls {
@@ -402,74 +393,6 @@ header {
   border-radius: 50%; margin-right: 7px;
 }
 
-/* ============ Boussole terrain ============ */
-.compass-panel {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  background: var(--bg-card); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  padding: 16px; display: none; flex-direction: column; align-items: center; gap: 6px;
-  box-shadow: 0 -8px 32px rgba(0,0,0,0.18);
-  z-index: 360; padding-bottom: calc(16px + var(--safe-bottom));
-}
-.compass-panel.open { display: flex; }
-.compass-panel-head {
-  width: 100%; display: flex; align-items: center; justify-content: space-between;
-  font-weight: 800; font-size: 14px; color: #0f172a; margin-bottom: 4px;
-}
-#compassCloseBtn {
-  background: #f1f5f9; border: none; width: 36px; height: 36px; border-radius: 50%;
-  font-size: 14px; cursor: pointer; color: #64748b;
-  display: flex; align-items: center; justify-content: center;
-}
-.compass-dial {
-  position: relative; width: min(72vw, 260px); height: min(72vw, 260px);
-  margin: 6px 0; cursor: pointer;
-}
-.compass-ring {
-  position: absolute; inset: 0; border-radius: 50%;
-  background:
-    radial-gradient(circle at center, rgba(46,204,113,0.06) 0%, transparent 62%),
-    repeating-conic-gradient(from 0deg, rgba(26,61,43,0.07) 0deg 2deg, transparent 2deg 30deg);
-  border: 2px solid rgba(26, 61, 43, 0.18);
-  box-shadow: inset 0 2px 10px rgba(0,0,0,0.06);
-}
-.cardinal-marks-layer, .radar-blips-layer { position: absolute; inset: 0; }
-.compass-label {
-  position: absolute; transform: translate(-50%, -50%);
-  font-size: 13px; font-weight: 800; color: #1a3d2b;
-  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-}
-.compass-label-n { color: #dc2626; font-size: 15px; }
-.compass-pointer {
-  position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
-  color: #1a3d2b; font-size: 18px; text-shadow: 0 1px 2px rgba(0,0,0,0.15);
-}
-.compass-center-dot {
-  position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
-  transform: translate(-50%, -50%); border-radius: 50%;
-  background: #1a3d2b; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-}
-.radar-blip {
-  position: absolute; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  background: none; border: none; cursor: pointer; padding: 2px;
-}
-.radar-blip-dot {
-  width: 14px; height: 14px; border-radius: 50%;
-  background: #f97316; border: 2px solid white; box-shadow: 0 1px 6px rgba(249, 115, 22, 0.6);
-  animation: radarPulse 2s ease-out infinite;
-}
-@keyframes radarPulse {
-  0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.5); }
-  100% { box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
-}
-.radar-blip-label {
-  font-size: 10px; font-weight: 700; color: #7c2d12;
-  background: rgba(255,255,255,0.9); padding: 1px 5px; border-radius: 6px;
-  white-space: nowrap;
-}
-.compass-readout { font-size: 20px; font-weight: 800; color: #1a3d2b; letter-spacing: 0.02em; }
-.compass-hint { font-size: 12px; color: var(--text-muted); text-align: center; min-height: 16px; }
-
 #loading {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -553,20 +476,6 @@ header {
 }
 #fabAdd:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(5, 150, 105, 0.5); }
 #fabAdd:active { transform: scale(0.94); }
-
-/* Boussole terrain : 3e FAB, empilé au-dessus de "+" (56px + 12px de marge). */
-#fabCompass {
-  position: absolute; bottom: 152px; right: 18px;
-  width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, #0ea5e9, #0369a1);
-  color: white; border: 1px solid rgba(255,255,255,0.25);
-  font-size: 22px; line-height: 1; cursor: pointer; z-index: 200;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 24px rgba(3, 105, 161, 0.4);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-#fabCompass:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(3, 105, 161, 0.5); }
-#fabCompass:active { transform: scale(0.94); }
 
 /* Sur écran tactile : police des champs de saisie à 16px minimum.
    1) iOS Safari zoome automatiquement toute page au focus d'un input
@@ -1016,14 +925,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
   #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
-  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 15px; white-space: nowrap; }
-  /* Saisie / Agents IA gardent leur emoji mais perdent leur libellé texte :
-     sur écran étroit, le forçage width:44px ci-dessus faisait passer le
-     texte sur 2 lignes qui débordaient de la hauteur fixe et chevauchaient
-     les boutons voisins (cadenas, menu). Les mêmes actions restent
-     accessibles en texte complet dans le panneau Filtres. */
-  .btn-add-header .btn-label,
-  .btn-ai-header .btn-label { display: none; }
+  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 15px; }
   .row2 { grid-template-columns: 1fr; }
   .action-row { grid-template-columns: 1fr; }
   .census-modal, .ai-modal { padding: 0; }
@@ -1031,7 +933,6 @@ input:checked + .slider:before { transform: translateX(24px); }
   .legend { bottom: 16px; left: 12px; font-size: 11px; padding: 10px 12px; }
   #fabNearest { bottom: 16px; right: 12px; padding: 11px 16px; font-size: 12px; }
   #fabAdd { bottom: 76px; right: 12px; width: 52px; height: 52px; }
-  #fabCompass { bottom: 140px; right: 13px; width: 48px; height: 48px; font-size: 20px; }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
