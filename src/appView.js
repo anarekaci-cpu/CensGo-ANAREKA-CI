@@ -3,7 +3,7 @@ import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds, flyToPoint } from "./modules/map/map.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
-import { initNavigation, markArrivedVisited } from "./modules/navigation/navigation.js";
+import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation } from "./modules/navigation/navigation.js";
 import { locateAndCenter, findNearestUnvisited, getCurrentPosition } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
@@ -17,6 +17,7 @@ import { escapeHtml } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
 import { lazyImport } from "./core/lazyImport.js";
+import { getModeMeta } from "./modules/routing/routing.js";
 
 let emptyStateEl = null;
 
@@ -44,6 +45,17 @@ function getAiModule() {
   return aiModulePromise;
 }
 
+let compassModulePromise = null;
+function getCompassModule() {
+  if (!compassModulePromise) {
+    compassModulePromise = lazyImport(() => import("./modules/compass/compassView.js")).then(mod => {
+      mod.mountCompass();
+      return mod;
+    });
+  }
+  return compassModulePromise;
+}
+
 function debounce(fn, ms) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
@@ -64,6 +76,7 @@ export async function mountAuthenticatedApp(container) {
           <div id="syncStatus">🌐 Connexion...</div>
           <div class="header-actions">
             <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
+            <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain">🧭 Boussole</button>
             <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
             <button id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">🔒</button>
             <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
@@ -135,13 +148,20 @@ export async function mountAuthenticatedApp(container) {
 
       <div id="main">
         <div id="map"></div>
-        
+
+        <div id="navModeRow">
+          <button type="button" class="nav-mode-btn" data-mode="foot" title="À pied">🚶 À pied</button>
+          <button type="button" class="nav-mode-btn" data-mode="bike" title="À vélo">🚲 Vélo</button>
+          <button type="button" class="nav-mode-btn" data-mode="car" title="En véhicule">🚗 Véhicule</button>
+        </div>
+
         <div id="navPanel">
-          <div id="navIcon">🧭</div>
+          <div id="navIcon">🚶</div>
           <div id="navInfo">
             <div id="navInstruction">—</div>
             <div id="navSub"></div>
           </div>
+          <button id="navRecenterBtn" class="nav-recenter-btn" aria-label="Recentrer la boussole sur ma position">🧭</button>
           <button id="navStopBtn" aria-label="Arrêter la navigation">✕</button>
         </div>
         
@@ -519,10 +539,21 @@ function bindEvents() {
   document.getElementById("navStopBtn").onclick = () => {
     store.set("navigation.active", false);
   };
+  document.getElementById("navRecenterBtn").onclick = () => {
+    recenterNavigation();
+  };
+  document.querySelectorAll(".nav-mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => setNavigationMode(btn.dataset.mode));
+  });
   document.getElementById("arrivalYesBtn").onclick = () => markArrivedVisited();
   document.getElementById("arrivalNoBtn").onclick = () => {
     document.getElementById("arrivalBanner").style.display = "none";
   };
+
+  document.getElementById("compassBtnHeader")?.addEventListener("click", async () => {
+    (await getCompassModule()).openCompassPanel();
+    closeControls();
+  });
 
   bindAiEvents();
 }
@@ -824,6 +855,17 @@ function bindStoreListeners() {
     // Aucune erreur console : juste un panneau qui ne s'ouvrait jamais.
     const panel = document.getElementById("navPanel");
     if (panel) panel.style.display = active ? "flex" : "none";
+    const modeRow = document.getElementById("navModeRow");
+    if (modeRow) modeRow.style.display = active ? "flex" : "none";
+    if (active) renderNavModeButtons();
+    const icon = document.getElementById("navIcon");
+    if (icon) icon.textContent = getModeMeta(store.get("navigation.mode")).icon;
+  });
+
+  store.subscribe("navigation.mode", () => {
+    renderNavModeButtons();
+    const icon = document.getElementById("navIcon");
+    if (icon) icon.textContent = getModeMeta(store.get("navigation.mode")).icon;
   });
 
   store.subscribe("navigation.destination", (destination) => {
@@ -842,6 +884,13 @@ function bindStoreListeners() {
     if (infoEl) infoEl.textContent = text || "";
   });
 
+  // #navSub était déclaré dans le HTML mais jamais rempli : le guidage
+  // pas-à-pas (prochaine manœuvre OSRM) l'alimente maintenant.
+  store.subscribe("navigation.nextInstruction", (text) => {
+    const el = document.getElementById("navSub");
+    if (el) el.textContent = text || "";
+  });
+
   store.subscribe("navigation.arrived", (arrived) => {
     const banner = document.getElementById("arrivalBanner");
     if (banner) banner.style.display = arrived ? "block" : "none";
@@ -855,6 +904,13 @@ function bindStoreListeners() {
 
   store.subscribe("tour.currentIndex", () => {
     renderTourDetails();
+  });
+}
+
+function renderNavModeButtons() {
+  const mode = store.get("navigation.mode");
+  document.querySelectorAll(".nav-mode-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
   });
 }
 
