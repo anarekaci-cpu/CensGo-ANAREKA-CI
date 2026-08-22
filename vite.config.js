@@ -29,6 +29,14 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
         navigateFallback: "index.html",
         navigateFallbackDenylist: [/^\/api\//],
+        // Sans ça, les fichiers précachés d'un ancien build (chunks avec un
+        // hash désormais obsolète) restent indéfiniment dans le Cache
+        // Storage du téléphone à chaque nouveau déploiement — sur une PWA
+        // terrain utilisée pendant des mois, ça finit par accumuler des
+        // dizaines de versions inutiles. Complémentaire au filet lazyImport
+        // (core/lazyImport.js) qui gère, lui, l'onglet resté ouvert au
+        // moment précis du déploiement.
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             // Tuiles du fond de carte : CARTO (principal) + OSM (transition).
