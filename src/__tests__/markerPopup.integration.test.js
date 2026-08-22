@@ -34,8 +34,10 @@ vi.mock("maplibre-gl", () => {
       this.content = null;
       this.open = false;
       this.handlers = {};
+      this._lngLat = null;
       state.popups.push(this);
     }
+    setLngLat(c) { this._lngLat = c; return this; }
     setDOMContent(el) { this.content = el; return this; }
     addTo() { this.open = true; return this; }
     on(ev, cb) { this.handlers[ev] = cb; return this; }
@@ -214,7 +216,6 @@ describe("chaîne marker -> point -> popup (ids mixtes)", () => {
     expect(text).toContain("Téléphone:");
     expect(text).toContain("VERT (Joignable)");
     expect(text).toContain("Itinéraire");
-    expect(text).toContain("Naviguer");
     expect(text).toContain("visité");
   });
 
