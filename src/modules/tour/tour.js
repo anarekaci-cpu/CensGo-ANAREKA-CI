@@ -2,6 +2,7 @@ import { store } from "../../core/store.js";
 import { flyToPoint } from "../map/map.js";
 import { generateOptimizedTour } from "../../core/tourPlanner.js";
 import { normalizePointId } from "../../core/utils.js";
+import { lazyImport } from "../../core/lazyImport.js";
 
 let tourPoints = [];
 let currentIndex = 0;
@@ -67,7 +68,7 @@ export function goToPoint(index) {
   if (!point) return;
   flyToPoint(point.lat, point.lon, 17);
   setTimeout(() => {
-    import("../census/markers.js").then(({ openPopup }) => {
+    lazyImport(() => import("../census/markers.js")).then(({ openPopup }) => {
       openPopup(point.id);
     });
   }, 1200);
