@@ -43,32 +43,12 @@ function getAiModule() {
   return aiModulePromise;
 }
 
-let compassModulePromise = null;
-function getCompassModule() {
-  if (!compassModulePromise) {
-    compassModulePromise = import("./modules/compass/compassView.js").then(mod => {
-      mod.mountCompass();
-      return mod;
-    });
-  }
-  return compassModulePromise;
-}
-
 function debounce(fn, ms) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
 }
 
 export async function mountAuthenticatedApp(container) {
-  // Un re-montage (déconnexion puis reconnexion sans recharger la page)
-  // remplace tout le contenu de #main ci-dessous — sans ce nettoyage, le
-  // module boussole (déjà chargé) resterait accroché à des nœuds DOM
-  // détachés : abonnements store et capteur d'orientation actifs pour rien.
-  if (compassModulePromise) {
-    compassModulePromise.then(mod => mod.unmountCompass()).catch(() => {});
-    compassModulePromise = null;
-  }
-
   container.innerHTML = `
     <div id="app-container">
       <header>
@@ -82,8 +62,8 @@ export async function mountAuthenticatedApp(container) {
         <div class="right">
           <div id="syncStatus">🌐 Connexion...</div>
           <div class="header-actions">
-            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
-            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 <span class="btn-label">Agents IA</span></button>
+            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
+            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
             <button id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">🔒</button>
             <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
           </div>
@@ -178,7 +158,6 @@ export async function mountAuthenticatedApp(container) {
         </div>
         
         <button id="fabNearest">🏃 Point le plus proche</button>
-        <button id="fabCompass" aria-label="Ouvrir la boussole terrain" title="Boussole terrain">🧭</button>
         <button id="fabAdd" aria-label="Ajouter un point de recensement">➕</button>
         
         <div class="legend">
@@ -434,13 +413,6 @@ function bindEvents() {
   };
 
   document.getElementById("fabNearest").onclick = () => document.getElementById("nearestBtn").click();
-
-  // Boussole terrain : module chargé à la demande (comme Tour/IA) pour ne
-  // pas alourdir le bundle initial d'une fonctionnalité optionnelle.
-  document.getElementById("fabCompass")?.addEventListener("click", async () => {
-    const mod = await getCompassModule();
-    mod.openCompassPanel();
-  });
 
   // FAB "+" : action la plus fréquente du terrain, placée en bas à droite
   // pour être atteignable du pouce en usage une main (le bouton header
@@ -1018,7 +990,7 @@ function renderQuartierCoverage() {
     const color = r.total === 0 ? "#94a3b8" : r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
     const zoneId = zoneIdByName.get(r.quartier);
     const removeBtn = zoneId
-      ? `<button type="button" class="remove-zone-btn" data-zone-id="${escapeHtml(zoneId)}" title="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
+      ? `<button type="button" class="remove-zone-btn" data-zone-id="${escapeHtml(zoneId)}" title="Retirer cette zone cible" aria-label="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
       : "";
     return `
       <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
