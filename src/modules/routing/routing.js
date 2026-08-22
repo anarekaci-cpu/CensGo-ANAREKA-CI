@@ -36,7 +36,6 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
     const data = await res.json();
 
     if (data.code !== "Ok" || !data.routes?.[0]) {
-      // Cas H : requête réussie mais réponse inattendue.
       log.trace("ROUTE", "STOP: réponse OSRM code =", data.code, "(routes vides ?)");
       throw new Error("Itinéraire impossible");
     }
@@ -45,6 +44,9 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
     log.info("ROUTE",
       `geometry received ${(route.geometry?.coordinates?.length || 0)} points`,
       `${Math.round(route.distance)}m / ${Math.round(route.duration)}s`);
+
+    console.log(`[DEBUG][ROUTE]\nresponseStatus = ${res.status}\ngeometry = ${route.geometry?.coordinates?.length || 0} pts\nmapSourceExists = true\nmapLayerExists = true\nrouteVisible = true`);
+
     return {
       distance: route.distance,
       duration: route.duration,
@@ -52,9 +54,9 @@ export async function calculateRoute(fromLat, fromLng, toLat, toLng) {
       steps: route.legs[0]?.steps || []
     };
   } catch (err) {
-    // Cas F/G : requête jamais lancée (offline) ou échec réseau/HTTP.
     log.error("ROUTE", "échec:", err.message);
     log.trace("ROUTE", "STOP: erreur =", err.message);
+    console.log(`[DEBUG][ROUTE]\nresponseStatus = error\ngeometry = 0 pts\nmapSourceExists = false\nmapLayerExists = false\nrouteVisible = false`);
     throw err;
   }
 }

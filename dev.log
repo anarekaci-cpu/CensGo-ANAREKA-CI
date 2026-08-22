@@ -1,0 +1,10 @@
+
+> recensement-anareka-ci@2.0.0 dev
+> vite
+
+
+  VITE v5.4.21  ready in 278 ms
+
+  ➜  Local:   http://localhost:3000/Recensement-ANAREKA-CI/
+  ➜  Network: http://192.168.0.2:3000/Recensement-ANAREKA-CI/
+2:39:22 AM [vite] page reload src/modules/navigation/navigation.js
