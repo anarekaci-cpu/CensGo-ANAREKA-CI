@@ -78,7 +78,7 @@ function handleMarkerClick(e) {
   const storeCount = (store.get("points") || []).length;
   const point = getPointById(pointId);
 
-  console.log(`[DEBUG][MARKER_CLICK]\npointId = ${pointId}\ntypeof = ${typeof rawId}\nstoreCount = ${storeCount}\nfound = ${Boolean(point)}\npoint =`, point || undefined);
+  log.trace("MARKER_CLICK", `pointId = ${pointId}\ntypeof = ${typeof rawId}\nstoreCount = ${storeCount}\nfound = ${Boolean(point)}\npoint =`, point || undefined);
 
   if (!point) {
     log.trace("MARKER_CLICK", "STOP: point introuvable dans store pour id", pointId);
@@ -95,7 +95,7 @@ function handleMarkerClick(e) {
   const popupEl = document.querySelector(".maplibregl-popup");
   const visibleInDom = Boolean(popupEl && getComputedStyle(popupEl).display !== "none");
 
-  console.log(`[DEBUG][POPUP]\nid = ${point.id}\nname = ${point.name}\naddress = ${point.address}\nlat = ${point.lat}\nlon = ${point.lon}\ncreated = true\nadded = true\nvisible = ${visibleInDom}`);
+  log.trace("POPUP", `id = ${point.id}\nname = ${point.name}\naddress = ${point.address}\nlat = ${point.lat}\nlon = ${point.lon}\ncreated = true\nadded = true\nvisible = ${visibleInDom}`);
 
   if (isVerbose()) verifyPopupVisible(point);
   log.debug("POPUP", `created=true added=true id="${pointId}" name="${point.name}"`);
@@ -480,14 +480,13 @@ export function renderMarkers(points) {
 
   const msMap = Math.round(performance.now() - t0);
 
-  console.log(`[DEBUG][MAP]\nfeatures = ${loadedFeatures.length}\nvalidCoordinates = ${valid.length}\ninvalidCoordinates = ${invalid.length}\ndurationMs = ${msMap}`);
+  log.trace("MAP", `features = ${loadedFeatures.length}\nvalidCoordinates = ${valid.length}\ninvalidCoordinates = ${invalid.length}\ndurationMs = ${msMap}`);
 
-  const t0Cluster = performance.now();
   cluster.load(loadedFeatures);
   const zoom = map.getZoom();
   const clustersAtZoom = cluster.getClusters([-180, -90, 180, 90], Math.floor(zoom)).length;
 
-  console.log(`[DEBUG][CLUSTER]\ninputPoints = ${loadedFeatures.length}\nindexCreated = true\nclustersAtZoom = ${clustersAtZoom}`);
+  log.trace("CLUSTER", `inputPoints = ${loadedFeatures.length}\nindexCreated = true\nclustersAtZoom = ${clustersAtZoom}`);
 
   if (moveHandler) {
     map.off("moveend", moveHandler);
@@ -502,9 +501,14 @@ export function renderMarkers(points) {
   map.on("moveend", moveHandler);
 
   renderVisibleMarkers();
-  console.log(`[DEBUG][MARKERS]\ncreated = ${activeMarkers.size}`);
-  const bgvEntry = activeMarkers.get("bgv_b01_01") || (store.get("points") || []).find(p => p.id === "bgv_b01_01");
-  console.log(`[DEBUG][MARKERS] bgv_b01_01 sample =`, bgvEntry || undefined);
+  // Le sample bgv_b01_01 fait un find() O(N) sur 505+ points juste pour du
+  // diagnostic — ne pas payer ce coût (ni construire les strings) hors mode
+  // DEBUG, sur CHAQUE renderMarkers() (donc chaque chargement + chaque sync).
+  if (isVerbose()) {
+    log.trace("MARKERS", `created = ${activeMarkers.size}`);
+    const bgvEntry = activeMarkers.get("bgv_b01_01") || (store.get("points") || []).find(p => p.id === "bgv_b01_01");
+    log.trace("MARKERS", "bgv_b01_01 sample =", bgvEntry || undefined);
+  }
 
   const ms = Math.round(performance.now() - t0);
   console.info(`🗺️ [PERF] CLUSTERING+MARKERS ${ms}ms · ${loadedFeatures.length} features`);
