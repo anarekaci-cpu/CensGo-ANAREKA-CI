@@ -83,7 +83,8 @@ export function renderAgentMarkers(agents) {
       .setLngLat([agent.lon, agent.lat])
       .addTo(map);
 
-    const popup = new maplibregl.Popup({ offset: [0, -20], closeButton: true });
+    const popup = new maplibregl.Popup({ offset: [0, -20], closeButton: true })
+      .setLngLat([agent.lon, agent.lat]);
     // escapeHtml : l'email provient de la base — ne jamais l'injecter brut.
     popup.setHTML(`
       <div style="min-width:150px">
