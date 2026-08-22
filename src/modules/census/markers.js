@@ -75,36 +75,28 @@ function handleMarkerClick(e) {
   e.stopPropagation();
 
   // Diagnostic terrain (Problème #3) : tracer exactement ce qui arrive au clic.
-  log.info("MARKER_CLICK", `pointId="${pointId}" type=${typeof rawId}`);
-  log.trace("MARKER_CLICK", "store.points.length =", (store.get("points") || []).length);
-
+  const storeCount = (store.get("points") || []).length;
   const point = getPointById(pointId);
-  log.debug("POINT_LOOKUP",
-    `store points=${(store.get("points") || []).length}`,
-    `found=${Boolean(point)}`,
-    point ? `point.id="${normalizePointId(point.id)}"` : "");
-  log.trace("MARKER_CLICK", "pointFound =", Boolean(point));
+
+  console.log(`[DEBUG][MARKER_CLICK]\npointId = ${pointId}\ntypeof = ${typeof rawId}\nstoreCount = ${storeCount}\nfound = ${Boolean(point)}\npoint =`, point || undefined);
+
   if (!point) {
-    // Cas C : id valide mais point absent du store (désalignement).
     log.trace("MARKER_CLICK", "STOP: point introuvable dans store pour id", pointId);
     toastWarning("Fiche introuvable dans les données locales. Rechargement…");
     return;
   }
-  log.trace("MARKER_CLICK", "point =", point.name, `(${point.lat}, ${point.lon})`);
 
   closeCurrentPopup();
-  log.trace("POPUP", "build START");
   const popup = createPopupForPoint(point);
-  log.trace("POPUP", "build RESULT =", popup ? "OK" : "NULL");
   currentPopup = popup;
   currentPopupPointId = pointId;
-  log.trace("POPUP", "addTo START");
   popup.addTo(getMap());
-  log.trace("POPUP", "addTo END");
-  // Audit (efficiency) : verifyPopupVisible() force un reflow synchrone
-  // (getComputedStyle + getBoundingClientRect) — coûteux sur chaque tap si
-  // on l'exécute inconditionnellement. Réservé au diagnostic terrain
-  // (localStorage.DEBUG=1), comme le reste du traçage verbeux.
+
+  const popupEl = document.querySelector(".maplibregl-popup");
+  const visibleInDom = Boolean(popupEl && getComputedStyle(popupEl).display !== "none");
+
+  console.log(`[DEBUG][POPUP]\nid = ${point.id}\nname = ${point.name}\naddress = ${point.address}\nlat = ${point.lat}\nlon = ${point.lon}\ncreated = true\nadded = true\nvisible = ${visibleInDom}`);
+
   if (isVerbose()) verifyPopupVisible(point);
   log.debug("POPUP", `created=true added=true id="${pointId}" name="${point.name}"`);
   log.trace("MARKER_CLICK", "END");
@@ -481,16 +473,34 @@ export function renderMarkers(points) {
   // Conversion centralisée via toGeoJSONCoordinates() : un point sans
   // coordonnées fiables ne produit JAMAIS de feature [null, null] ni de
   // paire inversée [lat, lon] (atterrissage à (0,0) ou mauvais hémisphère).
-  loadedFeatures = (Array.isArray(points) ? points : [])
-    .map(p => ({ p, coords: toGeoJSONCoordinates(p.lat, p.lon) }))
-    .filter(({ coords }) => coords !== null)
-    .map(({ p, coords }) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: coords },
-      properties: { ...p }
-    }));
+  const valid = [];
+  const invalid = [];
 
+  (Array.isArray(points) ? points : []).forEach(p => {
+    const coords = toGeoJSONCoordinates(p.lat, p.lon);
+    if (coords !== null) {
+      valid.push(p);
+    } else {
+      invalid.push(p);
+    }
+  });
+
+  loadedFeatures = valid.map(p => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: toGeoJSONCoordinates(p.lat, p.lon) },
+    properties: { ...p }
+  }));
+
+  const msMap = Math.round(performance.now() - t0);
+
+  console.log(`[DEBUG][MAP]\nfeatures = ${loadedFeatures.length}\nvalidCoordinates = ${valid.length}\ninvalidCoordinates = ${invalid.length}\ndurationMs = ${msMap}`);
+
+  const t0Cluster = performance.now();
   cluster.load(loadedFeatures);
+  const zoom = map.getZoom();
+  const clustersAtZoom = cluster.getClusters([-180, -90, 180, 90], Math.floor(zoom)).length;
+
+  console.log(`[DEBUG][CLUSTER]\ninputPoints = ${loadedFeatures.length}\nindexCreated = true\nclustersAtZoom = ${clustersAtZoom}`);
 
   if (moveHandler) {
     map.off("moveend", moveHandler);
@@ -505,9 +515,11 @@ export function renderMarkers(points) {
   map.on("moveend", moveHandler);
 
   renderVisibleMarkers();
+  console.log(`[DEBUG][MARKERS]\ncreated = ${activeMarkers.size}`);
+  const bgvEntry = activeMarkers.get("bgv_b01_01") || (store.get("points") || []).find(p => p.id === "bgv_b01_01");
+  console.log(`[DEBUG][MARKERS] bgv_b01_01 sample =`, bgvEntry || undefined);
+
   const ms = Math.round(performance.now() - t0);
-  // Instrumentation perf (#23) : visible dans l'onglet Performance / console.
-  // Un cluster.load > 100ms sur ce volume signalerait une régression.
   console.info(`🗺️ [PERF] CLUSTERING+MARKERS ${ms}ms · ${loadedFeatures.length} features`);
 }
 

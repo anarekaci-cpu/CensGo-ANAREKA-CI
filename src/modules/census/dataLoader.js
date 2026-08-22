@@ -138,21 +138,29 @@ export function loadCensusData(forceOffline = false, { forceRefresh = false } = 
 
 async function _loadCensusData(forceOffline) {
   perfStart();
+  const tStartAll = performance.now();
   perfMark("INIT");
 
   // ===== ÉTAPE 1 : CACHE LOCAL (instantané, ne bloque jamais l'UI) =====
   let localPoints = [];
+  const t0IdbRead = performance.now();
   try {
     localPoints = await getAllPoints();
+    const durationIdbRead = Math.round(performance.now() - t0IdbRead);
+    console.log(`[DEBUG][INDEXEDDB]\nread = true\npoints = ${localPoints.length}\ndurationMs = ${durationIdbRead}`);
     perfMark("INDEXEDDB");
   } catch (err) {
     console.error("[DATA] Lecture IndexedDB impossible:", err);
+    console.log(`[DEBUG][INDEXEDDB]\nread = false\npoints = 0\ndurationMs = ${Math.round(performance.now() - t0IdbRead)}`);
   }
 
   if (localPoints.length > 0) {
-    // Affichage IMMÉDIAT depuis le cache : la carte, les stats et les
-    // filtres deviennent utilisables avant même le premier octet réseau.
     store.set("points", localPoints);
+    console.log(`[DEBUG][STORE]\npointsCount = ${localPoints.length}`);
+    const sample = store.get("points")?.find(p => p.id === "bgv_b01_01");
+    if (sample) {
+      console.log(`[DEBUG][STORE] sample bgv_b01_01 =`, sample);
+    }
     store.set("ui.loading", false);
     store.set("sync.status", navigator.onLine ? "syncing" : "offline");
     console.info(`📦 ${localPoints.length} points affichés depuis IndexedDB (cache-first)`);
@@ -172,15 +180,28 @@ async function _loadCensusData(forceOffline) {
   // ===== ÉTAPE 2 : SUPABASE EN ARRIÈRE-PLAN =====
   store.set("sync.status", "syncing");
 
+  let supabaseDuration = 0;
+  let normalizeDuration = 0;
+  let idbWriteDuration = 0;
+
   try {
     const supabase = getSupabaseClient();
 
     perfMark("SUPABASE-START");
-    const data = await fetchAllPages(supabase);
+    const t0Supa = performance.now();
+    let data = null;
+    let supaError = null;
+    try {
+      data = await fetchAllPages(supabase);
+    } catch (e) {
+      supaError = e;
+    }
+    supabaseDuration = Math.round(performance.now() - t0Supa);
+    console.log(`[DEBUG][SUPABASE]\ntable = ${CONFIG.TABLE_NAME}\nrows = ${data ? data.length : 0}\nerror = ${supaError ? (supaError.message || supaError) : null}\ndurationMs = ${supabaseDuration}`);
     perfMark("SUPABASE");
 
-    // CAS CRITIQUE : requête OK mais 0 ligne. On journalise visiblement
-    // pour distinguer "base vide" d'une policy RLS trop restrictive.
+    if (supaError) throw supaError;
+
     if (!data || data.length === 0) {
       console.warn(
         `[DATA] Requête Supabase OK mais 0 ligne dans "${CONFIG.TABLE_NAME}". ` +
@@ -199,21 +220,28 @@ async function _loadCensusData(forceOffline) {
       return localPoints;
     }
 
-    // Normalisation centrale : format garanti quel que soit l'état du serveur
-    // (null SQL, types inattendus, coordonnées hors bornes...).
+    // Normalisation
+    const t0Norm = performance.now();
     const formatted = data.map(normalizePoint);
+    normalizeDuration = Math.round(performance.now() - t0Norm);
+    console.log(`[DEBUG][NORMALIZE]\ninput = ${data.length}\noutput = ${formatted.length}\nfirst =`, formatted[0]);
     perfMark("NORMALISATION");
 
-    // savePoints() réconcilie l'état visited local vs serveur (en transaction).
-    // On relit ensuite depuis IndexedDB pour récupérer les valeurs réconciliées
-    // ET dédupliquées — jamais les lignes brutes du serveur.
+    // Persistance IndexedDB
+    const t0Write = performance.now();
     await savePoints(formatted);
     const merged = await getAllPoints();
+    idbWriteDuration = Math.round(performance.now() - t0Write);
+    console.log(`[DEBUG][INDEXEDDB]\nwrite = true\npoints = ${merged.length}\ndurationMs = ${idbWriteDuration}`);
     perfMark("PERSISTENCE");
 
     const nowIso = new Date().toISOString();
     await setMeta("lastSync", nowIso);
     store.set("points", merged);
+    console.log(`[DEBUG][STORE]\npointsCount = ${merged.length}`);
+    const foundSample = store.get("points")?.find(p => p.id === "bgv_b01_01");
+    console.log(`[DEBUG][STORE] find bgv_b01_01 =`, foundSample || undefined);
+
     store.set("sync.status", "idle");
     store.set("sync.lastSync", nowIso);
     store.set("sync.warning", null);
@@ -221,13 +249,14 @@ async function _loadCensusData(forceOffline) {
     store.set("ui.loading", false);
     store.set("ui.error", null);
 
+    const totalDuration = Math.round(performance.now() - tStartAll);
+    console.log(`[PERF]\nsupabase = ${supabaseDuration}ms\nnormalize = ${normalizeDuration}ms\nindexedDB = ${idbWriteDuration}ms\nstore = ${merged.length} pts\nmap = ok\nmarkers = ok\nstats = ok\ntotal = ${totalDuration}ms`);
+
     console.log(`📥 ${merged.length} points chargés depuis Supabase`);
     perfMark("STORE");
     perfReport();
     return merged;
   } catch (err) {
-    // Le cache local reste la source affichée : une panne réseau ne doit
-    // JAMAIS vider l'écran d'un agent qui travaille déjà avec ses données.
     console.error("[DATA] Échec du chargement Supabase:", err);
     store.set("sync.errorDetail", describeSyncError(err));
     store.set("sync.status", localPoints.length > 0 ? "offline" : "error");

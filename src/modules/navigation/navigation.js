@@ -9,6 +9,7 @@ import { log } from "../../core/debug.js";
 
 let navUnsubs = [];
 let gpsWaitToastShown = false;
+let osrmRequestCount = 0;
 
 /**
  * Met en place les abonnements qui pilotent la navigation :
@@ -21,18 +22,18 @@ export function initNavigation() {
 
   navUnsubs.push(store.subscribe("navigation.active", (active) => {
     if (active) {
-      startNavigation();
+      scheduleStartNavigation();
     } else {
+      if (pendingNavFrame) {
+        cancelAnimationFrame(pendingNavFrame);
+        pendingNavFrame = null;
+      }
       clearRoute();
     }
   }));
 
-  // Un nouveau clic sur "Itinéraire" pendant qu'une navigation est déjà active
-  // ne fait que changer la destination (navigation.active reste déjà à true et
-  // ne redéclenche donc pas l'abonnement ci-dessus) — sans ceci l'itinéraire
-  // restait figé sur le premier point choisi.
   navUnsubs.push(store.subscribe("navigation.destination", () => {
-    if (store.get("navigation.active")) startNavigation();
+    if (store.get("navigation.active")) scheduleStartNavigation();
   }));
 
   navUnsubs.push(store.subscribe("geo.position", (position) => {
@@ -47,6 +48,16 @@ export function initNavigation() {
       updateNavigationProgress(position);
     }
   }));
+}
+
+let pendingNavFrame = null;
+
+function scheduleStartNavigation() {
+  if (pendingNavFrame) cancelAnimationFrame(pendingNavFrame);
+  pendingNavFrame = requestAnimationFrame(() => {
+    pendingNavFrame = null;
+    startNavigation();
+  });
 }
 
 async function startNavigation() {
@@ -74,6 +85,9 @@ async function startNavigation() {
   }
 
   store.set("navigation.instruction", "⏳ Calcul de l'itinéraire...");
+  osrmRequestCount++;
+  console.log(`[DEBUG][ROUTE]\nclick = true\ndestination = ${destination.name} (${destination.lat}, ${destination.lon})\nGPS = [${position.lat}, ${position.lng}]\nOSRM requests = ${osrmRequestCount}`);
+
   try {
     const route = await calculateRoute(position.lat, position.lng, destination.lat, destination.lon);
     log.trace("ROUTE", "geometry =", route.geometry?.coordinates?.length, "points");
