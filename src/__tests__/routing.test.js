@@ -17,7 +17,7 @@ vi.mock("../modules/map/map.js", () => ({
   hideDestinationMarker: vi.fn()
 }));
 
-const { calculateRoute, formatDistance, formatDuration } = await import("../modules/routing/routing.js");
+const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode } = await import("../modules/routing/routing.js");
 
 describe("calculateRoute", () => {
   const originalFetch = globalThis.fetch;
@@ -101,6 +101,93 @@ describe("calculateRoute", () => {
     expect(result.duration).toBe(678.9);
     expect(result.geometry.coordinates).toHaveLength(2);
     expect(result.steps).toHaveLength(1);
+  });
+
+  it("utilise le profil piéton par défaut si aucun mode n'est précisé", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 500,
+          duration: 400,
+          geometry: { type: "LineString", coordinates: [[-3.97, 5.36], [-3.99, 5.40]] },
+          legs: [{ steps: [] }]
+        }]
+      })
+    });
+    const route = await calculateRoute(5.36, -3.97, 5.40, -3.99);
+    expect(route.mode).toBe("foot");
+    expect(route.estimated).toBe(false);
+  });
+
+  it("interroge le profil vélo quand mode='bike'", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: "Ok",
+        routes: [{ distance: 100, duration: 50, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+      })
+    });
+    await calculateRoute(5.36, -3.97, 5.40, -3.99, "bike");
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/bike/");
+  });
+
+  it("interroge le profil véhicule quand mode='car'", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: "Ok",
+        routes: [{ distance: 100, duration: 50, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+      })
+    });
+    await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/car/");
+  });
+
+  it("retombe sur le profil piéton pour un mode inconnu", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: "Ok",
+        routes: [{ distance: 100, duration: 50, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+      })
+    });
+    await calculateRoute(5.36, -3.97, 5.40, -3.99, "avion");
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/foot/");
+  });
+});
+
+describe("isValidNavMode / NAV_MODES", () => {
+  it("expose les trois modes attendus", () => {
+    expect(Object.keys(NAV_MODES).sort()).toEqual(["bike", "car", "foot"]);
+  });
+  it("valide uniquement les modes connus", () => {
+    expect(isValidNavMode("foot")).toBe(true);
+    expect(isValidNavMode("bike")).toBe(true);
+    expect(isValidNavMode("car")).toBe(true);
+    expect(isValidNavMode("avion")).toBe(false);
+    expect(isValidNavMode(undefined)).toBe(false);
+  });
+});
+
+describe("estimateFallbackRoute", () => {
+  it("retourne une ligne droite marquée estimated=true", () => {
+    const route = estimateFallbackRoute(5.36, -3.97, 5.40, -3.99, "foot");
+    expect(route.estimated).toBe(true);
+    expect(route.geometry.coordinates).toEqual([[-3.97, 5.36], [-3.99, 5.40]]);
+    expect(route.distance).toBeGreaterThan(0);
+    expect(route.duration).toBeGreaterThan(0);
+  });
+
+  it("une distance identique donne une durée plus courte en véhicule qu'à pied", () => {
+    const foot = estimateFallbackRoute(5.36, -3.97, 5.40, -3.99, "foot");
+    const car = estimateFallbackRoute(5.36, -3.97, 5.40, -3.99, "car");
+    expect(car.duration).toBeLessThan(foot.duration);
   });
 });
 
