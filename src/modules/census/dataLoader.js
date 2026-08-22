@@ -3,6 +3,7 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { savePoints, getAllPoints, setMeta } from "../../db/database.js";
 import { normalizePoint } from "../../core/normalize.js";
+import { log, isVerbose } from "../../core/debug.js";
 
 // Traduit une erreur Supabase/PostgREST en message actionnable pour un
 // agent terrain. Sans ça, une policy RLS bloquante ou une table vide
@@ -147,19 +148,19 @@ async function _loadCensusData(forceOffline) {
   try {
     localPoints = await getAllPoints();
     const durationIdbRead = Math.round(performance.now() - t0IdbRead);
-    console.log(`[DEBUG][INDEXEDDB]\nread = true\npoints = ${localPoints.length}\ndurationMs = ${durationIdbRead}`);
+    log.trace("INDEXEDDB", `read = true\npoints = ${localPoints.length}\ndurationMs = ${durationIdbRead}`);
     perfMark("INDEXEDDB");
   } catch (err) {
     console.error("[DATA] Lecture IndexedDB impossible:", err);
-    console.log(`[DEBUG][INDEXEDDB]\nread = false\npoints = 0\ndurationMs = ${Math.round(performance.now() - t0IdbRead)}`);
+    log.trace("INDEXEDDB", `read = false\npoints = 0\ndurationMs = ${Math.round(performance.now() - t0IdbRead)}`);
   }
 
   if (localPoints.length > 0) {
     store.set("points", localPoints);
-    console.log(`[DEBUG][STORE]\npointsCount = ${localPoints.length}`);
-    const sample = store.get("points")?.find(p => p.id === "bgv_b01_01");
-    if (sample) {
-      console.log(`[DEBUG][STORE] sample bgv_b01_01 =`, sample);
+    log.trace("STORE", `pointsCount = ${localPoints.length}`);
+    if (isVerbose()) {
+      const sample = store.get("points")?.find(p => p.id === "bgv_b01_01");
+      if (sample) log.trace("STORE", "sample bgv_b01_01 =", sample);
     }
     store.set("ui.loading", false);
     store.set("sync.status", navigator.onLine ? "syncing" : "offline");
@@ -197,7 +198,7 @@ async function _loadCensusData(forceOffline) {
       supaError = e;
     }
     supabaseDuration = Math.round(performance.now() - t0Supa);
-    console.log(`[DEBUG][SUPABASE]\ntable = ${CONFIG.TABLE_NAME}\nrows = ${data ? data.length : 0}\nerror = ${supaError ? (supaError.message || supaError) : null}\ndurationMs = ${supabaseDuration}`);
+    log.trace("SUPABASE", `table = ${CONFIG.TABLE_NAME}\nrows = ${data ? data.length : 0}\nerror = ${supaError ? (supaError.message || supaError) : null}\ndurationMs = ${supabaseDuration}`);
     perfMark("SUPABASE");
 
     if (supaError) throw supaError;
@@ -224,7 +225,9 @@ async function _loadCensusData(forceOffline) {
     const t0Norm = performance.now();
     const formatted = data.map(normalizePoint);
     normalizeDuration = Math.round(performance.now() - t0Norm);
-    console.log(`[DEBUG][NORMALIZE]\ninput = ${data.length}\noutput = ${formatted.length}\nfirst =`, formatted[0]);
+    // formatted[0] contient des données personnelles (nom, tél, adresse) —
+    // ne jamais l'écrire en console hors mode DEBUG explicite.
+    log.trace("NORMALIZE", `input = ${data.length}\noutput = ${formatted.length}\nfirst =`, isVerbose() ? formatted[0] : undefined);
     perfMark("NORMALISATION");
 
     // Persistance IndexedDB
@@ -232,15 +235,17 @@ async function _loadCensusData(forceOffline) {
     await savePoints(formatted);
     const merged = await getAllPoints();
     idbWriteDuration = Math.round(performance.now() - t0Write);
-    console.log(`[DEBUG][INDEXEDDB]\nwrite = true\npoints = ${merged.length}\ndurationMs = ${idbWriteDuration}`);
+    log.trace("INDEXEDDB", `write = true\npoints = ${merged.length}\ndurationMs = ${idbWriteDuration}`);
     perfMark("PERSISTENCE");
 
     const nowIso = new Date().toISOString();
     await setMeta("lastSync", nowIso);
     store.set("points", merged);
-    console.log(`[DEBUG][STORE]\npointsCount = ${merged.length}`);
-    const foundSample = store.get("points")?.find(p => p.id === "bgv_b01_01");
-    console.log(`[DEBUG][STORE] find bgv_b01_01 =`, foundSample || undefined);
+    log.trace("STORE", `pointsCount = ${merged.length}`);
+    if (isVerbose()) {
+      const foundSample = store.get("points")?.find(p => p.id === "bgv_b01_01");
+      log.trace("STORE", "find bgv_b01_01 =", foundSample || undefined);
+    }
 
     store.set("sync.status", "idle");
     store.set("sync.lastSync", nowIso);
