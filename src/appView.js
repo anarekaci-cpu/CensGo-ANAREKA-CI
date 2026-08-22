@@ -16,6 +16,7 @@ import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
+import { lazyImport } from "./core/lazyImport.js";
 
 let emptyStateEl = null;
 
@@ -29,7 +30,7 @@ function removeEmptyState() {
 let tourModulePromise = null;
 function getTourModule() {
   if (!tourModulePromise) {
-    tourModulePromise = import("./modules/tour/tour.js").then(mod => {
+    tourModulePromise = lazyImport(() => import("./modules/tour/tour.js")).then(mod => {
       mod.initTour();
       return mod;
     });
@@ -39,7 +40,7 @@ function getTourModule() {
 
 let aiModulePromise = null;
 function getAiModule() {
-  if (!aiModulePromise) aiModulePromise = import("./modules/ai/aiAgents.js");
+  if (!aiModulePromise) aiModulePromise = lazyImport(() => import("./modules/ai/aiAgents.js"));
   return aiModulePromise;
 }
 
