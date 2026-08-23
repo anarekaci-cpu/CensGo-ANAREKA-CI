@@ -33,7 +33,7 @@ export function initCensusFormModal() {
             <span class="census-header-icon">📋</span>
             <div>
               <h3 id="censusFormTitle">Fiche de Recensement</h3>
-              <p id="censusFormSubtitle">ANAREKA-CI — Recensement Terrain</p>
+              <p id="censusFormSubtitle">CensGo — Recensement Terrain ANAREKA-CI</p>
             </div>
           </div>
           <button id="censusFormCloseBtn" class="census-close-btn" aria-label="Fermer le formulaire">✕</button>
@@ -197,7 +197,7 @@ export function openCensusForm(point = null) {
     document.getElementById("cf_lon").value = point.lon ?? fallbackCenter.lng.toFixed(6);
   } else {
     title.textContent = "Nouveau Point de Recensement";
-    sub.textContent = "Saisie rapide terrain — ANAREKA-CI";
+    sub.textContent = "CensGo — Saisie rapide terrain";
     document.getElementById("cf_id").value = "";
     document.getElementById("cf_name").value = "";
     document.getElementById("cf_tel").value = "";

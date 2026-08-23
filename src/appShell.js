@@ -57,8 +57,8 @@ export class App {
         <div class="login-backdrop"></div>
         <div id="loginBox">
           <div class="login-badge">🗺️</div>
-          <h1>Recensement ANAREKA-CI</h1>
-          <p>Connexion agent de terrain</p>
+          <h1>CensGo</h1>
+          <p>Connexion agent de terrain — ANAREKA-CI</p>
           <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
           <input type="password" id="loginPassword" placeholder="Mot de passe" autocomplete="current-password">
           <button id="loginBtn">

@@ -16,7 +16,7 @@ async function bootstrap() {
   app.innerHTML = `
     <div id="boot-screen">
       <div class="boot-spinner"></div>
-      <div class="boot-text">Chargement d'ANAREKA-CI...</div>
+      <div class="boot-text">Chargement de CensGo...</div>
       <div class="boot-sub">V2.0 — IndexedDB + Sync</div>
     </div>
   `;

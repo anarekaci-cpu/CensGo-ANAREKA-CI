@@ -77,7 +77,7 @@ export async function mountAuthenticatedApp(container) {
         <div class="htitle">
           <span class="brand-mark">🗺️</span>
           <div>
-            <h1>Recensement <span>ANAREKA-CI</span></h1>
+            <h1>CensGo <span>ANAREKA-CI</span></h1>
             <div class="stats" id="statsHeader">Chargement...</div>
           </div>
         </div>
@@ -234,7 +234,7 @@ export async function mountAuthenticatedApp(container) {
               <div class="ai-modal-title">
                 <span class="ai-badge-icon">🤖</span>
                 <div>
-                  <h3>Suite d'Agents IA ANAREKA-CI</h3>
+                  <h3>Suite d'Agents IA CensGo</h3>
                   <p>Copilot, Vision OCR, Dictée Vocale & Briefing</p>
                 </div>
               </div>

@@ -11,8 +11,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "Recensement ANAREKA-CI",
-        short_name: "ANAREKA-CI",
+        name: "CensGo — Recensement ANAREKA-CI",
+        short_name: "CensGo",
         description: "Application de recensement terrain pour agents ANAREKA-CI en Côte d'Ivoire",
         start_url: "/Recensement-ANAREKA-CI/",
         display: "standalone",

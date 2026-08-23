@@ -15,7 +15,7 @@ export const CONFIG = {
   OSRM_URL: import.meta.env.VITE_OSRM_URL || 'https://router.project-osrm.org',
 
   // Application
-  APP_NAME: import.meta.env.VITE_APP_NAME || 'Recensement ANAREKA',
+  APP_NAME: import.meta.env.VITE_APP_NAME || 'CensGo',
   APP_VERSION: import.meta.env.VITE_APP_VERSION || '2.0.0',
   APP_ENV: import.meta.env.VITE_APP_ENV || 'production',
 

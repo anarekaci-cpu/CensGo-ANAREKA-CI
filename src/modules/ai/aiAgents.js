@@ -111,7 +111,7 @@ function generateFallbackAgentResponse(action, { prompt, points }) {
   if (action === "optimize_tour") {
     return {
       success: true,
-      text: `🤖 **Agent Strategist ANAREKA-CI** :\n\n` +
+      text: `🤖 **Agent Strategist CensGo** :\n\n` +
             `📍 **Statut du secteur** : ${unvisited.length} établissements restants sur ${allPoints.length}.\n\n` +
             `1. **Recommandation Horaires** : Commencez par *${unvisited[0]?.quartier || topQuartier || 'votre zone actuelle'}* (concentration élevée de restaurateurs/kiosques à recenser).\n` +
             `2. **Points d'Urgence** : Priorisez les ${injoignables.length} établissement(s) injoignable(s) en fin de matinée (entre 11h30 et 13h, hors coup de feu du service).\n` +
@@ -143,7 +143,7 @@ function generateFallbackAgentResponse(action, { prompt, points }) {
 
     return {
       success: true,
-      text: `📋 **Briefing IA Matinal — ANAREKA-CI** :\n\n` +
+      text: `📋 **Briefing IA Matinal — CensGo** :\n\n` +
             `🌤️ **Terrain** : Zone d'intervention prioritaire aujourd'hui : ${leastCoveredQuartier ? `*${leastCoveredQuartier}* (couverture la plus faible)` : 'à définir selon votre secteur'}.\n` +
             `🎯 **Objectif du jour** : Atteindre **${Math.min(total, visited + 8)} fiches validées** (+${Math.min(8, unvisited.length)} aujourd'hui).\n` +
             `📊 **Progression Actuelle** : **${pct}%** (${visited}/${total} restaurateurs/kiosques recensés).\n\n` +
