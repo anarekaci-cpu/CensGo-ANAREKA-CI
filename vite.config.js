@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
-  base: "/Recensement-ANAREKA-CI/",
+  base: "/CensGo-ANAREKA-CI/",
   server: {
     host: "0.0.0.0",
     port: 3000
@@ -14,15 +14,15 @@ export default defineConfig({
         name: "CensGo — Recensement ANAREKA-CI",
         short_name: "CensGo",
         description: "Application de recensement terrain pour agents ANAREKA-CI en Côte d'Ivoire",
-        start_url: "/Recensement-ANAREKA-CI/",
+        start_url: "/CensGo-ANAREKA-CI/",
         display: "standalone",
         background_color: "#1a3d2b",
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
         icons: [
-          { src: "/Recensement-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
-          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" },
-          { src: "/Recensement-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
+          { src: "/CensGo-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
+          { src: "/CensGo-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" },
+          { src: "/CensGo-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
         ]
       },
       workbox: {
