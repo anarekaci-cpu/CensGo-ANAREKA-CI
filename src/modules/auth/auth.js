@@ -1,4 +1,4 @@
-import { getSession, signIn, signOut, onAuthStateChange } from "../../core/supabase.js";
+import { getSession, signIn, signUp, signOut, onAuthStateChange } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
 
 export async function initAuth() {
@@ -29,6 +29,28 @@ export async function login(email, password) {
     const session = await signIn(email, password);
     store.set("user", session.user);
     return session;
+  } finally {
+    store.set("ui.loading", false);
+  }
+}
+
+/**
+ * @returns {Promise<{needsEmailConfirmation: boolean}>}
+ */
+export async function register(email, password, fullName) {
+  store.set("ui.loading", true);
+  try {
+    const { session, user } = await signUp(email, password, fullName);
+    if (session) {
+      // Confirmation par e-mail désactivée sur ce projet : session immédiate.
+      store.set("user", session.user);
+      return { needsEmailConfirmation: false };
+    }
+    // Confirmation par e-mail requise par le projet Supabase : signUp()
+    // crée bien le compte (et déclenche le trigger côté serveur) mais ne
+    // renvoie aucune session tant que le lien reçu par e-mail n'est pas
+    // cliqué — rien à faire ici d'autre que prévenir l'agent.
+    return { needsEmailConfirmation: Boolean(user && !session) };
   } finally {
     store.set("ui.loading", false);
   }

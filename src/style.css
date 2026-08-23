@@ -147,6 +147,63 @@ button { -webkit-user-select: none; user-select: none; }
 .login-links a:hover { color: var(--text-primary); text-decoration: underline; }
 #loginError { color: #e74c3c; font-size: 13px; margin-top: 12px; min-height: 18px; }
 
+/* --- Écran d'accueil (avant connexion) --- */
+@keyframes welcomeIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes badgeFloat {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+#loginBox.welcome-box {
+  animation: welcomeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.welcome-box .login-badge {
+  animation: badgeFloat 3.2s ease-in-out infinite;
+}
+.welcome-box h1 { font-size: 28px; }
+.welcome-tagline {
+  color: var(--text-muted); font-size: 14px;
+  margin-top: -2px; margin-bottom: 28px; line-height: 1.5;
+}
+.welcome-actions { display: flex; flex-direction: column; gap: 10px; }
+.welcome-btn-primary, .welcome-btn-secondary {
+  width: 100%; padding: 14px; min-height: 48px;
+  border-radius: var(--radius-md); font-size: 15px; font-weight: 600;
+  cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+}
+.welcome-btn-primary { background: #1a3d2b; color: white; border: none; }
+.welcome-btn-primary:hover { opacity: 0.9; }
+.welcome-btn-secondary {
+  background: transparent; color: #1a3d2b;
+  border: 1.5px solid var(--border);
+}
+.welcome-btn-secondary:hover { border-color: #1a3d2b; }
+.welcome-btn-primary:active, .welcome-btn-secondary:active { transform: scale(0.98); }
+
+@media (prefers-reduced-motion: reduce) {
+  #loginBox.welcome-box { animation: none; }
+  .welcome-box .login-badge { animation: none; }
+}
+
+/* --- Formulaire d'inscription --- */
+.signup-name-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.signup-name-row input { margin-bottom: 0; }
+.signup-box .login-links { margin-top: 18px; }
+
+/* --- Compte en attente de validation (carte vide) --- */
+.pending-approval-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, 0.15); color: white;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px; padding: 3px 10px; margin-top: 4px;
+  font-size: 11px; font-weight: 600; width: fit-content;
+}
+.pending-approval-badge.pending {
+  background: rgba(245, 158, 11, 0.25); border-color: rgba(245, 158, 11, 0.5);
+}
+
 #app-container {
   display: flex; flex-direction: column;
   height: 100vh; height: 100dvh;
@@ -1016,6 +1073,41 @@ input:checked + .slider:before { transform: translateX(24px); }
   padding: 14px 16px; margin-top: 8px;
 }
 .ai-output-text { font-size: 13px; color: #2c3e50; line-height: 1.6; }
+
+/* --- Comptes agents (validation admin) --- */
+.agents-list { display: flex; flex-direction: column; gap: 10px; }
+.agents-list-loading { text-align: center; color: var(--text-muted); font-size: 13.5px; padding: 24px 0; }
+.agent-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #f9fbf9; border: 1px solid #e0ebe0; border-radius: var(--radius-md);
+  padding: 12px 14px; flex-wrap: wrap;
+}
+.agent-row-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.agent-number-badge {
+  flex-shrink: 0; min-width: 40px; height: 40px; padding: 0 6px;
+  border-radius: 50%; background: #1a3d2b; color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; font-weight: 700;
+}
+.agent-row-name { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.agent-row-status { font-size: 12px; font-weight: 600; margin-top: 2px; }
+.agent-row-status.role-pending { color: #d97706; }
+.agent-row-status.role-agent { color: #16a34a; }
+.agent-row-status.role-admin { color: #1a3d2b; }
+.agent-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agent-action-btn {
+  border: 1px solid var(--border); background: white; color: var(--text-secondary);
+  border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
+}
+.agent-action-btn:hover { border-color: #1a3d2b; color: #1a3d2b; }
+.agent-action-btn:disabled { opacity: 0.5; cursor: default; }
+.agent-action-btn.agent-approve, .agent-action-btn.agent-promote {
+  background: #1a3d2b; color: white; border-color: #1a3d2b;
+}
+.agent-action-btn.agent-approve:hover, .agent-action-btn.agent-promote:hover { opacity: 0.9; color: white; }
+.agent-action-btn.agent-revoke { color: #dc2626; border-color: #fecaca; }
+.agent-action-btn.agent-revoke:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
 
 /* Skeleton loading */
 .skeleton {

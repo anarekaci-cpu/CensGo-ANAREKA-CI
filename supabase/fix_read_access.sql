@@ -9,6 +9,14 @@
 --         (ex: USING (created_by = auth.uid()) alors que les points
 --         importés ont created_by = NULL).
 --
+-- ATTENTION — depuis l'ajout de l'inscription en libre-service (voir
+-- schema.sql), la lecture est conditionnée à is_approved_user() : un compte
+-- fraîchement inscrit voit 0 ligne PAR CONCEPTION tant qu'un admin ne l'a
+-- pas validé (UPDATE user_roles SET role='agent' WHERE user_id=...) — ce
+-- n'est PAS le symptôme que ce script corrige. N'exécuter ce script QUE si
+-- des agents DÉJÀ validés (role agent/admin dans user_roles) ne voient
+-- plus aucun point.
+--
 -- Idempotent : peut être exécuté plusieurs fois sans risque.
 -- Ne modifie AUCUNE donnée, ne désactive PAS RLS.
 -- =============================================================
@@ -39,13 +47,14 @@ BEGIN
   END LOOP;
 END $$;
 
--- 3. Recréer la policy de lecture conforme au schéma de référence :
---    tout agent AUTHENTIFIÉ lit tous les points (carte partagée entre
---    agents). Les anonymes restent bloqués (aucune policy anon).
+-- 3. Recréer la policy de lecture conforme au schéma de référence : tout
+--    agent VALIDÉ (is_approved_user(), voir schema.sql) lit tous les points
+--    (carte partagée entre agents). Les anonymes et les comptes en attente
+--    de validation restent bloqués.
 CREATE POLICY "Authenticated read access"
   ON census_points FOR SELECT
   TO authenticated
-  USING (true);
+  USING (is_approved_user());
 
 -- 4. Vérification post-application (à exécuter, résultat attendu :
 --    policyname = 'Authenticated read access', roles = {authenticated})

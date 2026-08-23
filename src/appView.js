@@ -79,6 +79,7 @@ export async function mountAuthenticatedApp(container) {
           <div>
             <h1>CensGo <span>ANAREKA-CI</span></h1>
             <div class="stats" id="statsHeader">Chargement...</div>
+            <span id="agentNumberBadge" class="pending-approval-badge" style="display:none;"></span>
           </div>
         </div>
         <div class="right">
@@ -152,6 +153,7 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="action-row" id="adminTrackingRow" style="display:none;">
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
+            <button id="manageAgentsBtn" class="btn-ai-control">👥 Comptes agents</button>
           </div>
           <div class="action-row" id="exportRow" style="display:none;">
             <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
@@ -301,6 +303,25 @@ export async function mountAuthenticatedApp(container) {
             </div>
           </div>
         </div>
+
+        <div id="agentsModal" class="ai-modal" role="dialog" aria-modal="true" aria-label="Comptes agents" style="display:none;">
+          <div class="ai-modal-backdrop" id="agentsModalBackdrop"></div>
+          <div class="ai-modal-card">
+            <div class="ai-modal-header">
+              <div class="ai-modal-title">
+                <span class="ai-badge-icon">👥</span>
+                <div>
+                  <h3>Comptes agents</h3>
+                  <p>Validez un compte pour lui donner accès à la carte</p>
+                </div>
+              </div>
+              <button id="agentsModalCloseBtn" class="ai-close-btn" aria-label="Fermer">✕</button>
+            </div>
+            <div class="ai-content-body">
+              <div id="agentsList" class="agents-list"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -384,19 +405,47 @@ async function initApp() {
   applyFiltersFromStore();
 }
 
+// Le "vide" a deux causes très différentes : soit aucun point n'a encore
+// été recensé, soit (compte fraîchement inscrit) le serveur bloque
+// délibérément la lecture tant qu'un admin n'a pas validé le rôle — voir
+// refreshAdminRole()/ui.pendingApproval. Sans ce message dédié, un agent en
+// attente lirait "commencez par ajouter le premier établissement" (bouton
+// qui échouerait de toute façon côté RLS) et croirait à un bug plutôt qu'à
+// une étape normale d'inscription.
+function emptyStateHTML() {
+  if (store.get("ui.pendingApproval")) {
+    const num = store.get("ui.agentNumber");
+    return `
+      <div class="empty-state-icon">⏳</div>
+      <div class="empty-state-title">Compte en attente de validation</div>
+      <div class="empty-state-desc">${num != null ? `Vous êtes <b>Agent #${escapeHtml(String(num))}</b>. ` : ""}Un administrateur doit valider votre compte avant que vous puissiez voir et saisir des points de recensement.</div>
+    `;
+  }
+  return `
+    <div class="empty-state-icon">📍</div>
+    <div class="empty-state-title">Aucun point de recensement</div>
+    <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
+    <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
+  `;
+}
+
 function createEmptyStateIfNeeded(points) {
   if (points.length > 0 || emptyStateEl) return;
   const mapEl = document.getElementById("main");
   if (!mapEl) return;
   emptyStateEl = document.createElement("div");
   emptyStateEl.className = "empty-state";
-  emptyStateEl.innerHTML = `
-    <div class="empty-state-icon">📍</div>
-    <div class="empty-state-title">Aucun point de recensement</div>
-    <div class="empty-state-desc">Commencez par ajouter le premier établissement de votre zone en utilisant le bouton + ci-dessus.</div>
-    <button class="empty-state-btn" id="emptyAddBtn">➕ Ajouter un point</button>
-  `;
+  emptyStateEl.innerHTML = emptyStateHTML();
   mapEl.appendChild(emptyStateEl);
+  document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
+}
+
+// refreshAdminRole() résout ui.pendingApproval de façon asynchrone, APRÈS
+// le premier rendu de l'état vide (qui ne connaît pas encore la réponse) —
+// on met à jour son contenu une fois la réponse serveur connue.
+function refreshEmptyStateContent() {
+  if (!emptyStateEl) return;
+  emptyStateEl.innerHTML = emptyStateHTML();
   document.getElementById("emptyAddBtn")?.addEventListener("click", () => openCensusForm());
 }
 
@@ -410,11 +459,20 @@ async function refreshAdminRole() {
     // 406 (bruit console + rejet de promesse). maybeSingle() renvoie null.
     const { data } = await supabase
       .from("user_roles")
-      .select("role")
+      .select("role, full_name, agent_number")
       .eq("user_id", user.id)
       .maybeSingle();
     const isAdmin = data?.role === "admin";
+    // role=NULL (pas de ligne, ou ligne avec role NULL) = inscription pas
+    // encore validée par un admin — RLS bloque déjà census_points côté
+    // serveur (carte vide), mais l'UI doit l'EXPLIQUER plutôt que laisser
+    // l'agent croire à un bug ou à une zone sans aucun point à recenser.
+    const pendingApproval = !data?.role;
     store.set("ui.isAdmin", isAdmin);
+    store.set("ui.pendingApproval", pendingApproval);
+    store.set("ui.agentNumber", data?.agent_number ?? null);
+    store.set("ui.fullName", data?.full_name || "");
+
     const adminRow = document.getElementById("adminTrackingRow");
     if (adminRow) adminRow.style.display = isAdmin ? "flex" : "none";
     // Export CSV réservé aux comptes admin (demande explicite) : un agent
@@ -422,9 +480,30 @@ async function refreshAdminRole() {
     // exporter lui-même hors de l'app.
     const exportRow = document.getElementById("exportRow");
     if (exportRow) exportRow.style.display = isAdmin ? "flex" : "none";
+
+    renderAgentBadge();
+    refreshEmptyStateContent();
   } catch {
     // Table user_roles pas encore créée ou pas d'accès — mode agent
   }
+}
+
+/**
+ * Badge "Agent #N" affiché dans l'en-tête une fois le compte inscrit — voir
+ * demande explicite : un agent doit pouvoir s'identifier avec ce numéro,
+ * qu'il soit encore en attente de validation ou déjà approuvé.
+ */
+function renderAgentBadge() {
+  const el = document.getElementById("agentNumberBadge");
+  if (!el) return;
+  const number = store.get("ui.agentNumber");
+  if (number == null) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "inline-flex";
+  el.textContent = store.get("ui.pendingApproval") ? `Agent #${number} · en attente` : `Agent #${number}`;
+  el.classList.toggle("pending", Boolean(store.get("ui.pendingApproval")));
 }
 
 function bindEvents() {
@@ -441,6 +520,13 @@ function bindEvents() {
   };
 
   const handleOpenCensus = () => {
+    // RLS refuse déjà toute écriture pour un compte pas encore validé — le
+    // signaler tout de suite plutôt que de laisser l'agent remplir toute
+    // une fiche pour un enregistrement qui échouera silencieusement.
+    if (store.get("ui.pendingApproval")) {
+      toastWarning("Votre compte est en attente de validation par un administrateur — vous ne pouvez pas encore saisir de point.");
+      return;
+    }
     openCensusForm();
     closeControls();
   };
@@ -642,6 +728,7 @@ function bindEvents() {
   });
 
   bindAiEvents();
+  bindAgentsModalEvents();
 }
 
 /**
@@ -879,6 +966,92 @@ function bindAiEvents() {
       displayOutput(formatAiText(res.text));
     } catch (e) {
       displayOutput(`❌ <i>Erreur : ${escapeHtml(e.message || "Échec du briefing")}</i>`);
+    }
+  });
+}
+
+const ROLE_LABELS = { agent: "Agent", admin: "Administrateur" };
+
+function renderAgentRow(row, currentUserId) {
+  const isSelf = row.user_id === currentUserId;
+  const name = escapeHtml(row.full_name || "Sans nom renseigné");
+  const number = row.agent_number != null ? `#${row.agent_number}` : "—";
+  const statusLabel = row.role ? ROLE_LABELS[row.role] : "En attente de validation";
+  const statusClass = row.role === "admin" ? "role-admin" : row.role === "agent" ? "role-agent" : "role-pending";
+
+  const actions = [];
+  if (!isSelf) {
+    if (!row.role) {
+      actions.push(`<button class="agent-action-btn agent-approve" data-user-id="${escapeHtml(row.user_id)}" data-role="agent">✅ Approuver (agent)</button>`);
+      actions.push(`<button class="agent-action-btn agent-promote" data-user-id="${escapeHtml(row.user_id)}" data-role="admin">👑 Approuver (admin)</button>`);
+    } else if (row.role === "agent") {
+      actions.push(`<button class="agent-action-btn agent-promote" data-user-id="${escapeHtml(row.user_id)}" data-role="admin">👑 Promouvoir admin</button>`);
+      actions.push(`<button class="agent-action-btn agent-revoke" data-user-id="${escapeHtml(row.user_id)}" data-role="">⛔ Révoquer</button>`);
+    } else {
+      actions.push(`<button class="agent-action-btn agent-revoke" data-user-id="${escapeHtml(row.user_id)}" data-role="agent">⬇️ Rétrograder en agent</button>`);
+    }
+  }
+
+  return `
+    <div class="agent-row">
+      <div class="agent-row-info">
+        <span class="agent-number-badge">${number}</span>
+        <div>
+          <div class="agent-row-name">${name}${isSelf ? " (vous)" : ""}</div>
+          <div class="agent-row-status ${statusClass}">${statusLabel}</div>
+        </div>
+      </div>
+      <div class="agent-row-actions">${actions.join("")}</div>
+    </div>
+  `;
+}
+
+async function refreshAgentsList() {
+  const list = document.getElementById("agentsList");
+  if (!list) return;
+  list.innerHTML = `<div class="agents-list-loading">Chargement des comptes…</div>`;
+  try {
+    const { fetchAllRoles } = await import("./modules/admin/roleManager.js");
+    const rows = await fetchAllRoles();
+    const currentUserId = store.get("user")?.id;
+    if (rows.length === 0) {
+      list.innerHTML = `<div class="agents-list-loading">Aucun compte inscrit pour le moment.</div>`;
+      return;
+    }
+    list.innerHTML = rows.map(r => renderAgentRow(r, currentUserId)).join("");
+  } catch (e) {
+    list.innerHTML = `<div class="agents-list-loading">❌ ${escapeHtml(e.message || "Échec du chargement des comptes.")}</div>`;
+  }
+}
+
+function bindAgentsModalEvents() {
+  const openModal = async () => {
+    document.getElementById("agentsModal").style.display = "block";
+    closeControls();
+    await refreshAgentsList();
+  };
+  const closeModal = () => {
+    document.getElementById("agentsModal").style.display = "none";
+  };
+
+  document.getElementById("manageAgentsBtn")?.addEventListener("click", openModal);
+  document.getElementById("agentsModalCloseBtn")?.addEventListener("click", closeModal);
+  document.getElementById("agentsModalBackdrop")?.addEventListener("click", closeModal);
+
+  document.getElementById("agentsList")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".agent-action-btn");
+    if (!btn) return;
+    const userId = btn.dataset.userId;
+    const role = btn.dataset.role || null;
+    btn.disabled = true;
+    try {
+      const { setUserRole } = await import("./modules/admin/roleManager.js");
+      await setUserRole(userId, role);
+      toastSuccess(role ? `Compte mis à jour (${ROLE_LABELS[role] || role}).` : "Compte révoqué — retour en attente de validation.");
+      await refreshAgentsList();
+    } catch (err) {
+      toastError(err.message || "Échec de la mise à jour du compte.");
+      btn.disabled = false;
     }
   });
 }

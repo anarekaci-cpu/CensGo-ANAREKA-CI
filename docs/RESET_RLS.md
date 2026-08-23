@@ -18,6 +18,11 @@
 
 ## Code SQL
 
+Le code SQL complet et à jour (inscription en libre-service, validation
+admin, `is_approved_user()`) vit dans **`supabase/reset_rls.sql`** —
+copie-colle directement ce fichier plutôt que le bloc ci-dessous, pour ne
+jamais exécuter une version obsolète. Résumé de ce qu'il fait :
+
 ```sql
 -- =============================================================
 -- REINITIALISATION DU SCHEMA ANAREKA-CI
@@ -25,6 +30,13 @@
 -- Les données existantes dans les tables NE SONT PAS supprimées.
 -- Seules les politiques de sécurité sont remplacées.
 -- =============================================================
+
+-- === user_roles (créée en premier — is_approved_user() est référencée
+--     par les policies census_points/target_zones plus bas) ===
+-- role NULL = inscrit mais pas encore validé par un admin : voir
+-- supabase/reset_rls.sql pour la définition complète (colonnes
+-- full_name/agent_number, trigger handle_new_user_role(),
+-- fonction is_approved_user()).
 
 -- === census_points ===
 
@@ -44,40 +56,51 @@ DROP POLICY IF EXISTS "Admin delete access" ON census_points;
 
 -- 3. Créer les nouvelles politiques
 
--- Lecture : tous les agents authentifiés (vue carte partagée)
+-- Lecture : uniquement les comptes VALIDÉS (is_approved_user()) — un compte
+-- fraîchement inscrit ne voit aucun point tant qu'un admin ne l'a pas
+-- approuvé dans user_roles (carte vide par conception).
 CREATE POLICY "Authenticated read access"
   ON census_points FOR SELECT TO authenticated
-  USING (true);
+  USING (is_approved_user());
 
--- Insertion : propriétaire OU admin
+-- Insertion : compte validé, ET (propriétaire OU admin)
 CREATE POLICY "Authenticated insert own or admin"
   ON census_points FOR INSERT TO authenticated
   WITH CHECK (
-    created_by = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_roles.user_id = auth.uid()
-      AND user_roles.role = 'admin'
+    is_approved_user()
+    AND (
+      created_by = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_roles.user_id = auth.uid()
+        AND user_roles.role = 'admin'
+      )
     )
   );
 
--- Modification : propriétaire OU admin
+-- Modification : compte validé, ET (propriétaire OU admin)
 CREATE POLICY "Authenticated update own or admin"
   ON census_points FOR UPDATE TO authenticated
   USING (
-    created_by = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_roles.user_id = auth.uid()
-      AND user_roles.role = 'admin'
+    is_approved_user()
+    AND (
+      created_by = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_roles.user_id = auth.uid()
+        AND user_roles.role = 'admin'
+      )
     )
   )
   WITH CHECK (
-    created_by = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_roles.user_id = auth.uid()
-      AND user_roles.role = 'admin'
+    is_approved_user()
+    AND (
+      created_by = auth.uid()
+      OR EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_roles.user_id = auth.uid()
+        AND user_roles.role = 'admin'
+      )
     )
   );
 
@@ -131,10 +154,10 @@ DROP POLICY IF EXISTS "Authenticated can add target zones" ON target_zones;
 DROP POLICY IF EXISTS "Authenticated can remove target zones" ON target_zones;
 DROP POLICY IF EXISTS "Admin can manage target zones" ON target_zones;
 
--- Lecture : tous les agents (objectifs de couverture)
+-- Lecture : comptes validés uniquement (objectifs de couverture)
 CREATE POLICY "Authenticated can read target zones"
   ON target_zones FOR SELECT TO authenticated
-  USING (true);
+  USING (is_approved_user());
 
 -- Écriture/suppression : admin uniquement
 CREATE POLICY "Admin can manage target zones"
@@ -169,3 +192,5 @@ CREATE POLICY "Admin can manage target zones"
 | `target_zones` INSERT | N'importe qui | Admin uniquement |
 | `target_zones` DELETE | N'importe qui | Admin uniquement |
 | Accès anonyme | SELECT sur tout | **Supprimé** |
+| `user_roles.role` | `NOT NULL DEFAULT 'agent'` (auto-agent) | `NULL` par défaut ("en attente"), approuvé manuellement |
+| `census_points`/`target_zones` SELECT/INSERT/UPDATE | Tout compte authentifié | Uniquement un compte **validé** (`is_approved_user()`) |
