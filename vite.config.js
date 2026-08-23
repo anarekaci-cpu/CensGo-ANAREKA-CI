@@ -19,10 +19,16 @@ export default defineConfig({
         background_color: "#1a3d2b",
         theme_color: "#1a3d2b",
         orientation: "portrait-primary",
+        // PNG en premier (et pas seulement SVG) : indispensable pour
+        // l'installabilité Android (WebAPK) et les générateurs d'APK type
+        // PWABuilder/Bubblewrap, qui exigent des icônes PNG 192/512 — le SVG
+        // seul y est mal ou pas supporté. SVG conservé en repli.
         icons: [
+          { src: "/CensGo-ANAREKA-CI/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/CensGo-ANAREKA-CI/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/CensGo-ANAREKA-CI/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           { src: "/CensGo-ANAREKA-CI/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
-          { src: "/CensGo-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" },
-          { src: "/CensGo-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" }
+          { src: "/CensGo-ANAREKA-CI/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" }
         ]
       },
       workbox: {

@@ -27,6 +27,26 @@ async function bootstrap() {
   `;
 
   try {
+    // Vérification explicite AVANT db.open() : sans ça, l'erreur Dexie
+    // brute ("MissingAPIError: IndexedDB API missing...") s'affichait telle
+    // quelle à l'agent, illisible. Cas réels rencontrés sur iPhone : lien
+    // ouvert depuis le navigateur intégré de WhatsApp/Messenger/Instagram
+    // (WKWebView restreint, stockage persistant parfois désactivé), ou
+    // navigation privée Safari/Chrome iOS (IndexedDB explicitement coupé).
+    // L'app est offline-first (Dexie/IndexedDB au cœur de la sync) : elle
+    // ne peut fonctionner sans, donc on guide vers la correction plutôt que
+    // de laisser planter avec un message technique.
+    if (!window.indexedDB) {
+      const err = new Error(
+        "Stockage hors-ligne indisponible (IndexedDB). Si ce lien a été ouvert " +
+        "depuis WhatsApp, Messenger, Instagram ou une autre appli, appuyez sur " +
+        "\"⋯\" puis \"Ouvrir dans Safari\" (ou Chrome). Vérifiez aussi que la " +
+        "navigation privée est désactivée."
+      );
+      err.name = "StorageUnavailableError";
+      throw err;
+    }
+
     await db.open();
     console.log("📦 IndexedDB prête");
 
@@ -52,11 +72,18 @@ async function bootstrap() {
 
   } catch (err) {
     console.error("❌ Erreur au démarrage:", err);
+    // MissingAPIError : nom que Dexie donne lui-même quand indexedDB est
+    // absent/coupé (private browsing, navigateur intégré d'appli tierce) —
+    // on affiche alors le même message actionnable que StorageUnavailableError
+    // ci-dessus plutôt que le texte brut de Dexie.
+    const isStorageIssue = err.name === "StorageUnavailableError" || err.name === "MissingAPIError";
     app.innerHTML = `
       <div id="boot-error">
         <div class="boot-icon">⚠️</div>
         <h2>Impossible de démarrer</h2>
-        <p>${escapeHtml(err.message || "Erreur inconnue")}</p>
+        <p>${isStorageIssue
+          ? "Stockage hors-ligne indisponible (IndexedDB). Si ce lien a été ouvert depuis WhatsApp, Messenger, Instagram ou une autre appli, appuyez sur \"⋯\" puis \"Ouvrir dans Safari\" (ou Chrome). Vérifiez aussi que la navigation privée est désactivée."
+          : escapeHtml(err.message || "Erreur inconnue")}</p>
         <button id="bootRetryBtn">Réessayer</button>
       </div>
     `;

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://anarekaci-cpu.github.io/CensGo-ANAREKA-CI/sitemap.xml
