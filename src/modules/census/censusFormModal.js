@@ -5,6 +5,7 @@ import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
+import { canMarkVisited } from "../../core/geofence.js";
 import { normalizePointId, escapeHtml, stringSimilarity } from "../../core/utils.js";
 
 // Doublon "flou" : nom très proche (typo/variante d'orthographe) OU
@@ -541,6 +542,15 @@ function bindFormEvents() {
     };
 
     try {
+      // Même contrôle anti-fraude que le bouton "Visité" du popup (voir
+      // core/geofence.js) : la fiche de recensement offre un second chemin
+      // vers visited=true qui contournerait sinon totalement ce contrôle.
+      // Ne s'applique qu'au PASSAGE à true (fiche déjà visitée qu'on
+      // ré-enregistre sans y toucher, ou qu'on décoche : jamais bloqué).
+      if (pointData.visited && !existingPoint?.visited && !canMarkVisited(lat, lon)) {
+        return;
+      }
+
       const updated = await upsertPoint(pointData);
 
       // Mettre à jour le store avec un NOUVEAU tableau : muter l'ancien et le

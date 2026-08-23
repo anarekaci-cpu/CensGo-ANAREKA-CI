@@ -5,6 +5,7 @@ import { getClusterGroup, getMap } from "../map/map.js";
 import { updatePointVisit } from "../../db/database.js";
 import { openCensusForm } from "./censusFormModal.js";
 import { toGeoJSONCoordinates } from "../../core/geo.js";
+import { canMarkVisited } from "../../core/geofence.js";
 import { escapeHtml, normalizePointId } from "../../core/utils.js";
 import { toastWarning } from "../../core/toast.js";
 import { log, isVerbose } from "../../core/debug.js";
@@ -280,6 +281,9 @@ function handlePopupAction(e) {
 
 async function toggleVisit(point) {
   const newVisited = !point.visited;
+  // Décocher reste toujours possible ; seul le passage à visited=true est
+  // soumis au contrôle de proximité GPS (voir core/geofence.js).
+  if (newVisited && !canMarkVisited(point.lat, point.lon)) return;
   await updatePointVisit(point.id, newVisited, point.status);
 
   const pid = normalizePointId(point.id);

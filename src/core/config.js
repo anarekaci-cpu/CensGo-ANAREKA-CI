@@ -37,6 +37,15 @@ export const CONFIG = {
   // Rayon (en mètres) considéré comme "arrivé" pendant la navigation
   ARRIVAL_RADIUS_M: Number(import.meta.env.VITE_ARRIVAL_RADIUS_M) || 30,
 
+  // Distance maximale (en mètres) entre la position GPS de l'agent et un
+  // point pour autoriser à le marquer "visité" depuis la fiche — anti-fraude
+  // (un agent qui coche "visité" sans s'être réellement déplacé sur place).
+  // Volontairement plus large que ARRIVAL_RADIUS_M (guidage pas-à-pas, GPS
+  // au mieux) : ce contrôle doit rester tolérant à l'imprécision GPS
+  // habituelle en zone urbaine (bâtiments, couvert) plutôt que bloquer des
+  // visites réelles à tort.
+  VISIT_GEOFENCE_RADIUS_M: Number(import.meta.env.VITE_VISIT_GEOFENCE_RADIUS_M) || 500,
+
   // Couleurs par statut (utilisées par les marqueurs, popups, légende)
   STATUS_COLORS: {
     'VERT (Joignable)': '#2ecc71',
