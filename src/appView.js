@@ -975,6 +975,7 @@ const ROLE_LABELS = { agent: "Agent", admin: "Administrateur" };
 function renderAgentRow(row, currentUserId) {
   const isSelf = row.user_id === currentUserId;
   const name = escapeHtml(row.full_name || "Sans nom renseigné");
+  const email = row.email ? escapeHtml(row.email) : "";
   const number = row.agent_number != null ? `#${row.agent_number}` : "—";
   const statusLabel = row.role ? ROLE_LABELS[row.role] : "En attente de validation";
   const statusClass = row.role === "admin" ? "role-admin" : row.role === "agent" ? "role-agent" : "role-pending";
@@ -998,6 +999,7 @@ function renderAgentRow(row, currentUserId) {
         <span class="agent-number-badge">${number}</span>
         <div>
           <div class="agent-row-name">${name}${isSelf ? " (vous)" : ""}</div>
+          ${email ? `<div class="agent-row-email">${email}</div>` : ""}
           <div class="agent-row-status ${statusClass}">${statusLabel}</div>
         </div>
       </div>
@@ -1011,8 +1013,8 @@ async function refreshAgentsList() {
   if (!list) return;
   list.innerHTML = `<div class="agents-list-loading">Chargement des comptes…</div>`;
   try {
-    const { fetchAllRoles } = await import("./modules/admin/roleManager.js");
-    const rows = await fetchAllRoles();
+    const { fetchAllAccounts } = await import("./modules/admin/roleManager.js");
+    const rows = await fetchAllAccounts();
     const currentUserId = store.get("user")?.id;
     if (rows.length === 0) {
       list.innerHTML = `<div class="agents-list-loading">Aucun compte inscrit pour le moment.</div>`;

@@ -22,6 +22,26 @@ export async function fetchAllRoles() {
 }
 
 /**
+ * user_roles ne stocke jamais l'e-mail (RLS n'expose pas auth.users au
+ * client) — admin_list_accounts() (schema.sql) est une fonction serveur
+ * SECURITY DEFINER qui fait la jointure et vérifie elle-même côté serveur
+ * que l'appelant est admin.
+ *
+ * @returns {Promise<Array<{user_id:string, email:string|null, role:string|null, full_name:string|null, agent_number:number|null}>>}
+ */
+export async function fetchAllAccounts() {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc("admin_list_accounts");
+  if (!error) return data || [];
+  // La fonction n'existe pas encore côté serveur (schema.sql pas encore
+  // réexécuté après cette mise à jour) : on dégrade vers la liste sans
+  // e-mail plutôt que de casser tout le panneau "Comptes agents".
+  const notFound = error.code === "PGRST202" || /admin_list_accounts/i.test(error.message || "");
+  if (notFound) return fetchAllRoles();
+  throw error;
+}
+
+/**
  * @param {string} userId
  * @param {"agent"|"admin"|null} role
  */

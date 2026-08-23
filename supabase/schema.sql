@@ -359,6 +359,50 @@ CREATE POLICY "Admin can update roles"
     )
   );
 
+-- 3ter. user_roles ne contient JAMAIS l'e-mail (RGPD minimal + auth.users
+--       n'est de toute façon pas lisible par le client "authenticated").
+--       Pour que l'admin identifie un compte par e-mail dans l'app (et pas
+--       seulement par nom saisi à l'inscription), cette fonction jointe à
+--       auth.users tourne en SECURITY DEFINER et vérifie ELLE-MÊME que
+--       l'appelant est admin avant de renvoyer quoi que ce soit — un agent
+--       ou un compte en attente qui l'appelle reçoit 0 ligne, jamais une
+--       erreur qui laisserait deviner l'existence d'autres comptes.
+CREATE OR REPLACE FUNCTION admin_list_accounts()
+RETURNS TABLE (
+  user_id UUID,
+  email TEXT,
+  role TEXT,
+  full_name TEXT,
+  agent_number INTEGER
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT ur.user_id, au.email, ur.role, ur.full_name, ur.agent_number
+  FROM user_roles ur
+  JOIN auth.users au ON au.id = ur.user_id
+  WHERE EXISTS (
+    SELECT 1 FROM user_roles me
+    WHERE me.user_id = auth.uid() AND me.role = 'admin'
+  )
+  ORDER BY (ur.role IS NOT NULL), ur.agent_number;
+$$;
+
+GRANT EXECUTE ON FUNCTION admin_list_accounts() TO authenticated;
+
+-- Backfill : les comptes déjà créés AVANT ce correctif (via le dashboard,
+-- ou une inscription antérieure) n'ont pas de full_name — on récupère ce
+-- qui existe déjà dans les métadonnées auth (si l'agent l'avait fourni
+-- d'une façon ou d'une autre), sans écraser un nom déjà renseigné.
+UPDATE user_roles ur
+SET full_name = au.raw_user_meta_data->>'full_name'
+FROM auth.users au
+WHERE au.id = ur.user_id
+  AND ur.full_name IS NULL
+  AND au.raw_user_meta_data->>'full_name' IS NOT NULL;
+
 -- 4. Durcissement des policies existantes : "authenticated" ne suffit plus,
 --    il faut être un compte APPROUVÉ. Remplace les policies définies plus
 --    haut dans ce fichier (mêmes noms, DROP+CREATE déjà fait plus haut pour

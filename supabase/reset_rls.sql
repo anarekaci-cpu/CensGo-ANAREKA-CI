@@ -79,6 +79,44 @@ CREATE POLICY "Admin can update roles"
     )
   );
 
+-- user_roles ne contient jamais l'e-mail (auth.users n'est pas lisible par
+-- le client "authenticated") — cette fonction jointe à auth.users tourne en
+-- SECURITY DEFINER et vérifie ELLE-MÊME que l'appelant est admin avant de
+-- renvoyer quoi que ce soit (0 ligne sinon, jamais une erreur).
+CREATE OR REPLACE FUNCTION admin_list_accounts()
+RETURNS TABLE (
+  user_id UUID,
+  email TEXT,
+  role TEXT,
+  full_name TEXT,
+  agent_number INTEGER
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT ur.user_id, au.email, ur.role, ur.full_name, ur.agent_number
+  FROM user_roles ur
+  JOIN auth.users au ON au.id = ur.user_id
+  WHERE EXISTS (
+    SELECT 1 FROM user_roles me
+    WHERE me.user_id = auth.uid() AND me.role = 'admin'
+  )
+  ORDER BY (ur.role IS NOT NULL), ur.agent_number;
+$$;
+
+GRANT EXECUTE ON FUNCTION admin_list_accounts() TO authenticated;
+
+-- Backfill : comptes créés avant ce correctif — récupère un full_name déjà
+-- présent dans les métadonnées auth, sans écraser un nom déjà renseigné.
+UPDATE user_roles ur
+SET full_name = au.raw_user_meta_data->>'full_name'
+FROM auth.users au
+WHERE au.id = ur.user_id
+  AND ur.full_name IS NULL
+  AND au.raw_user_meta_data->>'full_name' IS NOT NULL;
+
 -- Trigger : crée automatiquement la ligne user_roles (role=NULL) à chaque
 -- inscription (supabase.auth.signUp()). SECURITY DEFINER : seul ce trigger
 -- peut créer une ligne — le client "authenticated" n'a aucune permission
