@@ -21,6 +21,14 @@
   <link rel="apple-touch-icon" href="/Recensement-ANAREKA-CI/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Établit la connexion TLS vers les tuiles carte / API pendant le
+       chargement du JS, au lieu d'attendre le premier fetch réel une fois
+       l'app démarrée — gain net sur le temps avant premier affichage utile
+       de la carte, surtout sur un réseau mobile à latence élevée. -->
+  <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
+  <link rel="preconnect" href="https://b.basemaps.cartocdn.com" crossorigin>
+  <link rel="preconnect" href="https://c.basemaps.cartocdn.com" crossorigin>
+  <link rel="dns-prefetch" href="https://router.project-osrm.org">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     body { margin: 0; background: #f2f3ef; }

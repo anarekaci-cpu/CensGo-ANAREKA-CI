@@ -1,6 +1,7 @@
 import { store } from "./core/store.js";
 import { getSupabaseClient } from "./core/supabase.js";
-import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap } from "./modules/map/map.js";
+import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap } from "./modules/map/map.js";
+import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation } from "./modules/navigation/navigation.js";
@@ -9,7 +10,7 @@ import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/age
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
 import { retryFailedSyncs, dismissConflict } from "./modules/sync/syncEngine.js";
-import { toastInfo, toastWarning, toastError } from "./core/toast.js";
+import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml, normalizePointId } from "./core/utils.js";
@@ -132,6 +133,7 @@ export async function mountAuthenticatedApp(container) {
             </label>
             <label>Recherche <input type="text" id="searchBox" placeholder="Nom, quartier, tel..."></label>
           </div>
+          <div id="searchResultCount" style="font-size:12px; color:#64748b; margin:-4px 0 8px; min-height:16px;"></div>
           <div class="action-row">
             <button id="locateBtn" class="btn-locate">📍 Me localiser</button>
             <button id="nearestBtn" class="btn-nearest">🏃 Plus proche</button>
@@ -144,6 +146,9 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="action-row">
             <button id="heatmapBtn" class="btn-overview" style="grid-column: 1 / -1;" aria-pressed="false">🔥 Carte de densité (à visiter)</button>
+          </div>
+          <div class="action-row">
+            <button id="offlineTilesBtn" class="btn-overview" style="grid-column: 1 / -1;" title="Télécharge les tuiles de la zone affichée pour un usage sans connexion">📥 Précharger cette zone hors-ligne</button>
           </div>
           <div class="action-row" id="adminTrackingRow" style="display:none;">
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
@@ -495,6 +500,48 @@ function bindEvents() {
     btn.setAttribute("aria-pressed", String(visible));
     closeControls();
   };
+
+  document.getElementById("offlineTilesBtn")?.addEventListener("click", async () => {
+    const btn = document.getElementById("offlineTilesBtn");
+    const map = getMap();
+    if (!map) return;
+
+    if (!navigator.onLine) {
+      toastWarning("Connexion internet requise pour précharger la carte.");
+      return;
+    }
+
+    const b = map.getBounds();
+    const bounds = { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+    // Zoom courant -> maxZoom carte : couvre la vue actuelle et le niveau de
+    // détail nécessaire en navigation rapprochée, sans redescendre sur des
+    // niveaux très dézoomés inutiles pour une zone déjà ciblée par l'agent.
+    const baseZoom = Math.max(12, Math.floor(map.getZoom()));
+    const zooms = [];
+    for (let z = baseZoom; z <= 17; z++) zooms.push(z);
+
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+
+    try {
+      const result = await downloadOfflineTiles(bounds, {
+        zooms,
+        onProgress: (done, total) => {
+          btn.textContent = `📥 ${Math.round((done / total) * 100)}%...`;
+        }
+      });
+      toastSuccess(
+        `Zone préchargée : ${result.downloaded} tuiles téléchargées` +
+        (result.skippedAlreadyCached ? `, ${result.skippedAlreadyCached} déjà en cache` : "") +
+        (result.failed ? `, ${result.failed} échouées` : "") + "."
+      );
+    } catch (err) {
+      toastError(err.message || "Échec du préchargement de la zone.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
 
   let agentTrackingActive = false;
   document.getElementById("agentTrackingBtn")?.addEventListener("click", async () => {
@@ -1033,6 +1080,17 @@ function renderTourDetails() {
   }
 }
 
+// Affiche "N résultats" uniquement quand un filtre restreint réellement la
+// liste (recherche texte active) — sans ça le compteur répéterait en
+// permanence le total déjà visible dans l'en-tête, sans apporter d'info.
+function updateSearchResultCount(search, filteredCount) {
+  const el = document.getElementById("searchResultCount");
+  if (!el) return;
+  el.textContent = search
+    ? `${filteredCount} résultat${filteredCount > 1 ? "s" : ""}`
+    : "";
+}
+
 function applyFilters() {
   const filters = {
     block: document.getElementById("filterBlock").value,
@@ -1046,6 +1104,7 @@ function applyFilters() {
   // déjà en mémoire puis on met à jour les marqueurs.
   const points = store.get("points");
   const filtered = filterPoints(points, filters);
+  updateSearchResultCount(filters.search, filtered.length);
   renderMarkers(filtered);
 }
 
@@ -1057,6 +1116,7 @@ function applyFilters() {
 function applyFiltersFromStore() {
   const filters = store.get("filters") || { block: "all", status: "all", visited: "all", search: "" };
   const filtered = filterPoints(store.get("points"), filters);
+  updateSearchResultCount(filters.search, filtered.length);
   renderMarkers(filtered);
 }
 

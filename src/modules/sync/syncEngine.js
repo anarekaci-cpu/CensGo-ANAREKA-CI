@@ -50,7 +50,16 @@ export async function initSyncEngine() {
     });
   }
 
-  if (isOnline) await triggerSync();
+  // PAS de await ici : triggerSync() envoie la file d'attente vers Supabase
+  // (potentiellement plusieurs items, timeouts et retries) et n'a AUCUN
+  // rapport avec l'affichage des points (cache-first via IndexedDB, voir
+  // dataLoader.js) ni avec la carte. Avant ce correctif, le premier écran
+  // utile de l'app attendait la fin de CETTE synchro réseau avant de
+  // s'afficher — potentiellement plusieurs secondes sur un réseau terrain
+  // dégradé — alors que rien à l'écran n'en dépendait. La sync continue de
+  // se dérouler normalement en arrière-plan et met à jour sync.status/
+  // sync.pendingCount comme avant.
+  if (isOnline) triggerSync();
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

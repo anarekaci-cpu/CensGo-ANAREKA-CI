@@ -37,6 +37,14 @@ describe("passesFilters", () => {
     expect(passesFilters(P("d", { name: "Kouadio" }), f)).toBe(false);
   });
 
+  it("recherche insensible aux accents (clavier sans accents courant sur le terrain)", () => {
+    const point = P("a", { name: "Kiosque Attiéké", quartier: "Général" });
+    expect(passesFilters(point, { ...DEFAULT_FILTERS, search: "attieke" })).toBe(true);
+    expect(passesFilters(point, { ...DEFAULT_FILTERS, search: "general" })).toBe(true);
+    // Fonctionne aussi dans l'autre sens (requête accentuée, donnée non accentuée).
+    expect(passesFilters(P("b", { name: "Maquis Deba" }), { ...DEFAULT_FILTERS, search: "débà" })).toBe(true);
+  });
+
   it("combinaison de plusieurs filtres (ET logique)", () => {
     const f = { block: "1", status: "VERT (Joignable)", visited: "no", search: "cocody" };
     expect(passesFilters(P("a", { block: 1, quartier: "Cocody" }), f)).toBe(true);

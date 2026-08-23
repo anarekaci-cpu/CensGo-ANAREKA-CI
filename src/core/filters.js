@@ -13,6 +13,15 @@ export const DEFAULT_FILTERS = Object.freeze({
   search: ""
 });
 
+// Recherche insensible aux accents : un agent qui tape "kiosque attieke"
+// (sans accents, clavier/habitude courante) ne trouvait auparavant rien
+// pour un point enregistré "Kiosque Attiéké" — comparaison stricte sur la
+// chaîne accentuée. La normalisation Unicode NFD sépare chaque lettre
+// accentuée de son diacritique (é -> e + ́), qu'on retire ensuite.
+function foldAccents(str) {
+  return str.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 /**
  * @param {object} point - point normalisé du store
  * @param {object} filters - { block, status, visited, search }
@@ -28,8 +37,8 @@ export function passesFilters(point, filters) {
   if (f.visited === "no" && point.visited) return false;
 
   if (f.search) {
-    const q = String(f.search).toLowerCase();
-    const hay = `${point.name || ""} ${point.quartier || ""} ${point.address || ""} ${point.tel || ""} ${point.produits || ""} ${point.id || ""} ${point.order ?? ""}`.toLowerCase();
+    const q = foldAccents(String(f.search).toLowerCase());
+    const hay = foldAccents(`${point.name || ""} ${point.quartier || ""} ${point.address || ""} ${point.tel || ""} ${point.produits || ""} ${point.id || ""} ${point.order ?? ""}`.toLowerCase());
     if (!hay.includes(q)) return false;
   }
   return true;

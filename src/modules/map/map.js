@@ -55,6 +55,12 @@ export function initMap(containerId = "map") {
     new maplibregl.AttributionControl({ compact: true }),
     "bottom-right"
   );
+  // Échelle de distance : repère visuel direct ("cette barre = 100 m") pour
+  // estimer une distance à pied sur la carte sans ouvrir un itinéraire.
+  mapInstance.addControl(
+    new maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }),
+    "bottom-left"
+  );
 
   // minPoints très élevé => les points ne fusionnent JAMAIS en bulle "N
   // points" : chaque point reste son propre marqueur, visible individuellement
