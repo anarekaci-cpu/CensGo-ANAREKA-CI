@@ -457,11 +457,22 @@ async function refreshAdminRole() {
     // maybeSingle() et non single() : un agent sans entrée dans user_roles
     // renvoie 0 ligne, et single() transforme ce cas NORMAL en erreur HTTP
     // 406 (bruit console + rejet de promesse). maybeSingle() renvoie null.
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("user_roles")
       .select("role, full_name, agent_number")
       .eq("user_id", user.id)
       .maybeSingle();
+    // BUG (diagnostic) : `error` n'était jamais lu — le client Supabase ne
+    // LÈVE PAS d'exception sur une erreur de requête (RLS refusée, colonne
+    // manquante, etc.), il la renvoie dans `error`. En l'ignorant, un vrai
+    // problème serveur (policy cassée, colonne pas encore migrée) donnait
+    // exactement le même résultat visible qu'un agent normal sans rôle
+    // admin — impossible à distinguer depuis l'écran, aucune trace console.
+    if (error) {
+      console.error("[ROLE] Lecture de user_roles échouée pour", user.id, ":", error.message, error);
+      return;
+    }
+    console.info("[ROLE] user_roles pour", user.id, "=", data);
     const isAdmin = data?.role === "admin";
     // role=NULL (pas de ligne, ou ligne avec role NULL) = inscription pas
     // encore validée par un admin — RLS bloque déjà census_points côté
