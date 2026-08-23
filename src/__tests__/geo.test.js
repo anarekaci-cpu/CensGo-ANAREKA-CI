@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel, distanceToPolylineMeters } from "../core/geo.js";
+import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel, distanceToPolylineMeters, remainingRouteDistanceMeters } from "../core/geo.js";
 
 describe("haversineKm", () => {
   it("returns 0 for same point", () => {
@@ -126,5 +126,47 @@ describe("distanceToPolylineMeters", () => {
     expect(distanceToPolylineMeters(5.36, -3.97, [])).toBe(Infinity);
     expect(distanceToPolylineMeters(NaN, -3.97, segment)).toBe(Infinity);
     expect(distanceToPolylineMeters(5.36, -3.97, null)).toBe(Infinity);
+  });
+});
+
+describe("remainingRouteDistanceMeters", () => {
+  // Chemin en L (est puis nord) — représentatif d'un itinéraire piéton en
+  // zone urbaine (rues à angle droit) : la distance restante le long du
+  // tracé doit être bien plus grande que la distance à vol d'oiseau vers
+  // la destination finale tant qu'on n'a pas atteint le second tronçon.
+  const path = [
+    [-3.97, 5.36],
+    [-3.95, 5.36],
+    [-3.95, 5.40]
+  ];
+  const leg1 = haversineKm(5.36, -3.97, 5.36, -3.95) * 1000;
+  const leg2 = haversineKm(5.36, -3.95, 5.40, -3.95) * 1000;
+
+  it("retourne la longueur totale du tracé depuis le point de départ", () => {
+    const d = remainingRouteDistanceMeters(5.36, -3.97, path);
+    expect(Math.abs(d - (leg1 + leg2))).toBeLessThan(5);
+  });
+
+  it("retourne ~0 à l'arrivée (fin du tracé)", () => {
+    const d = remainingRouteDistanceMeters(5.40, -3.95, path);
+    expect(d).toBeLessThan(1);
+  });
+
+  it("suit le tracé plutôt que la ligne droite vers la destination", () => {
+    const midLeg1Lon = -3.97 + (-3.95 - -3.97) / 2;
+    const d = remainingRouteDistanceMeters(5.36, midLeg1Lon, path);
+
+    expect(Math.abs(d - (leg1 / 2 + leg2))).toBeLessThan(5);
+
+    // La distance à vol d'oiseau vers la destination finale est bien plus
+    // courte que la distance réelle restante le long du tracé en L.
+    const straightLine = haversineKm(5.36, midLeg1Lon, 5.40, -3.95) * 1000;
+    expect(d).toBeGreaterThan(straightLine);
+  });
+
+  it("retourne null pour une polyligne trop courte ou des coordonnées invalides", () => {
+    expect(remainingRouteDistanceMeters(5.36, -3.97, [[-3.97, 5.36]])).toBeNull();
+    expect(remainingRouteDistanceMeters(5.36, -3.97, [])).toBeNull();
+    expect(remainingRouteDistanceMeters(NaN, -3.97, path)).toBeNull();
   });
 });

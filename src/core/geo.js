@@ -112,6 +112,76 @@ export function distanceToPolylineMeters(lat, lon, polyline) {
   return min;
 }
 
+/**
+ * Distance restante (en mètres) le long d'une polyligne, depuis le point
+ * du tracé le plus proche de (lat, lon) jusqu'à la fin de la polyligne.
+ *
+ * À la différence d'une distance à vol d'oiseau vers la destination finale,
+ * ceci suit le TRACÉ réel — indispensable en zone urbaine dense (blocs,
+ * rues qui ne vont pas droit vers la destination) où le vol d'oiseau peut
+ * sous-estimer très largement (voire ne pas décroître de façon monotone
+ * pendant que l'agent marche) la distance qu'il reste réellement à
+ * parcourir à pied.
+ *
+ * @param {number} lat latitude du point (position GPS actuelle)
+ * @param {number} lon longitude du point
+ * @param {Array<[number, number]>} polyline coordonnées [lon, lat]
+ * (format GeoJSON/OSRM), au moins 2 points
+ * @returns {number|null} distance en mètres, ou null si les entrées sont
+ * invalides (polyligne trop courte, coordonnées non finies)
+ */
+export function remainingRouteDistanceMeters(lat, lon, polyline) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (!Array.isArray(polyline) || polyline.length < 2) return null;
+
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const cosLat = Math.cos(toRad(lat));
+
+  const project = ([lonP, latP]) => ({
+    x: R * toRad(lonP - lon) * cosLat,
+    y: R * toRad(latP - lat)
+  });
+
+  const segLengths = [];
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const [lonA, latA] = polyline[i];
+    const [lonB, latB] = polyline[i + 1];
+    segLengths.push(haversineKm(latA, lonA, latB, lonB) * 1000);
+  }
+  const totalLength = segLengths.reduce((a, b) => a + b, 0);
+
+  let bestDist = Infinity;
+  let bestRemaining = totalLength;
+  let lengthBeforeSeg = 0;
+
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const a = project(polyline[i]);
+    const b = project(polyline[i + 1]);
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSq = dx * dx + dy * dy;
+
+    let t = lengthSq === 0 ? 0 : (-a.x * dx - a.y * dy) / lengthSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const closestX = a.x + t * dx;
+    const closestY = a.y + t * dy;
+    const d = Math.sqrt(closestX * closestX + closestY * closestY);
+
+    if (d < bestDist) {
+      bestDist = d;
+      const distanceIntoSeg = t * segLengths[i];
+      bestRemaining = Math.max(0, totalLength - lengthBeforeSeg - distanceIntoSeg);
+    }
+
+    lengthBeforeSeg += segLengths[i];
+  }
+
+  return bestRemaining;
+}
+
 const CARDINAL_LABELS = [
   "Nord",
   "Nord-Est",

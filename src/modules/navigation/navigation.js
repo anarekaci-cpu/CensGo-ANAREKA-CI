@@ -13,7 +13,7 @@ import {
 import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
-import { distanceToPolylineMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
+import { distanceToPolylineMeters, remainingRouteDistanceMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
 import { speak, cancelSpeech } from "../../core/speech.js";
 import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
@@ -451,11 +451,54 @@ function updateNavigationProgress(position) {
 
   store.set(
     "navigation.instruction",
-    `${formatDistance(distance)} restants`
+    formatRemainingInstruction(position, distance)
   );
 
   advanceGuidanceSteps(position);
   maybeReroute(position);
+}
+
+/**
+ * "Distance restante" affichée pendant la navigation.
+ *
+ * BUG (itinéraire à pied "pas exact") : cette valeur était calculée à vol
+ * d'oiseau vers la destination — juste pour l'affichage, le tracé réel
+ * (courbes de rue, contournement de pâtés de maisons) n'était jamais pris
+ * en compte. En zone urbaine dense, le vol d'oiseau sous-estime largement
+ * la marche réelle et ne décroît pas forcément de façon monotone pendant
+ * que l'agent avance le long des rues — donnant l'impression d'un
+ * itinéraire piéton imprécis. On suit maintenant le tracé OSRM réel
+ * (remainingRouteDistanceMeters) quand il est disponible, et on dérive la
+ * durée restante proportionnellement à la distance déjà parcourue sur ce
+ * tracé plutôt que d'afficher seulement une distance sans durée.
+ */
+function formatRemainingInstruction(position, straightLineDistance) {
+  const route = store.get("navigation.route");
+
+  if (!currentRouteCoords || currentRouteCoords.length < 2 || !route) {
+    return `${formatDistance(straightLineDistance)} restants`;
+  }
+
+  const remainingDistance = remainingRouteDistanceMeters(
+    position.lat,
+    position.lng,
+    currentRouteCoords
+  );
+
+  if (remainingDistance == null) {
+    return `${formatDistance(straightLineDistance)} restants`;
+  }
+
+  // Durée restante dérivée proportionnellement à la distance déjà
+  // parcourue le long du tracé — approximation raisonnable à vitesse
+  // ~constante, bien plus utile qu'une distance seule sans indication de
+  // temps pendant la progression.
+  const remainingDuration =
+    route.distance > 0
+      ? route.duration * (remainingDistance / route.distance)
+      : route.duration;
+
+  return `${formatDistance(remainingDistance)} — ${formatDuration(remainingDuration)} restants`;
 }
 
 /**
