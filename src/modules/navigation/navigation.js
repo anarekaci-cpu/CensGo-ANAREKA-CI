@@ -45,6 +45,37 @@ const REROUTE_DEBOUNCE_MS = 15000;
 // "atteint" et le guidage passe au pas suivant.
 const STEP_ADVANCE_RADIUS_M = 20;
 
+// BUG (itinéraire "pas exact", surtout à pied) : geolocation.js publie
+// CHAQUE fix GPS brut sans filtrage, y compris une position avec une
+// accuracy de 50-150m (fréquent sous couvert végétal, entre immeubles, ou
+// juste après le démarrage du GPS). Ce module comparait cette position à
+// des seuils fixes de 20-40m, bien plus petits que le rayon d'erreur —
+// un unique fix bruité pouvait déclencher un recalcul d'itinéraire
+// injustifié ou avancer le guidage au mauvais moment. En marche à pied,
+// où l'agent avance lentement, ce bruit représente une fraction bien plus
+// grande de la distance parcourue qu'en vélo/véhicule — d'où une
+// navigation qui "a l'air" imprécise précisément en mode piéton.
+//
+// Au-delà de ce rayon, un fix est jugé trop peu fiable pour piloter une
+// décision de navigation (recalcul, avancement du guidage, arrivée) : on
+// continue d'afficher l'état précédent plutôt que de réagir à du bruit.
+const MAX_TRUSTED_ACCURACY_M = 100;
+
+function isPositionTrustworthy(position) {
+  return !Number.isFinite(position?.accuracy) || position.accuracy <= MAX_TRUSTED_ACCURACY_M;
+}
+
+/**
+ * Seuil effectif = le plus grand entre le seuil "nominal" (GPS parfait) et
+ * la marge d'erreur du fix courant (plafonnée à MAX_TRUSTED_ACCURACY_M) —
+ * un GPS moins précis rend le module plus tolérant avant de réagir,
+ * au lieu de traiter du bruit de positionnement comme un vrai écart.
+ */
+function effectiveThreshold(baseThreshold, position) {
+  const accuracy = Number.isFinite(position?.accuracy) ? position.accuracy : 0;
+  return Math.max(baseThreshold, Math.min(accuracy, MAX_TRUSTED_ACCURACY_M));
+}
+
 /**
  * Mode de navigation actuellement sélectionné (transmis à calculateRoute
  * pour sélectionner le profil OSRM foot/bike/car).
@@ -427,6 +458,13 @@ function updateNavigationProgress(position) {
 
   if (!destination) return;
 
+  // Fix GPS trop peu fiable (voir MAX_TRUSTED_ACCURACY_M) : on garde
+  // l'affichage précédent plutôt que de réagir à du bruit de
+  // positionnement — un GPS qui se dégrade momentanément (sous couvert,
+  // entre deux immeubles) ne doit pas faire "sauter" la distance restante
+  // ni déclencher un recalcul ou une étape de guidage erronée.
+  if (!isPositionTrustworthy(position)) return;
+
   const distance = haversineMeters(
     position.lat,
     position.lng,
@@ -434,7 +472,7 @@ function updateNavigationProgress(position) {
     destination.lon
   );
 
-  if (distance <= CONFIG.ARRIVAL_RADIUS_M) {
+  if (distance <= effectiveThreshold(CONFIG.ARRIVAL_RADIUS_M, position)) {
     if (!store.get("navigation.arrived")) {
       store.set("navigation.arrived", true);
       store.set(
@@ -515,7 +553,7 @@ function advanceGuidanceSteps(position) {
     if (!loc) break;
 
     const distToStep = haversineMeters(position.lat, position.lng, loc[1], loc[0]);
-    if (distToStep > STEP_ADVANCE_RADIUS_M) break;
+    if (distToStep > effectiveThreshold(STEP_ADVANCE_RADIUS_M, position)) break;
 
     currentStepIndex++;
   }
@@ -542,7 +580,7 @@ function maybeReroute(position) {
     currentRouteCoords
   );
 
-  if (deviation <= OFF_ROUTE_THRESHOLD_M) return;
+  if (deviation <= effectiveThreshold(OFF_ROUTE_THRESHOLD_M, position)) return;
   if (Date.now() - lastRerouteAt < REROUTE_DEBOUNCE_MS) return;
 
   log.info("ROUTE", `écart de tracé détecté (${Math.round(deviation)}m) — recalcul de l'itinéraire`);
