@@ -55,6 +55,63 @@ export function bearingDeg(lat1, lon1, lat2, lon2) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
+/**
+ * Distance perpendiculaire (en mètres) entre un point GPS et une polyligne.
+ *
+ * Sert à détecter un écart de tracé pendant la navigation (voir
+ * modules/navigation/navigation.js) : compare la position courante à la
+ * géométrie de l'itinéraire OSRM affiché.
+ *
+ * @param {number} lat latitude du point
+ * @param {number} lon longitude du point
+ * @param {Array<[number, number]>} polyline coordonnées [lon, lat]
+ * (format GeoJSON/OSRM), au moins un point
+ * @returns {number} distance en mètres, ou Infinity si les entrées
+ * sont invalides/vides
+ */
+export function distanceToPolylineMeters(lat, lon, polyline) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return Infinity;
+  if (!Array.isArray(polyline) || polyline.length === 0) return Infinity;
+
+  if (polyline.length === 1) {
+    const [lonA, latA] = polyline[0];
+    return haversineKm(lat, lon, latA, lonA) * 1000;
+  }
+
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const cosLat = Math.cos(toRad(lat));
+
+  // Projection plane locale centrée sur le point interrogé — suffisamment
+  // précise sur les échelles courtes (navigation piétonne/vélo/véhicule).
+  const project = ([lonP, latP]) => ({
+    x: R * toRad(lonP - lon) * cosLat,
+    y: R * toRad(latP - lat)
+  });
+
+  let min = Infinity;
+
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const a = project(polyline[i]);
+    const b = project(polyline[i + 1]);
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSq = dx * dx + dy * dy;
+
+    let t = lengthSq === 0 ? 0 : (-a.x * dx - a.y * dy) / lengthSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const closestX = a.x + t * dx;
+    const closestY = a.y + t * dy;
+
+    const d = Math.sqrt(closestX * closestX + closestY * closestY);
+    if (d < min) min = d;
+  }
+
+  return min;
+}
+
 const CARDINAL_LABELS = [
   "Nord",
   "Nord-Est",
