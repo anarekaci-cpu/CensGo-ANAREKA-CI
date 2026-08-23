@@ -81,7 +81,7 @@ describe("calculateRoute", () => {
     await expect(calculateRoute(5.36, -3.97, 5.40, -3.99)).rejects.toThrow("Failed to fetch");
   });
 
-  it("retourne distance/duration/geometry/steps depuis routes[0]", async () => {
+  it("retourne distance/geometry/steps depuis routes[0] (distance ROUTÉE conservée telle quelle)", async () => {
     globalThis.fetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -98,7 +98,6 @@ describe("calculateRoute", () => {
 
     const result = await calculateRoute(5.36, -3.97, 5.40, -3.99);
     expect(result.distance).toBe(1234.5);
-    expect(result.duration).toBe(678.9);
     expect(result.geometry.coordinates).toHaveLength(2);
     expect(result.steps).toHaveLength(1);
   });
@@ -161,17 +160,21 @@ describe("calculateRoute", () => {
     expect(car.duration).toBeLessThan(bike.duration);
   });
 
-  it("mode='foot' (ou absent) : la durée renvoyée par OSRM est utilisée telle quelle", async () => {
+  it("mode='foot' (ou absent) : la durée n'est JAMAIS celle renvoyée par OSRM, même pour ce profil (bug confirmé en production : ~46 km/h)", async () => {
     globalThis.fetch.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
         code: "Ok",
-        routes: [{ distance: 4200, duration: 3000, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+        // duration=999s renvoyé par le serveur pour le profil "foot" — une
+        // valeur clairement différente de distance/vitesse-piéton, pour
+        // prouver qu'elle n'est PAS réutilisée telle quelle.
+        routes: [{ distance: 4200, duration: 999, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
       })
     });
     const route = await calculateRoute(5.36, -3.97, 5.40, -3.99, "foot");
-    expect(route.duration).toBe(3000);
+    expect(route.duration).not.toBe(999);
+    expect(route.duration).toBeCloseTo(4200 / 1.4, 0);
   });
 
   it("retombe sur le profil piéton pour un mode inconnu", async () => {

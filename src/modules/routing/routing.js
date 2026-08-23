@@ -20,8 +20,15 @@ import { log } from "../../core/debug.js";
  * renverrait soit une erreur, soit (pire, silencieusement) le même
  * itinéraire piéton mal étiqueté "vélo"/"véhicule". calculateRoute()
  * interroge donc toujours le profil "foot" pour obtenir une géométrie et
- * une distance réelles (suivant les voies), puis dérive la durée du mode
- * choisi à partir de cette distance réelle et d'une vitesse moyenne
+ * une distance réelles (suivant les voies).
+ *
+ * BUG CONFIRMÉ EN PRODUCTION : la durée renvoyée par ce serveur pour le
+ * profil "foot" n'est PAS un temps de marche — un trajet de 20,8 km a été
+ * renvoyé avec duration=27min, soit ~46 km/h (vitesse voiture, pas
+ * piéton). Le serveur ne calcule donc pas de vraie durée piétonne malgré
+ * le nom du profil dans l'URL. La durée n'est JAMAIS prise depuis la
+ * réponse OSRM, pour aucun mode : elle est systématiquement dérivée de
+ * la distance réelle (routée) et d'une vitesse moyenne par mode
  * (AVERAGE_SPEEDS_MPS) — voir calculateRoute().
  */
 export const NAV_MODES = {
@@ -214,15 +221,12 @@ mapLayerExists = true
 routeVisible = true`
     );
 
-    // route.duration est un temps de MARCHE renvoyé par le profil "foot" du
-    // serveur — valide seulement si resolvedMode === "foot". Pour bike/car,
-    // la distance réelle (suivant les voies) est fiable ; la durée doit être
-    // recalculée avec la vitesse moyenne du mode choisi, sinon un trajet en
-    // "véhicule" afficherait un temps de marche, trompeur pour l'agent.
-    const duration =
-      resolvedMode === "foot"
-        ? route.duration
-        : route.distance / AVERAGE_SPEEDS_MPS[resolvedMode];
+    // route.duration N'EST PAS FIABLE, y compris pour "foot" (voir le
+    // commentaire sur NAV_MODES plus haut — confirmé en production : un
+    // trajet piéton de 20,8 km renvoyé avec un temps de voiture, ~46 km/h).
+    // La distance ROUTÉE (suit les voies réelles) reste fiable ; seule la
+    // durée est systématiquement recalculée nous-mêmes, pour tous les modes.
+    const duration = route.distance / AVERAGE_SPEEDS_MPS[resolvedMode];
 
     return {
       distance: route.distance,
