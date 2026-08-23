@@ -44,4 +44,16 @@ describe("dedupSyncQueue", () => {
   it("file vide -> []", () => {
     expect(dedupSyncQueue([])).toEqual([]);
   });
+
+  it("préserve l'ordre chronologique entre upsert_point et update_visit (pas tous les upserts après tous les visits)", () => {
+    // Agent modifie une fiche (upsert, visited:false) PUIS tape "Marquer
+    // visité" (update_visit, visited:true, postérieur) sur le même point.
+    // Envoyer l'upsert après l'update_visit écraserait silencieusement le
+    // "visited:true" fraîchement synchronisé.
+    const out = dedupSyncQueue([
+      upsert(1, "p1", "2026-01-01T10:00:00Z"),
+      visit(2, "p1", "2026-01-01T10:00:05Z")
+    ]);
+    expect(out.map(i => i.id)).toEqual([1, 2]);
+  });
 });

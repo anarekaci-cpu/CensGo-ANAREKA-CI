@@ -5,7 +5,7 @@ import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
-import { normalizePointId } from "../../core/utils.js";
+import { normalizePointId, escapeHtml } from "../../core/utils.js";
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -240,7 +240,7 @@ function renderQuartierChips() {
 
   container.innerHTML = top.map(q => {
     const isTarget = targetZoneNames.includes(q);
-    return `<button type="button" class="chip-q" data-q="${escapeAttr(q)}">${isTarget ? "🎯 " : ""}${escapeAttr(q)}</button>`;
+    return `<button type="button" class="chip-q" data-q="${escapeHtml(q)}">${isTarget ? "🎯 " : ""}${escapeHtml(q)}</button>`;
   }).join("");
 
   container.querySelectorAll(".chip-q").forEach(chip => {
@@ -250,12 +250,6 @@ function renderQuartierChips() {
       checkProximity();
     });
   });
-}
-
-function escapeAttr(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 // Avertit si un point existant se trouve à moins de 25m — évite d'enregistrer
@@ -288,7 +282,12 @@ async function checkProximity() {
 export async function closeCensusForm() {
   const nameEl = document.getElementById("cf_name");
   const telEl = document.getElementById("cf_tel");
-  if (nameEl && nameEl.value.trim() && telEl && telEl.value.trim()) {
+  // Un OU, pas un ET : le téléphone est légitimement vide pour un ménage
+  // injoignable (voir SECURITY.md/modèle métier) — exiger les DEUX champs
+  // remplis avant d'avertir laissait fermer sans confirmation une fiche où
+  // l'agent avait saisi nom + adresse + GPS mais pas de téléphone, perdant
+  // toute la saisie sans le moindre avertissement.
+  if ((nameEl && nameEl.value.trim()) || (telEl && telEl.value.trim())) {
     const ok = await confirmAction(
       "Fermer sans enregistrer ?",
       "Des données ont été saisies mais non enregistrées. Voulez-vous vraiment fermer ?"
@@ -435,6 +434,16 @@ function bindFormEvents() {
       return;
     }
 
+    // Garde de ré-entrance : sans elle, un double-tap sur "Enregistrer"
+    // (fréquent au doigt, surtout en attente d'une réponse réseau lente)
+    // exécutait ce handler deux fois avant que le premier upsertPoint()
+    // n'ait résolu. Pour une NOUVELLE fiche (id vide), chaque appel génère
+    // un crypto.randomUUID() différent -> deux fiches en double créées à
+    // partir d'un seul tap perçu par l'agent.
+    const saveBtn = document.getElementById("cf_save_btn");
+    if (saveBtn?.disabled) return;
+    if (saveBtn) saveBtn.disabled = true;
+
     const id = document.getElementById("cf_id").value;
     // Comparaison par id NORMALISÉ : un vieux point du cache peut porter un
     // id numérique (123) alors que le champ caché du formulaire contient
@@ -478,32 +487,40 @@ function bindFormEvents() {
       lon
     };
 
-    const updated = await upsertPoint(pointData);
+    try {
+      const updated = await upsertPoint(pointData);
 
-    // Mettre à jour le store avec un NOUVEAU tableau : muter l'ancien et le
-    // repasser à store.set() ne déclenche AUCUNE notification (comparaison
-    // par référence) — les marqueurs, stats et la tournée ne se mettaient
-    // alors à jour que grâce au upsertMarker manuel ci-dessous.
-    const points = store.get("points") || [];
-    const updatedId = normalizePointId(updated.id);
-    const idx = points.findIndex(p => normalizePointId(p.id) === updatedId);
-    const nextPoints = idx >= 0
-      ? points.map(p => (normalizePointId(p.id) === updatedId ? updated : p))
-      : [...points, updated];
-    store.set("points", nextPoints);
+      // Mettre à jour le store avec un NOUVEAU tableau : muter l'ancien et le
+      // repasser à store.set() ne déclenche AUCUNE notification (comparaison
+      // par référence) — les marqueurs, stats et la tournée ne se mettaient
+      // alors à jour que grâce au upsertMarker manuel ci-dessous.
+      const points = store.get("points") || [];
+      const updatedId = normalizePointId(updated.id);
+      const idx = points.findIndex(p => normalizePointId(p.id) === updatedId);
+      const nextPoints = idx >= 0
+        ? points.map(p => (normalizePointId(p.id) === updatedId ? updated : p))
+        : [...points, updated];
+      store.set("points", nextPoints);
 
-    // Affiche tout de suite le badge "en attente d'envoi" sans attendre le prochain
-    // passage du moteur de sync (qui tourne toutes les 30s).
-    const pendingIds = new Set((store.get("sync.pendingPointIds") || []).map(normalizePointId));
-    pendingIds.add(updatedId);
-    store.set("sync.pendingPointIds", [...pendingIds]);
+      // Affiche tout de suite le badge "en attente d'envoi" sans attendre le prochain
+      // passage du moteur de sync (qui tourne toutes les 30s).
+      const pendingIds = new Set((store.get("sync.pendingPointIds") || []).map(normalizePointId));
+      pendingIds.add(updatedId);
+      store.set("sync.pendingPointIds", [...pendingIds]);
 
-    // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
-    // marqueurs en respectant les filtres actifs (un point créé hors filtre
-    // n'apparaît pas, ce qui est le comportement attendu).
+      // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
+      // marqueurs en respectant les filtres actifs (un point créé hors filtre
+      // n'apparaît pas, ce qui est le comportement attendu).
 
-    toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
-    closeCensusForm();
+      toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
+      closeCensusForm();
+    } catch (err) {
+      // La garde de ré-entrance (saveBtn.disabled) resterait bloquée pour
+      // toujours sans ce chemin d'erreur — l'agent doit pouvoir réessayer.
+      toastWarning(err?.message || "Échec de l'enregistrement — réessayez.");
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
   });
 }
 

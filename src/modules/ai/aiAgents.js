@@ -43,7 +43,11 @@ export async function askAiAgent(action, { prompt, points, userPos, imageBase64,
       throw new Error(error.message || "Edge function error");
     }
 
-    if (data && data.success && data.result) {
+    // data.result != null (pas juste "truthy") : une réponse Gemini vide
+    // ("") est un succès légitime de l'edge function — la traiter comme un
+    // échec masquait silencieusement une vraie réponse (même vide) derrière
+    // le message de secours local générique.
+    if (data && data.success && data.result != null) {
       return { success: true, text: data.result };
     }
 

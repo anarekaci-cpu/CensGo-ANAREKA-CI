@@ -86,36 +86,6 @@ export async function getAllPoints() {
   return [...byId.values()];
 }
 
-export async function getPointsByFilter(filters) {
-  let collection = db.points;
-
-  if (filters.block && filters.block !== "all") {
-    collection = collection.where("block").equals(filters.block);
-  }
-
-  let results = await collection.toArray();
-
-  if (filters.status && filters.status !== "all") {
-    results = results.filter(p => p.status === filters.status);
-  }
-
-  if (filters.visited && filters.visited !== "all") {
-    const wantVisited = filters.visited === "yes";
-    results = results.filter(p => !!p.visited === wantVisited);
-  }
-
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    results = results.filter(p => 
-      (p.name && p.name.toLowerCase().includes(q)) ||
-      (p.quartier && p.quartier.toLowerCase().includes(q)) ||
-      (p.address && p.address.toLowerCase().includes(q))
-    );
-  }
-
-  return results;
-}
-
 export async function updatePointVisit(pointId, visited, status) {
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return null;
@@ -267,25 +237,3 @@ export async function setMeta(key, value) {
   await db.meta.put({ key, value });
 }
 
-export async function getStats() {
-  const all = await db.points.toArray();
-  const total = all.length;
-  const visited = all.filter(p => p.visited).length;
-  return { total, visited, remaining: total - visited };
-}
-
-/**
- * Récupère l'état "visited" de tous les points depuis IndexedDB
- * sous forme de Map<pointId, visited>. Utilisé lors du rechargement
- * depuis Supabase pour préserver l'intention locale (un point marqué
- * "non visité" localement ne doit pas être re-écrasé par une valeur
- * serveur obsolète).
- */
-export async function getLocalVisitedMap() {
-  const all = await db.points.toArray();
-  const map = new Map();
-  for (const p of all) {
-    if (p.id != null) map.set(p.id, !!p.visited);
-  }
-  return map;
-}

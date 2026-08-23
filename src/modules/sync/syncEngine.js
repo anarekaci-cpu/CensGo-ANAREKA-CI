@@ -37,6 +37,17 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  * pour le même pointId, ne garder que la plus récente (la dernière valeur
  * de visited est toujours la bonne). Les "upsert_point" ne sont jamais
  * dédupliqués car chacun contient des données différentes.
+ *
+ * L'ordre chronologique global (createdAt) est préservé entre les deux
+ * types d'action : traiter systématiquement tous les "update_visit" avant
+ * tous les "upsert_point" (peu importe leur date réelle) pouvait envoyer un
+ * update_visit plus RÉCENT avant un upsert_point plus ANCIEN sur le même
+ * point — le worker suivant écrasait alors le "visited" fraîchement mis à
+ * jour avec la valeur, obsolète, portée par l'upsert. Scénario concret :
+ * agent modifie une fiche (upsert_point, visited:false) puis tape aussitôt
+ * "Marquer visité" (update_visit, visited:true, postérieur) — sans tri par
+ * date, le serveur recevait l'update_visit après l'upsert_point qui le
+ * suit dans la file et revenait silencieusement à visited:false.
  */
 export function dedupSyncQueue(items) {
   const latestByPoint = new Map();
@@ -54,7 +65,9 @@ export function dedupSyncQueue(items) {
     }
   }
 
-  return [...latestByPoint.values(), ...upserts];
+  return [...latestByPoint.values(), ...upserts].sort(
+    (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+  );
 }
 
 /** AbortController avec timeout — évite les sockets suspendus infinis. */

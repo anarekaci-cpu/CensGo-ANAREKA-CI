@@ -58,7 +58,15 @@ export function renderAgentMarkers(agents) {
   const map = getMap();
   if (!map) return;
 
-  agentMarkers.forEach(entry => entry.marker.remove());
+  // popup.remove() en plus de marker.remove() : le popup est ouvert
+  // séparément (au clic, popup.addTo(map)) plutôt que via marker.setPopup(),
+  // donc retirer le marqueur ne fermait pas un popup resté ouvert — il
+  // restait affiché indéfiniment sur la carte avec une position/ancienneté
+  // périmée à chaque rafraîchissement (toutes les 30s).
+  agentMarkers.forEach(entry => {
+    entry.marker.remove();
+    entry.popup.remove();
+  });
   agentMarkers.clear();
 
   agents.forEach(agent => {
@@ -122,6 +130,9 @@ export function stopAgentTracking() {
     clearInterval(pollInterval);
     pollInterval = null;
   }
-  agentMarkers.forEach(entry => entry.marker.remove());
+  agentMarkers.forEach(entry => {
+    entry.marker.remove();
+    entry.popup.remove();
+  });
   agentMarkers.clear();
 }

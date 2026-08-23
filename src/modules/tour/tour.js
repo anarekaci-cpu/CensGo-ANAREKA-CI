@@ -7,6 +7,7 @@ import { lazyImport } from "../../core/lazyImport.js";
 let tourPoints = [];
 let currentIndex = 0;
 let pointsUnsub = null;
+let openPopupTimer = null;
 
 export function initTour() {
   store.subscribe("tour.active", (active) => {
@@ -67,7 +68,14 @@ export function goToPoint(index) {
   const point = tourPoints[index];
   if (!point) return;
   flyToPoint(point.lat, point.lon, 17);
-  setTimeout(() => {
+
+  // Annuler le popup en attente d'un appel précédent : sans ça, des taps
+  // rapprochés sur "suivant" empilaient un setTimeout par appel et chacun
+  // finissait par ouvrir le popup du point qu'il ciblait, y compris des
+  // points déjà dépassés — une rafale de popups se rouvrant après coup.
+  if (openPopupTimer) clearTimeout(openPopupTimer);
+  openPopupTimer = setTimeout(() => {
+    openPopupTimer = null;
     lazyImport(() => import("../census/markers.js")).then(({ openPopup }) => {
       openPopup(point.id);
     });
@@ -80,6 +88,10 @@ export function stopTour() {
   if (pointsUnsub) {
     pointsUnsub();
     pointsUnsub = null;
+  }
+  if (openPopupTimer) {
+    clearTimeout(openPopupTimer);
+    openPopupTimer = null;
   }
   store.set("tour.active", false);
   store.set("tour.points", []);
