@@ -11,7 +11,7 @@ import {
 import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
-import { toastWarning, toastInfo } from "../../core/toast.js";
+import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint } from "../map/map.js";
 
@@ -21,12 +21,8 @@ let osrmRequestCount = 0;
 let pendingNavFrame = null;
 
 /**
- * Mode de navigation actuellement sélectionné.
- *
- * IMPORTANT :
- * Le module routing actuel utilise encore OSRM "foot".
- * On mémorise donc le mode ici sans prétendre modifier le profil
- * de calcul tant que routing.js n'est pas adapté.
+ * Mode de navigation actuellement sélectionné (transmis à calculateRoute
+ * pour sélectionner le profil OSRM foot/bike/car).
  */
 let navigationMode = "foot";
 
@@ -79,11 +75,8 @@ export function initNavigation() {
 }
 
 /**
- * Change le mode d'affichage/navigation.
- *
- * Le routing.js actuel calcule encore les itinéraires avec le profil
- * "foot". Cette fonction prépare néanmoins correctement l'état central
- * afin que le profil OSRM puisse être rendu configurable ensuite.
+ * Change le mode de navigation et recalcule l'itinéraire actif avec le
+ * profil OSRM correspondant.
  *
  * @param {"foot"|"bike"|"car"} mode
  */
@@ -107,8 +100,8 @@ export function setNavigationMode(mode) {
   updateNavigationModeUI();
 
   /*
-   * Si une navigation est déjà active, on recalcule la route.
-   * Pour le moment, routing.js utilise encore le profil piéton.
+   * Si une navigation est déjà active, on recalcule la route avec
+   * le nouveau profil OSRM.
    */
   if (store.get("navigation.active")) {
     const currentRoute = store.get("navigation.route");
@@ -285,16 +278,12 @@ async function startNavigation() {
   );
 
   try {
-    /*
-     * Le routing.js actuel utilise encore OSRM "foot".
-     * On garde ici exactement sa signature actuelle pour éviter
-     * de casser le calcul existant.
-     */
     const route = await calculateRoute(
       position.lat,
       position.lng,
       destination.lat,
-      destination.lon
+      destination.lon,
+      navigationMode
     );
 
     log.trace(

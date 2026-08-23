@@ -8,16 +8,16 @@ import {
   hideDestinationMarker
 } from "../map/map.js";
 import { isValidLatLng } from "../../core/normalize.js";
+import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
 
 /**
  * Métadonnées des modes de navigation.
  *
- * Le profil OSRM utilisé par calculateRoute() reste actuellement "foot".
- * Les profils bike/car pourront être activés lorsque le serveur OSRM
- * utilisé par le projet les supportera.
+ * Le profil OSRM interrogé par calculateRoute() correspond directement
+ * au mode sélectionné (foot/bike/car) — voir NAV_MODES[mode].profile.
  */
-const ROUTING_MODES = {
+export const NAV_MODES = {
   foot: {
     id: "foot",
     label: "À pied",
@@ -41,20 +41,30 @@ const ROUTING_MODES = {
 };
 
 /**
+ * Indique si `mode` est un mode de navigation connu.
+ *
+ * @param {unknown} mode
+ * @returns {boolean}
+ */
+export function isValidNavMode(mode) {
+  return Object.prototype.hasOwnProperty.call(NAV_MODES, mode);
+}
+
+/**
  * Retourne les informations d'un mode de navigation.
  *
  * @param {"foot"|"bike"|"car"} mode
  * @returns {{id:string,label:string,icon:string,profile:string}}
  */
 export function getModeMeta(mode = "foot") {
-  return ROUTING_MODES[mode] || ROUTING_MODES.foot;
+  return NAV_MODES[mode] || NAV_MODES.foot;
 }
 
 /**
  * Retourne tous les modes disponibles.
  */
 export function getAvailableModes() {
-  return Object.values(ROUTING_MODES);
+  return Object.values(NAV_MODES);
 }
 
 /**
@@ -65,13 +75,19 @@ export function getAvailableModes() {
  *
  * OSRM attend :
  * (lng, lat).
+ *
+ * @param {"foot"|"bike"|"car"} [mode] mode de navigation ; retombe sur
+ * "foot" si absent ou inconnu.
  */
 export async function calculateRoute(
   fromLat,
   fromLng,
   toLat,
-  toLng
+  toLng,
+  mode
 ) {
+  const resolvedMode = isValidNavMode(mode) ? mode : "foot";
+
   log.trace("ROUTE", "request START");
 
   log.trace(
@@ -106,14 +122,7 @@ export async function calculateRoute(
     );
   }
 
-  /*
-   * Le serveur actuellement utilisé par le projet est configuré
-   * pour l'itinéraire piéton.
-   *
-   * On conserve ce comportement pour ne pas changer le fonctionnement
-   * existant pendant la correction du build.
-   */
-  const profile = "foot";
+  const profile = NAV_MODES[resolvedMode].profile;
 
   const url =
     `${CONFIG.OSRM_URL}/route/v1/${profile}/` +
@@ -190,7 +199,9 @@ routeVisible = true`
       distance: route.distance,
       duration: route.duration,
       geometry: route.geometry,
-      steps: route.legs?.[0]?.steps || []
+      steps: route.legs?.[0]?.steps || [],
+      mode: resolvedMode,
+      estimated: false
     };
 
   } catch (err) {
@@ -217,6 +228,53 @@ routeVisible = false`
 
     throw err;
   }
+}
+
+/**
+ * Vitesses moyennes utilisées pour l'estimation de secours (m/s).
+ */
+const FALLBACK_SPEEDS_MPS = {
+  foot: 1.4,   // ≈ 5 km/h
+  bike: 4.2,   // ≈ 15 km/h
+  car: 11.1    // ≈ 40 km/h
+};
+
+/**
+ * Estime un itinéraire en ligne droite quand OSRM est indisponible
+ * (hors-ligne, panne réseau, timeout).
+ *
+ * Le résultat a la même forme que calculateRoute() (distance, duration,
+ * geometry, steps) avec `estimated: true` pour signaler qu'il s'agit
+ * d'une approximation et non d'un itinéraire réel.
+ *
+ * @param {"foot"|"bike"|"car"} [mode]
+ */
+export function estimateFallbackRoute(
+  fromLat,
+  fromLng,
+  toLat,
+  toLng,
+  mode
+) {
+  const resolvedMode = isValidNavMode(mode) ? mode : "foot";
+
+  const distance = haversineKm(fromLat, fromLng, toLat, toLng) * 1000;
+  const duration = distance / FALLBACK_SPEEDS_MPS[resolvedMode];
+
+  return {
+    distance,
+    duration,
+    geometry: {
+      type: "LineString",
+      coordinates: [
+        [fromLng, fromLat],
+        [toLng, toLat]
+      ]
+    },
+    steps: [],
+    mode: resolvedMode,
+    estimated: true
+  };
 }
 
 /**
