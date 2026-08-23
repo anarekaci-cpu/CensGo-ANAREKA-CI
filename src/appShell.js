@@ -23,8 +23,29 @@ export class App {
   constructor(container) {
     this.container = container;
     this.unsubs = [];
-    this._appModule = null;
+    this._appModulePromise = null;
     this._appMounted = false;
+  }
+
+  // Démarre le téléchargement du gros module post-connexion (carte MapLibre,
+  // vue principale — le plus gros morceau JS de l'app) PENDANT que l'agent
+  // saisit encore ses identifiants, au lieu d'attendre la confirmation
+  // Supabase pour commencer à le récupérer. import() n'exécute que le code
+  // de haut niveau des modules (abonnements au store, déclarations) — aucun
+  // effet de bord DOM tant que mountAuthenticatedApp() n'est pas appelée
+  // explicitement, donc sans risque de perturber l'écran de connexion. Le
+  // résultat (réussi ou non) est simplement mis en cache : renderApp()
+  // attend cette même promesse au lieu d'en relancer une nouvelle.
+  _prefetchAppModule() {
+    if (!this._appModulePromise) {
+      this._appModulePromise = import("./appView.js").catch((err) => {
+        // Un échec ici (coupure réseau pendant la saisie) ne doit pas
+        // empêcher un nouvel essai au moment réel de la connexion.
+        this._appModulePromise = null;
+        throw err;
+      });
+    }
+    return this._appModulePromise;
   }
 
   async mount() {
@@ -73,6 +94,8 @@ export class App {
       </div>
     `;
 
+    this._prefetchAppModule().catch(() => { /* renderApp() retentera au moment réel de la connexion */ });
+
     const btn = document.getElementById("loginBtn");
     const email = document.getElementById("loginEmail");
     const password = document.getElementById("loginPassword");
@@ -110,9 +133,7 @@ export class App {
         <div class="boot-status">Préparation des données et de la carte</div>
       </div>
     `;
-    if (!this._appModule) {
-      this._appModule = await import("./appView.js");
-    }
-    await this._appModule.mountAuthenticatedApp(this.container);
+    const appModule = await this._prefetchAppModule();
+    await appModule.mountAuthenticatedApp(this.container);
   }
 }

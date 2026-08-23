@@ -153,7 +153,7 @@ export async function mountAuthenticatedApp(container) {
           <div class="action-row" id="adminTrackingRow" style="display:none;">
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
           </div>
-          <div class="action-row">
+          <div class="action-row" id="exportRow" style="display:none;">
             <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
           </div>
           <div id="geoStatus"></div>
@@ -166,21 +166,23 @@ export async function mountAuthenticatedApp(container) {
       <div id="main">
         <div id="map"></div>
 
-        <div id="navModeRow">
-          <button type="button" class="nav-mode-btn" data-mode="foot" title="À pied">🚶 À pied</button>
-          <button type="button" class="nav-mode-btn" data-mode="bike" title="À vélo">🚲 Vélo</button>
-          <button type="button" class="nav-mode-btn" data-mode="car" title="En véhicule">🚗 Véhicule</button>
-        </div>
-
-        <div id="navPanel">
-          <div id="navIcon">🚶</div>
-          <div id="navInfo">
-            <div id="navInstruction">—</div>
-            <div id="navSub"></div>
+        <div id="navBottomStack">
+          <div id="navModeRow">
+            <button type="button" class="nav-mode-btn" data-mode="foot" title="À pied">🚶 À pied</button>
+            <button type="button" class="nav-mode-btn" data-mode="bike" title="À vélo">🚲 Vélo</button>
+            <button type="button" class="nav-mode-btn" data-mode="car" title="En véhicule">🚗 Véhicule</button>
           </div>
-          <button id="navSpeechBtn" class="nav-recenter-btn" aria-label="Activer/désactiver le guidage vocal" aria-pressed="true">🔊</button>
-          <button id="navRecenterBtn" class="nav-recenter-btn" aria-label="Recentrer la boussole sur ma position">🧭</button>
-          <button id="navStopBtn" aria-label="Arrêter la navigation">✕</button>
+
+          <div id="navPanel">
+            <div id="navIcon">🚶</div>
+            <div id="navInfo">
+              <div id="navInstruction">—</div>
+              <div id="navSub"></div>
+            </div>
+            <button id="navSpeechBtn" class="nav-recenter-btn" aria-label="Activer/désactiver le guidage vocal" aria-pressed="true">🔊</button>
+            <button id="navRecenterBtn" class="nav-recenter-btn" aria-label="Recentrer la boussole sur ma position">🧭</button>
+            <button id="navStopBtn" aria-label="Arrêter la navigation">✕</button>
+          </div>
         </div>
         
         <div id="arrivalBanner">
@@ -415,6 +417,11 @@ async function refreshAdminRole() {
     store.set("ui.isAdmin", isAdmin);
     const adminRow = document.getElementById("adminTrackingRow");
     if (adminRow) adminRow.style.display = isAdmin ? "flex" : "none";
+    // Export CSV réservé aux comptes admin (demande explicite) : un agent
+    // terrain doit pouvoir UTILISER les données recensées, jamais les
+    // exporter lui-même hors de l'app.
+    const exportRow = document.getElementById("exportRow");
+    if (exportRow) exportRow.style.display = isAdmin ? "flex" : "none";
   } catch {
     // Table user_roles pas encore créée ou pas d'accès — mode agent
   }
@@ -1216,6 +1223,13 @@ function renderQuartierCoverage() {
 }
 
 function exportCSV() {
+  // Second verrou (le bouton est déjà masqué pour les non-admins) : au cas
+  // où exportCSV() serait un jour appelée par un autre chemin que le clic
+  // sur #exportBtn, l'export de données reste bloqué pour un compte agent.
+  if (!store.get("ui.isAdmin")) {
+    toastWarning("Export réservé aux comptes administrateur.");
+    return;
+  }
   const points = store.get("points");
   const header = ["id", "block", "name", "etablissement", "activityType", "tel", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
   const rows = points.map(p => [

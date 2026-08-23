@@ -1,7 +1,9 @@
 import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
 import { CONFIG } from "../../core/config.js";
 import { log } from "../../core/debug.js";
+import { destinationPoint } from "../../core/geo.js";
 
 const basemapStyle = {
   version: 8,
@@ -88,7 +90,19 @@ export function fitToBounds(bounds, padding = [40, 40]) {
   mapInstance.fitBounds(llb, { padding: { top: padding[0], bottom: padding[0], left: padding[1], right: padding[1] } });
 }
 
-export function addRouteLayer(geojson) {
+/**
+ * Style du tracé par mode : le trait plein (route/vélo) et le tracé piéton
+ * doivent se distinguer d'un coup d'œil sur la carte, sans dépendre du
+ * bandeau de navigation. "line-cap: round" étire les extrémités des
+ * pointillés en gros points — "butt" est nécessaire pour un tireté net.
+ */
+const ROUTE_LINE_STYLES = {
+  foot: { "line-color": "#1a3d2b", "line-width": 4.5, "line-opacity": 0.85, "line-dasharray": [0.4, 1.6], "line-cap": "butt" },
+  bike: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" },
+  car: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" }
+};
+
+export function addRouteLayer(geojson, mode) {
   if (!mapInstance) {
     log.trace("ROUTE", "STOP addRouteLayer: mapInstance null");
     return;
@@ -99,7 +113,7 @@ export function addRouteLayer(geojson) {
   // agent clique sur "Itinéraire" tout de suite après l'ouverture de l'app.
   if (!mapInstance.isStyleLoaded()) {
     log.trace("ROUTE", "style pas prêt — ajout de la route différé à 'idle'");
-    mapInstance.once("idle", () => addRouteLayer(geojson));
+    mapInstance.once("idle", () => addRouteLayer(geojson, mode));
     return;
   }
 
@@ -110,25 +124,100 @@ export function addRouteLayer(geojson) {
     mapInstance.removeSource("route-line");
   }
 
+  const { "line-cap": lineCap, ...paint } = ROUTE_LINE_STYLES[mode] || ROUTE_LINE_STYLES.car;
+
   mapInstance.addSource("route-line", { type: "geojson", data: geojson });
   mapInstance.addLayer({
     id: "route-line-layer",
     type: "line",
     source: "route-line",
-    layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8 }
+    layout: { "line-cap": lineCap, "line-join": "round" },
+    paint
   });
 
   log.traceAlways("ROUTE",
-    `map source="route-line" ajoutée, layer="route-line-layer" ajouté`,
+    `map source="route-line" ajoutée, layer="route-line-layer" ajouté (mode=${mode || "car"})`,
     `${geojson?.coordinates?.length || 0} points de tracé`);
   return { sourceId: "route-line", layerId: "route-line-layer" };
+}
+
+// Rayon maximal affiché pour le cercle de précision GPS : au-delà, le
+// cercle deviendrait un gros disque sans intérêt visuel (et énorme à faible
+// zoom) — l'important est de signaler une imprécision significative, pas de
+// représenter fidèlement un rayon de plusieurs centaines de mètres.
+const MAX_ACCURACY_CIRCLE_M = 150;
+
+function accuracyCirclePolygon(lat, lon, radiusMeters, steps = 48) {
+  const coords = [];
+  for (let i = 0; i <= steps; i++) {
+    const bearing = (360 * i) / steps;
+    const p = destinationPoint(lat, lon, bearing, radiusMeters);
+    coords.push([p.lon, p.lat]);
+  }
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [coords] } };
+}
+
+function updateAccuracyCircle(lat, lng, accuracy) {
+  if (!mapInstance) return;
+
+  if (!Number.isFinite(accuracy) || accuracy <= 0) {
+    removeAccuracyCircle();
+    return;
+  }
+
+  const radius = Math.min(accuracy, MAX_ACCURACY_CIRCLE_M);
+  const data = accuracyCirclePolygon(lat, lng, radius);
+
+  const apply = () => {
+    const source = mapInstance.getSource("user-accuracy");
+    if (source) {
+      source.setData(data);
+      return;
+    }
+    mapInstance.addSource("user-accuracy", { type: "geojson", data });
+    // Insérée avant le marqueur DOM (les Marker maplibregl flottent toujours
+    // au-dessus des layers de style) — ordre sans effet sur le rendu ici,
+    // mais garde route-line-layer visuellement au-dessus si les deux
+    // coexistent (itinéraire calculé alors que le suivi GPS est actif).
+    mapInstance.addLayer({
+      id: "user-accuracy-fill",
+      type: "fill",
+      source: "user-accuracy",
+      paint: { "fill-color": "#1a73e8", "fill-opacity": 0.12 }
+    });
+    mapInstance.addLayer({
+      id: "user-accuracy-outline",
+      type: "line",
+      source: "user-accuracy",
+      paint: { "line-color": "#1a73e8", "line-width": 1.5, "line-opacity": 0.35 }
+    });
+  };
+
+  if (!mapInstance.isStyleLoaded()) {
+    mapInstance.once("idle", apply);
+  } else {
+    apply();
+  }
+}
+
+function removeAccuracyCircle() {
+  if (!mapInstance) return;
+  if (mapInstance.getLayer("user-accuracy-fill")) mapInstance.removeLayer("user-accuracy-fill");
+  if (mapInstance.getLayer("user-accuracy-outline")) mapInstance.removeLayer("user-accuracy-outline");
+  if (mapInstance.getSource("user-accuracy")) mapInstance.removeSource("user-accuracy");
 }
 
 // Marqueur "vous êtes ici" — la position GPS était suivie en interne (pour les
 // calculs de distance/itinéraire) mais jamais affichée sur la carte, donc un
 // agent ne voyait jamais où il se trouvait réellement.
-export function showUserLocation(lat, lng) {
+//
+// @param {number} lat
+// @param {number} lng
+// @param {number} [accuracy] rayon de précision GPS en mètres (pos.coords.accuracy)
+// — dessine un cercle réel autour du point pour que l'agent VOIE à quel
+// point sa position est fiable, au lieu d'un point unique qui donne
+// l'illusion d'une localisation exacte même quand elle ne l'est pas.
+export function showUserLocation(lat, lng, accuracy) {
   if (!mapInstance) return;
   if (!userLocationMarker) {
     const el = document.createElement("div");
@@ -137,6 +226,7 @@ export function showUserLocation(lat, lng) {
     userLocationMarker = new maplibregl.Marker({ element: el, anchor: "center" });
   }
   userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
+  updateAccuracyCircle(lat, lng, accuracy);
 }
 
 export function hideUserLocation() {
@@ -144,6 +234,7 @@ export function hideUserLocation() {
     userLocationMarker.remove();
     userLocationMarker = null;
   }
+  removeAccuracyCircle();
 }
 
 export function clearRouteLayers() {

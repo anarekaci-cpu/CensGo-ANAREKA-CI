@@ -3,6 +3,7 @@ import { getMap, flyToPoint, showUserLocation } from "../map/map.js";
 import { reportPosition } from "./agentTracking.js";
 import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
+import { toastInfo, toastWarning } from "../../core/toast.js";
 
 let position = null;
 let hasAutoCentered = false;
@@ -29,7 +30,7 @@ export function initGeolocation() {
       store.set("geo.error", null);
       // La position était suivie en interne (distances, itinéraire) mais
       // jamais affichée sur la carte — un agent ne voyait jamais où il était.
-      showUserLocation(position.lat, position.lng);
+      showUserLocation(position.lat, position.lng, position.accuracy);
       reportPosition(position);
 
       // La carte s'ouvrait toujours centrée sur Abidjan par défaut, quel que
@@ -71,7 +72,20 @@ export function getCurrentPosition() {
 
 export function locateAndCenter() {
   const map = getMap();
-  if (!map || !position) return;
+  if (!map) return;
+  // BUG (signalé) : sans position GPS, cette fonction ne faisait RIEN — un
+  // agent qui tapait "Me localiser" juste après l'ouverture de l'app (avant
+  // le premier fix GPS, ou permission refusée) ne voyait aucune réaction du
+  // tout, ce qui se lit comme "la localisation ne marche pas".
+  if (!position) {
+    const error = store.get("geo.error");
+    if (error) {
+      toastWarning(error);
+    } else {
+      toastInfo("Recherche de votre position GPS en cours…");
+    }
+    return;
+  }
   flyToPoint(position.lat, position.lng, 17);
 }
 

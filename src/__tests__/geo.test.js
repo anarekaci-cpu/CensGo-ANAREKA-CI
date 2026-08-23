@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel, distanceToPolylineMeters, remainingRouteDistanceMeters } from "../core/geo.js";
+import { haversineKm, toGeoJSONCoordinates, bearingDeg, cardinalLabel, distanceToPolylineMeters, remainingRouteDistanceMeters, destinationPoint } from "../core/geo.js";
 
 describe("haversineKm", () => {
   it("returns 0 for same point", () => {
@@ -126,6 +126,31 @@ describe("distanceToPolylineMeters", () => {
     expect(distanceToPolylineMeters(5.36, -3.97, [])).toBe(Infinity);
     expect(distanceToPolylineMeters(NaN, -3.97, segment)).toBe(Infinity);
     expect(distanceToPolylineMeters(5.36, -3.97, null)).toBe(Infinity);
+  });
+});
+
+describe("destinationPoint", () => {
+  it("plein nord (cap 0°) augmente la latitude, longitude quasi inchangée", () => {
+    const p = destinationPoint(5.36, -3.97, 0, 1000);
+    expect(p.lat).toBeGreaterThan(5.36);
+    expect(p.lon).toBeCloseTo(-3.97, 2);
+  });
+
+  it("plein sud (cap 180°) diminue la latitude", () => {
+    const p = destinationPoint(5.36, -3.97, 180, 1000);
+    expect(p.lat).toBeLessThan(5.36);
+  });
+
+  it("aller-retour cohérent : la distance parcourue correspond à haversineKm", () => {
+    const p = destinationPoint(5.36, -3.97, 45, 500);
+    const d = haversineKm(5.36, -3.97, p.lat, p.lon) * 1000;
+    expect(d).toBeCloseTo(500, 0);
+  });
+
+  it("distance 0 renvoie le point de départ", () => {
+    const p = destinationPoint(5.36, -3.97, 90, 0);
+    expect(p.lat).toBeCloseTo(5.36, 6);
+    expect(p.lon).toBeCloseTo(-3.97, 6);
   });
 });
 

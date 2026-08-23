@@ -129,7 +129,14 @@ export function initNavigation() {
 
   navUnsubs.push(
     store.subscribe("navigation.arrived", (arrived) => {
-      if (arrived) speak("Vous êtes arrivé à destination");
+      if (!arrived) return;
+      speak("Vous êtes arrivé à destination");
+      // Le téléphone est souvent en poche ou l'écran verrouillé pendant la
+      // marche vers un point — la voix seule (silencieuse en mode discret)
+      // ou le bandeau à l'écran (non regardé) peuvent tous deux passer
+      // inaperçus. Un double battement distinct signale l'arrivée même sans
+      // regarder ni entendre l'appareil.
+      try { navigator.vibrate?.([120, 80, 120]); } catch { /* haptique non supporté */ }
     })
   );
 
@@ -382,7 +389,7 @@ async function startNavigation() {
       destination.lon
     );
 
-    displayRoute(route.geometry);
+    displayRoute(route.geometry, route.mode);
 
     store.set(
       "navigation.instruction",
@@ -434,7 +441,7 @@ async function startNavigation() {
     lastRerouteAt = Date.now();
 
     showRouteDestination(destination.lat, destination.lon);
-    displayRoute(fallback.geometry);
+    displayRoute(fallback.geometry, fallback.mode);
 
     // Sans tracé routier réel, la distance seule ne dit pas où marcher —
     // le cap (déjà calculé pour la boussole terrain, core/geo.js) donne au

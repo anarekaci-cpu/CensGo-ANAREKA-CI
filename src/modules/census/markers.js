@@ -264,6 +264,13 @@ function handlePopupAction(e) {
     // chaque clic, donc un nouvel essai systématique.
     store.set("navigation.destination", { ...point });
     store.set("navigation.active", true);
+    // BUG mobile (signalé) : le popup restait ouvert pendant la navigation.
+    // Son contenu (.maplibregl-popup-content, z-index 450) reste au-dessus
+    // du sélecteur de mode #navModeRow (z-index 300) et intercepte les taps
+    // qui lui sont destinés — impossible de changer à pied/vélo/véhicule sur
+    // petit écran sans d'abord refermer manuellement la fiche. Rien à faire
+    // dans cette fiche une fois le guidage lancé : on la referme directement.
+    closeCurrentPopup();
   } else if (action === "visit") {
     toggleVisit(point);
   } else if (action === "edit") {

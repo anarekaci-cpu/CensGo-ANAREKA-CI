@@ -13,6 +13,47 @@ export function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Point atteint en partant de (lat, lon), en suivant un cap fixe (grand
+ * cercle), sur une distance donnée en mètres.
+ *
+ * Sert à dessiner le cercle de précision GPS autour de la position de
+ * l'agent (voir modules/map/map.js) : un cercle réel en coordonnées
+ * géographiques, qui se redimensionne correctement avec le zoom de la
+ * carte — contrairement à un rayon en pixels fixe (circle-radius MapLibre)
+ * qui ne représenterait pas la même distance réelle à chaque niveau de zoom.
+ *
+ * @param {number} lat latitude de départ
+ * @param {number} lon longitude de départ
+ * @param {number} bearingDeg cap en degrés depuis le nord vrai
+ * @param {number} distanceMeters distance à parcourir, en mètres
+ * @returns {{lat:number, lon:number}}
+ */
+export function destinationPoint(lat, lon, bearingDeg, distanceMeters) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+
+  const delta = distanceMeters / R;
+  const theta = toRad(bearingDeg);
+  const phi1 = toRad(lat);
+  const lambda1 = toRad(lon);
+
+  const phi2 = Math.asin(
+    Math.sin(phi1) * Math.cos(delta) +
+    Math.cos(phi1) * Math.sin(delta) * Math.cos(theta)
+  );
+  const lambda2 = lambda1 + Math.atan2(
+    Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
+    Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2)
+  );
+
+  return {
+    lat: toDeg(phi2),
+    lon: ((toDeg(lambda2) + 540) % 360) - 180
+  };
+}
+
+/**
  * Conversion centrale lat/lon -> coordonnées GeoJSON/MapLibre (Problème #6).
  *
  * MapLibre et le format GeoJSON attendent STRICTEMENT [longitude, latitude],

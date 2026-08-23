@@ -303,8 +303,12 @@ export function estimateFallbackRoute(
 
 /**
  * Affiche la géométrie de l'itinéraire sur la carte.
+ *
+ * @param {object} geometry LineString GeoJSON (route.geometry)
+ * @param {"foot"|"bike"|"car"} [mode] détermine le style du tracé (pointillé
+ * à pied, trait plein vélo/véhicule) — voir ROUTE_LINE_STYLES dans map.js.
  */
-export function displayRoute(geometry) {
+export function displayRoute(geometry, mode) {
   if (
     !geometry ||
     !Array.isArray(geometry.coordinates) ||
@@ -320,7 +324,7 @@ export function displayRoute(geometry) {
 
   clearRouteLayers();
 
-  addRouteLayer(geometry);
+  addRouteLayer(geometry, mode);
 
   /*
    * Cadre la caméra sur l'ensemble du trajet.

@@ -1,5 +1,10 @@
 import "./style.css";
-import "maplibre-gl/dist/maplibre-gl.css";
+// maplibre-gl.css a délibérément migré vers modules/map/map.js : ce fichier
+// est importé statiquement par main.js et s'exécute AVANT la connexion, donc
+// tout ce qu'il importe (y compris du CSS) alourdit le premier écran (page
+// de connexion) qui n'affiche pourtant aucune carte. map.js n'est atteint
+// qu'après authentification, via l'import dynamique de appView.js
+// (appShell.js) — son CSS suit désormais le même découpage paresseux.
 
 import { initAuth } from "./modules/auth/auth.js";
 import { initSyncEngine } from "./modules/sync/syncEngine.js";
