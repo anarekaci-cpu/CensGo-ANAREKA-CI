@@ -122,7 +122,7 @@ describe("calculateRoute", () => {
     expect(route.estimated).toBe(false);
   });
 
-  it("interroge le profil vélo quand mode='bike'", async () => {
+  it("interroge TOUJOURS le profil piéton réel du serveur, même pour mode='bike'/'car' (le serveur OSRM du projet n'expose qu'un seul profil)", async () => {
     globalThis.fetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -132,20 +132,46 @@ describe("calculateRoute", () => {
       })
     });
     await calculateRoute(5.36, -3.97, 5.40, -3.99, "bike");
-    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/bike/");
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/foot/");
+    globalThis.fetch.mockClear();
+    await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
+    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/foot/");
   });
 
-  it("interroge le profil véhicule quand mode='car'", async () => {
+  it("mode='bike'/'car' : distance réelle OSRM conservée, mais durée recalculée à la vitesse du mode (pas le temps de marche renvoyé par le serveur)", async () => {
     globalThis.fetch.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
         code: "Ok",
-        routes: [{ distance: 100, duration: 50, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+        // distance réelle 4200m, duration=3000s (temps de MARCHE renvoyé par
+        // le profil foot du serveur) — ne doit PAS être réutilisé tel quel
+        // pour un trajet en vélo ou en véhicule.
+        routes: [{ distance: 4200, duration: 3000, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
       })
     });
-    await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
-    expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/car/");
+    const bike = await calculateRoute(5.36, -3.97, 5.40, -3.99, "bike");
+    expect(bike.distance).toBe(4200);
+    expect(bike.mode).toBe("bike");
+    expect(bike.duration).not.toBe(3000);
+    expect(bike.duration).toBeCloseTo(4200 / 4.2, 0);
+
+    const car = await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
+    expect(car.duration).toBeCloseTo(4200 / 11.1, 0);
+    expect(car.duration).toBeLessThan(bike.duration);
+  });
+
+  it("mode='foot' (ou absent) : la durée renvoyée par OSRM est utilisée telle quelle", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: "Ok",
+        routes: [{ distance: 4200, duration: 3000, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
+      })
+    });
+    const route = await calculateRoute(5.36, -3.97, 5.40, -3.99, "foot");
+    expect(route.duration).toBe(3000);
   });
 
   it("retombe sur le profil piéton pour un mode inconnu", async () => {
@@ -157,8 +183,9 @@ describe("calculateRoute", () => {
         routes: [{ distance: 100, duration: 50, geometry: { type: "LineString", coordinates: [] }, legs: [{ steps: [] }] }]
       })
     });
-    await calculateRoute(5.36, -3.97, 5.40, -3.99, "avion");
+    const route = await calculateRoute(5.36, -3.97, 5.40, -3.99, "avion");
     expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/foot/");
+    expect(route.mode).toBe("foot");
   });
 });
 

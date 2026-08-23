@@ -246,6 +246,24 @@ header {
 .geo-status-pending { color: #d97706; }
 .geo-status-error { color: #dc2626; }
 
+/* Déconnexion volontairement reléguée en bas du panneau de filtres (au lieu
+   du header, toujours visible et voisin de boutons fréquemment utilisés) —
+   ouvrir le menu, faire défiler jusqu'ici puis confirmer est un geste
+   nettement plus délibéré qu'un tap accidentel sur un bouton d'en-tête. */
+.controls-footer {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  display: flex; justify-content: center;
+}
+.btn-logout-tucked {
+  padding: 10px 16px; min-height: 44px; border: none; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-muted);
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.btn-logout-tucked:hover { background: #fef2f2; color: #dc2626; }
+
 #main { flex: 1; position: relative; overflow: hidden; }
 #map { width: 100%; height: 100%; }
 
@@ -256,12 +274,44 @@ header {
   border: 1px solid rgba(0,0,0,0.06);
   /* Avant : overflow:hidden coupait le bas du popup (boutons d'action)
      dès que la fiche était longue ou l'écran petit — contenu illisible
-     et inaccessible. Maintenant : hauteur bornée + scroll tactile. */
+     et inaccessible. Maintenant : hauteur bornée + scroll tactile. Les
+     détails secondaires étant repliés par défaut (.popup-details), cette
+     limite ne sert plus que de garde-fou. */
   max-height: min(62dvh, 520px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   min-width: 270px;
   margin: 0 !important;
+}
+
+/* Sur smartphone : la fiche d'un point ne flotte plus au-dessus du marqueur
+   (position qui pouvait la faire déborder de l'écran ou masquer une grande
+   partie de la carte selon où se trouvait le point) — elle se comporte comme
+   une fiche ancrée en bas de l'écran ("bottom sheet"), pattern standard des
+   apps de carte mobiles (Google/Apple Plans). Réutilise le même mécanisme
+   d'ouverture/fermeture MapLibre existant : seul le positionnement change. */
+@media (max-width: 640px) {
+  .maplibregl-popup {
+    position: fixed !important;
+    left: 0 !important; right: 0 !important; bottom: 0 !important; top: auto !important;
+    transform: none !important;
+    max-width: 100% !important;
+    z-index: 450;
+  }
+  .maplibregl-popup-tip { display: none !important; }
+  .maplibregl-popup-content {
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
+    width: 100%; min-width: 0;
+    max-height: 52dvh !important;
+    padding: 14px 18px !important;
+    padding-bottom: calc(14px + var(--safe-bottom)) !important;
+    box-shadow: 0 -10px 32px rgba(0,0,0,0.22) !important;
+  }
+  .maplibregl-popup-content::before {
+    content: ""; display: block; width: 36px; height: 4px;
+    background: #d8dde3; border-radius: 2px; margin: 0 auto 12px;
+  }
+  .maplibregl-popup-close-button { top: 10px; }
 }
 .maplibregl-popup-close-button {
   position: absolute; top: 8px; right: 10px;
@@ -292,6 +342,14 @@ header {
   background: #f0fdf4; padding: 4px 10px; border-radius: 8px;
   border: 1px solid #bbf7d0; display: inline-block; margin: 6px 0;
 }
+.popup-details { margin: 8px 0 4px; }
+.popup-details summary {
+  font-size: 12.5px; font-weight: 700; color: var(--text-secondary);
+  cursor: pointer; padding: 8px 4px; min-height: 32px; display: flex; align-items: center;
+  list-style: none; user-select: none;
+}
+.popup-details summary::-webkit-details-marker { display: none; }
+.popup-details[open] summary { color: #1a3d2b; margin-bottom: 4px; }
 .btn-row { display: flex; gap: 8px; margin-top: 12px; }
 .go-btn, .visit-btn {
   flex: 1; padding: 11px; min-height: 44px; border: none; border-radius: 10px;
@@ -356,7 +414,14 @@ header {
 }
 
 #arrivalBanner {
-  position: absolute; top: 76px; left: 16px; right: 16px;
+  /* top:140 (et non 76, la même valeur que #routeBanner) : "arrivé" ne peut
+     se déclencher QUE pendant une navigation active, donc #routeBanner est
+     TOUJOURS affiché en même temps — au même top les deux bandeaux se
+     superposaient exactement et, à z-index égal, #routeBanner (plus tard
+     dans le DOM) recouvrait entièrement le bouton "Marquer visité", le
+     rendant invisible et impossible à atteindre au moment précis où
+     l'agent en a besoin. */
+  position: absolute; top: 140px; left: 16px; right: 16px;
   background: rgba(255, 255, 255, 0.98); border-radius: var(--radius-lg);
   padding: 18px; display: none;
   box-shadow: var(--shadow-lg);
@@ -1029,7 +1094,19 @@ input:checked + .slider:before { transform: translateX(24px); }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
   #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
-  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 15px; }
+  /* Icônes seules sur petit écran : à cette largeur, "➕ Saisie" / "🧭
+     Boussole" / "🤖 Agents IA" + le bouton menu ne tiennent pas sur une
+     ligne à côté du titre et du statut de sync — le texte débordait de la
+     case 44px (repérage visuel confirmé par capture d'écran), se chevauchant
+     avec le bouton voisin. Les title="" gardent le libellé accessible. */
+  .header-actions button { width: 44px; height: 44px; padding: 0; font-size: 16px; }
+  .header-actions .btn-label { display: none; }
+  /* "Saisie" et "Agents IA" ont déjà un accès équivalent sur mobile (FAB "+"
+     pour l'ajout, bouton "Agents IA" dans le menu ☰) : les dupliquer dans le
+     header ne laissait que ~20px de large pour le nom de l'app, tronqué à
+     "R." Les retirer du header sur petit écran redonne cette place au titre,
+     sans rien retirer côté fonctionnalité (les deux restent joignables). */
+  #addCensusBtnHeader, #aiModalBtnHeader { display: none; }
   .row2 { grid-template-columns: 1fr; }
   .action-row { grid-template-columns: 1fr; }
   .census-modal, .ai-modal { padding: 0; }

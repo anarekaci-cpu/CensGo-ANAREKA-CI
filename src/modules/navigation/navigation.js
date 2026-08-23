@@ -2,15 +2,18 @@ import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import {
   calculateRoute,
+  estimateFallbackRoute,
   displayRoute,
   clearRoute,
   formatDuration,
   formatDistance,
+  formatManeuverInstruction,
   showRouteDestination
 } from "../routing/routing.js";
 import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
+import { distanceToPolylineMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
 import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint } from "../map/map.js";
@@ -19,6 +22,27 @@ let navUnsubs = [];
 let gpsWaitToastShown = false;
 let osrmRequestCount = 0;
 let pendingNavFrame = null;
+
+// Guidage pas-à-pas : steps OSRM de l'itinéraire actif + index du prochain
+// maneuver à annoncer.
+let currentSteps = [];
+let currentStepIndex = 0;
+
+// Détection d'écart de tracé (agent qui quitte la route calculée) :
+// géométrie de l'itinéraire actif + garde-fou anti-spam sur le recalcul.
+let currentRouteCoords = null;
+let lastRerouteAt = 0;
+
+// Distance (m) au-delà de laquelle la position GPS est considérée hors
+// tracé — au-delà, l'itinéraire est recalculé depuis la position actuelle
+// plutôt que de continuer à afficher un chemin que l'agent n'a plus suivi.
+const OFF_ROUTE_THRESHOLD_M = 40;
+// Anti-spam : un recalcul OSRM au minimum toutes les 15s, même si le GPS
+// continue de signaler une position hors tracé à chaque fix.
+const REROUTE_DEBOUNCE_MS = 15000;
+// Distance (m) sous laquelle le prochain maneuver OSRM est considéré
+// "atteint" et le guidage passe au pas suivant.
+const STEP_ADVANCE_RADIUS_M = 20;
 
 /**
  * Mode de navigation actuellement sélectionné (transmis à calculateRoute
@@ -42,6 +66,10 @@ export function initNavigation() {
           cancelAnimationFrame(pendingNavFrame);
           pendingNavFrame = null;
         }
+
+        currentSteps = [];
+        currentStepIndex = 0;
+        currentRouteCoords = null;
 
         clearRoute();
       }
@@ -295,6 +323,11 @@ async function startNavigation() {
 
     store.set("navigation.route", route);
 
+    currentSteps = route.steps || [];
+    currentStepIndex = 0;
+    currentRouteCoords = route.geometry?.coordinates || null;
+    lastRerouteAt = Date.now();
+
     showRouteDestination(
       destination.lat,
       destination.lon
@@ -305,6 +338,11 @@ async function startNavigation() {
     store.set(
       "navigation.instruction",
       `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`
+    );
+
+    store.set(
+      "navigation.nextInstruction",
+      currentSteps[0] ? formatManeuverInstruction(currentSteps[0]) : ""
     );
 
     log.trace(
@@ -324,9 +362,44 @@ async function startNavigation() {
       err?.message || err
     );
 
+    // Mode offline (#26/README "Mode offline complet") : un échec OSRM
+    // (hors-ligne, timeout, coupure réseau terrain) laissait l'agent sans
+    // AUCUN guidage — juste un message d'erreur, ni tracé ni distance. On
+    // retombe sur une estimation à vol d'oiseau (estimateFallbackRoute) :
+    // moins précise qu'un vrai itinéraire routier mais toujours exploitable
+    // pour s'orienter. maybeReroute() retente un calcul OSRM réel à chaque
+    // déplacement (debounce 15s) et remplace automatiquement l'estimation
+    // dès que la connexion revient.
+    const fallback = estimateFallbackRoute(
+      position.lat,
+      position.lng,
+      destination.lat,
+      destination.lon,
+      navigationMode
+    );
+
+    store.set("navigation.route", fallback);
+    currentSteps = [];
+    currentStepIndex = 0;
+    currentRouteCoords = fallback.geometry.coordinates;
+    lastRerouteAt = Date.now();
+
+    showRouteDestination(destination.lat, destination.lon);
+    displayRoute(fallback.geometry);
+
+    // Sans tracé routier réel, la distance seule ne dit pas où marcher —
+    // le cap (déjà calculé pour la boussole terrain, core/geo.js) donne au
+    // moins une direction cardinale exploitable à l'oeil nu.
+    const bearing = bearingDeg(position.lat, position.lng, destination.lat, destination.lon);
+    const direction = cardinalLabel(bearing);
+
     store.set(
       "navigation.instruction",
-      "⚠️ Itinéraire indisponible — vérifiez votre connexion"
+      `≈ ${formatDistance(fallback.distance)} — ${formatDuration(fallback.duration)} (estimation, hors-ligne)`
+    );
+    store.set(
+      "navigation.nextInstruction",
+      `📶 Itinéraire précis indisponible — cap ${direction} (${Math.round(bearing)}°)`
     );
   }
 }
@@ -350,6 +423,7 @@ function updateNavigationProgress(position) {
         "navigation.instruction",
         "🎉 Vous êtes arrivé !"
       );
+      store.set("navigation.nextInstruction", "");
     }
 
     return;
@@ -361,6 +435,58 @@ function updateNavigationProgress(position) {
     "navigation.instruction",
     `${formatDistance(distance)} restants`
   );
+
+  advanceGuidanceSteps(position);
+  maybeReroute(position);
+}
+
+/**
+ * Guidage pas-à-pas : fait avancer l'index du prochain maneuver OSRM quand
+ * l'agent a dépassé le point du maneuver courant, et publie l'instruction
+ * suivante (navigation.nextInstruction, affiché sous l'instruction
+ * principale dans #navPanel — voir appView.js).
+ */
+function advanceGuidanceSteps(position) {
+  if (!currentSteps.length) return;
+
+  while (currentStepIndex < currentSteps.length) {
+    const loc = currentSteps[currentStepIndex]?.maneuver?.location;
+    if (!loc) break;
+
+    const distToStep = haversineMeters(position.lat, position.lng, loc[1], loc[0]);
+    if (distToStep > STEP_ADVANCE_RADIUS_M) break;
+
+    currentStepIndex++;
+  }
+
+  const nextStep = currentSteps[currentStepIndex];
+  store.set(
+    "navigation.nextInstruction",
+    nextStep ? formatManeuverInstruction(nextStep) : ""
+  );
+}
+
+/**
+ * Recalcule l'itinéraire quand la position GPS s'écarte trop du tracé
+ * affiché (agent parti dans une autre direction, route bloquée...) — sans
+ * ça, #navPanel continuait d'afficher un chemin obsolète et une distance
+ * "restante" qui ne correspondait plus au trajet réellement suivi.
+ */
+function maybeReroute(position) {
+  if (!currentRouteCoords) return;
+
+  const deviation = distanceToPolylineMeters(
+    position.lat,
+    position.lng,
+    currentRouteCoords
+  );
+
+  if (deviation <= OFF_ROUTE_THRESHOLD_M) return;
+  if (Date.now() - lastRerouteAt < REROUTE_DEBOUNCE_MS) return;
+
+  log.info("ROUTE", `écart de tracé détecté (${Math.round(deviation)}m) — recalcul de l'itinéraire`);
+  lastRerouteAt = Date.now();
+  startNavigation();
 }
 
 /**

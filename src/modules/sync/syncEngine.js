@@ -185,28 +185,3 @@ export async function retryFailedSyncs() {
   return count;
 }
 
-/**
- * Réinitialise TOUTES les visites côté serveur Supabase en une seule requête.
- * Beaucoup plus efficace que de créer des centaines d'entrées sync individuelles.
- * Appelé depuis le bouton "Réinitialiser" quand l'utilisateur est en ligne.
- */
-export async function resetAllVisitsOnServer() {
-  if (!isOnline) {
-    console.warn("Hors ligne — reset serveur reporté à la prochaine connexion");
-    return { synced: false, error: null };
-  }
-
-  try {
-    const supabase = getSupabaseClient();
-    const { error } = await supabase
-      .from(CONFIG.TABLE_NAME)
-      .update({ visited: false, updated_at: new Date().toISOString() })
-      .neq("visited", false);
-
-    if (error) throw error;
-    return { synced: true, error: null };
-  } catch (err) {
-    console.warn("Reset serveur échoué:", err.message);
-    return { synced: false, error: err.message };
-  }
-}

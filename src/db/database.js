@@ -274,19 +274,6 @@ export async function getStats() {
   return { total, visited, remaining: total - visited };
 }
 
-export async function resetAllVisits() {
-  await db.points.toCollection().modify(p => {
-    p.visited = false;
-    p.status = p.status || "NON DEFINI";
-  });
-
-  // Ne supprimer QUE les entrées "update_visit" — conserver les "upsert_point"
-  // (nouveaux points créés hors-ligne qui n'ont pas encore été synchronisés).
-  // Avant ce correctif, syncQueue.clear() détruisait silencieusement ces fiches
-  // et elles n'auraient jamais été poussées vers Supabase.
-  await db.syncQueue.where("action").equals("update_visit").delete();
-}
-
 /**
  * Récupère l'état "visited" de tous les points depuis IndexedDB
  * sous forme de Map<pointId, visited>. Utilisé lors du rechargement

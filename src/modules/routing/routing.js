@@ -14,8 +14,15 @@ import { log } from "../../core/debug.js";
 /**
  * Métadonnées des modes de navigation.
  *
- * Le profil OSRM interrogé par calculateRoute() correspond directement
- * au mode sélectionné (foot/bike/car) — voir NAV_MODES[mode].profile.
+ * Le serveur OSRM configuré pour ce projet (CONFIG.OSRM_URL) n'expose
+ * qu'un seul profil de routage, "foot" (voir SECURITY.md / historique) —
+ * interroger /route/v1/bike/ ou /route/v1/car/ sur ce même serveur
+ * renverrait soit une erreur, soit (pire, silencieusement) le même
+ * itinéraire piéton mal étiqueté "vélo"/"véhicule". calculateRoute()
+ * interroge donc toujours le profil "foot" pour obtenir une géométrie et
+ * une distance réelles (suivant les voies), puis dérive la durée du mode
+ * choisi à partir de cette distance réelle et d'une vitesse moyenne
+ * (AVERAGE_SPEEDS_MPS) — voir calculateRoute().
  */
 export const NAV_MODES = {
   foot: {
@@ -29,15 +36,25 @@ export const NAV_MODES = {
     id: "bike",
     label: "À vélo",
     icon: "🚲",
-    profile: "bike"
+    profile: "foot"
   },
 
   car: {
     id: "car",
     label: "En véhicule",
     icon: "🚗",
-    profile: "car"
+    profile: "foot"
   }
+};
+
+/**
+ * Vitesses moyennes (m/s) utilisées pour dériver une durée par mode à
+ * partir d'une distance réelle (route OSRM ou estimation à vol d'oiseau).
+ */
+const AVERAGE_SPEEDS_MPS = {
+  foot: 1.4,   // ≈ 5 km/h
+  bike: 4.2,   // ≈ 15 km/h
+  car: 11.1    // ≈ 40 km/h — prudent en zone urbaine/piste non bitumée
 };
 
 /**
@@ -122,7 +139,9 @@ export async function calculateRoute(
     );
   }
 
-  const profile = NAV_MODES[resolvedMode].profile;
+  // Toujours le profil "foot" réel du serveur — voir le commentaire sur
+  // NAV_MODES plus haut. La durée est recalculée plus bas selon le mode.
+  const profile = NAV_MODES.foot.profile;
 
   const url =
     `${CONFIG.OSRM_URL}/route/v1/${profile}/` +
@@ -195,9 +214,19 @@ mapLayerExists = true
 routeVisible = true`
     );
 
+    // route.duration est un temps de MARCHE renvoyé par le profil "foot" du
+    // serveur — valide seulement si resolvedMode === "foot". Pour bike/car,
+    // la distance réelle (suivant les voies) est fiable ; la durée doit être
+    // recalculée avec la vitesse moyenne du mode choisi, sinon un trajet en
+    // "véhicule" afficherait un temps de marche, trompeur pour l'agent.
+    const duration =
+      resolvedMode === "foot"
+        ? route.duration
+        : route.distance / AVERAGE_SPEEDS_MPS[resolvedMode];
+
     return {
       distance: route.distance,
-      duration: route.duration,
+      duration,
       geometry: route.geometry,
       steps: route.legs?.[0]?.steps || [],
       mode: resolvedMode,
@@ -231,15 +260,6 @@ routeVisible = false`
 }
 
 /**
- * Vitesses moyennes utilisées pour l'estimation de secours (m/s).
- */
-const FALLBACK_SPEEDS_MPS = {
-  foot: 1.4,   // ≈ 5 km/h
-  bike: 4.2,   // ≈ 15 km/h
-  car: 11.1    // ≈ 40 km/h
-};
-
-/**
  * Estime un itinéraire en ligne droite quand OSRM est indisponible
  * (hors-ligne, panne réseau, timeout).
  *
@@ -259,7 +279,7 @@ export function estimateFallbackRoute(
   const resolvedMode = isValidNavMode(mode) ? mode : "foot";
 
   const distance = haversineKm(fromLat, fromLng, toLat, toLng) * 1000;
-  const duration = distance / FALLBACK_SPEEDS_MPS[resolvedMode];
+  const duration = distance / AVERAGE_SPEEDS_MPS[resolvedMode];
 
   return {
     distance,
@@ -349,6 +369,54 @@ export function clearRoute() {
     "navigation.instruction",
     ""
   );
+}
+
+const MANEUVER_VERBS = {
+  "new name": "Continuez",
+  merge: "Rejoignez la voie",
+  "on ramp": "Prenez la bretelle",
+  "off ramp": "Sortez",
+  fork: "Restez",
+  "end of road": "Au bout de la route, tournez",
+  continue: "Continuez",
+  roundabout: "Au rond-point, prenez la sortie",
+  rotary: "Au rond-point, prenez la sortie",
+  "roundabout turn": "Au rond-point, tournez"
+};
+
+const MODIFIER_LABELS = {
+  uturn: "faites demi-tour",
+  "sharp right": "fortement à droite",
+  right: "à droite",
+  "slight right": "légèrement à droite",
+  straight: "tout droit",
+  "slight left": "légèrement à gauche",
+  left: "à gauche",
+  "sharp left": "fortement à gauche"
+};
+
+/**
+ * Formate un pas de guidage OSRM (route.steps[i]) en instruction lisible.
+ *
+ * @param {{maneuver?:{type?:string,modifier?:string}, name?:string}} step
+ * @returns {string} instruction en français, ou "" si step est invalide
+ */
+export function formatManeuverInstruction(step) {
+  if (!step?.maneuver) return "";
+
+  const { type, modifier } = step.maneuver;
+  const streetName = step.name?.trim();
+
+  if (type === "arrive") return "🏁 Vous êtes arrivé à destination";
+  if (type === "depart") {
+    return streetName ? `🚦 Départ sur ${streetName}` : "🚦 Départ";
+  }
+
+  const verb = MANEUVER_VERBS[type] || "Continuez";
+  const dir = modifier ? MODIFIER_LABELS[modifier] : "";
+  const onStreet = streetName ? ` sur ${streetName}` : "";
+
+  return `${verb}${dir ? " " + dir : ""}${onStreet}`.trim();
 }
 
 /**

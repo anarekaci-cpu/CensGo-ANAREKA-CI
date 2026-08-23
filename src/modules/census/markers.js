@@ -193,24 +193,32 @@ function buildPopup(point) {
   const row = (label, value) =>
     `<div class="popup-row"><b>${label}:</b> ${value || "—"}</div>`;
 
+  // Popup restructuré (mobile) : seules les infos essentielles (nom, statut,
+  // téléphone, distance, actions) sont visibles d'emblée. Le reste (adresse,
+  // établissement, dates, agent...) est replié dans un <details> — évite
+  // qu'une fiche complète n'occupe la quasi-totalité de l'écran au premier
+  // tap sur un point, ce qui masquait la carte en dessous.
   const div = document.createElement("div");
   div.innerHTML = `
     <div class="popup-title">${escapeHtml(m.order ?? "—")}. ${escapeHtml(m.name)}${m.visited ? ' <span style="color:#15803d; font-size:12px;">✓ Visité</span>' : ''}</div>
-    <div class="popup-row"><b>Bloc:</b> ${String(m.block ?? 0).padStart(2, "0")} — Ordre ${escapeHtml(m.order ?? "—")}</div>
     <div class="popup-row"><b>Téléphone:</b> ${telLink}</div>
-    ${row("Quartier", escapeHtml(m.quartier))}
-    ${row("Adresse", escapeHtml(m.address))}
-    ${row("Établissement", escapeHtml(m.etablissement))}
-    ${row("Type d'activité", escapeHtml(m.activityType))}
-    ${row("Produits", escapeHtml(m.produits))}
-    ${row("Sexe", escapeHtml(m.sexe))}
-    ${m.zone ? row("Zone", escapeHtml(m.zone)) : ""}
-    <div class="popup-row popup-coords">📍 ${latStr}, ${lonStr}</div>
-    ${m.createdAt ? `<div class="popup-row popup-updated">🗓️ Recensé le: ${escapeHtml(m.createdAt)}</div>` : ""}
-    ${m.updatedAt ? `<div class="popup-row popup-updated">🔄 Mis à jour: ${escapeHtml(m.updatedAt)}</div>` : ""}
-    ${m.agent ? `<div class="popup-row popup-updated">👤 Agent: ${escapeHtml(m.agent)}</div>` : ""}
     <div class="popup-status" style="background:${color}22;color:${textColor};border:1px solid ${color}">${escapeHtml(m.status)}</div>
     ${m.distanceLabel ? `<div class="popup-dist">${escapeHtml(m.distanceLabel)}</div>` : ""}
+    <details class="popup-details">
+      <summary>ℹ️ Plus de détails</summary>
+      <div class="popup-row"><b>Bloc:</b> ${String(m.block ?? 0).padStart(2, "0")} — Ordre ${escapeHtml(m.order ?? "—")}</div>
+      ${row("Quartier", escapeHtml(m.quartier))}
+      ${row("Adresse", escapeHtml(m.address))}
+      ${row("Établissement", escapeHtml(m.etablissement))}
+      ${row("Type d'activité", escapeHtml(m.activityType))}
+      ${row("Produits", escapeHtml(m.produits))}
+      ${row("Sexe", escapeHtml(m.sexe))}
+      ${m.zone ? row("Zone", escapeHtml(m.zone)) : ""}
+      <div class="popup-row popup-coords">📍 ${latStr}, ${lonStr}</div>
+      ${m.createdAt ? `<div class="popup-row popup-updated">🗓️ Recensé le: ${escapeHtml(m.createdAt)}</div>` : ""}
+      ${m.updatedAt ? `<div class="popup-row popup-updated">🔄 Mis à jour: ${escapeHtml(m.updatedAt)}</div>` : ""}
+      ${m.agent ? `<div class="popup-row popup-updated">👤 Agent: ${escapeHtml(m.agent)}</div>` : ""}
+    </details>
     <div class="btn-row">
       <button class="go-btn" data-action="route" data-id="${safeId}">🧭 Itinéraire</button>
     </div>

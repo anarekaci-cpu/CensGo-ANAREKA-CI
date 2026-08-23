@@ -7,10 +7,9 @@ import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigati
 import { locateAndCenter, findNearestUnvisited, getCurrentPosition } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
-import { resetAllVisits } from "./db/database.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
-import { retryFailedSyncs, resetAllVisitsOnServer } from "./modules/sync/syncEngine.js";
-import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
+import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
+import { toastInfo, toastWarning, toastError } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml } from "./core/utils.js";
@@ -75,10 +74,9 @@ export async function mountAuthenticatedApp(container) {
         <div class="right">
           <div id="syncStatus">🌐 Connexion...</div>
           <div class="header-actions">
-            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement">➕ Saisie</button>
-            <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain">🧭 Boussole</button>
-            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA">🤖 Agents IA</button>
-            <button id="logoutBtn" title="Déconnexion" aria-label="Déconnexion">🔒</button>
+            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement" aria-label="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
+            <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain" aria-label="Boussole terrain">🧭 <span class="btn-label">Boussole</span></button>
+            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA" aria-label="Assistant & Optimisation IA">🤖 <span class="btn-label">Agents IA</span></button>
             <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
           </div>
         </div>
@@ -139,10 +137,12 @@ export async function mountAuthenticatedApp(container) {
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
           </div>
           <div class="action-row">
-            <button id="exportBtn" class="btn-export">📄 Exporter CSV</button>
-            <button id="resetBtn" class="btn-reset">🔄 Réinitialiser</button>
+            <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
           </div>
           <div id="geoStatus"></div>
+          <div class="controls-footer">
+            <button id="logoutBtn" class="btn-logout-tucked" title="Déconnexion" aria-label="Déconnexion">🚪 Déconnexion</button>
+          </div>
         </div>
       </div>
 
@@ -508,31 +508,6 @@ function bindEvents() {
     if (e.key === "Enter") document.getElementById("addZoneBtn")?.click();
   });
 
-  document.getElementById("resetBtn").onclick = async () => {
-    const ok = await confirmAction(
-      "Réinitialiser les visites",
-      "Toutes les visites enregistrées seront supprimées LOCALEMENT et sur le serveur. Cette action est irréversible.",
-      { danger: true }
-    );
-    if (ok) {
-      // 1. Reset local IndexedDB (préserve les upsert en attente)
-      await resetAllVisits();
-      // 2. Pousser le reset vers Supabase en une seule requête batch
-      const serverResult = await resetAllVisitsOnServer();
-      if (!serverResult.synced) {
-        toastWarning("Visites réinitialisées localement. Le reset serveur échouera en ligne — réessayez plus tard.");
-      }
-      // 3. Recharger les données (maintenant avec visited: false partout).
-      // L'abonnement "points" met à jour marqueurs + stats automatiquement.
-      await loadCensusData(undefined, { forceRefresh: true });
-      // 4. Réinitialiser le filtre visite sur "all" pour revoir tous les points
-      const filterVisited = document.getElementById("filterVisited");
-      if (filterVisited) filterVisited.value = "all";
-      applyFilters();
-      toastSuccess("Toutes les visites ont été réinitialisées.");
-    }
-  };
-
   document.getElementById("closeRouteBtn").onclick = () => {
     store.set("navigation.active", false);
   };
@@ -847,6 +822,13 @@ function bindStoreListeners() {
   store.subscribe("navigation.active", (active) => {
     const banner = document.getElementById("routeBanner");
     if (banner) banner.style.display = active ? "flex" : "none";
+    // #fabAdd occupe la même bande verticale (bottom:84) que #navPanel une
+    // fois la navigation active : le bouton restait cliquable "sous" le
+    // panneau, invisible mais interceptant parfois le tap. On le masque
+    // pendant la navigation (ajouter un point pendant un guidage actif
+    // n'est de toute façon pas le geste attendu).
+    const fabAdd = document.getElementById("fabAdd");
+    if (fabAdd) fabAdd.style.display = active ? "none" : "flex";
     // BUG (diagnostic itinéraire) : #navPanel contenait le texte réel de
     // l'instruction (distance/durée, erreur, "GPS indisponible"...) mais son
     // display:none initial (style.css) n'était JAMAIS levé nulle part dans le
