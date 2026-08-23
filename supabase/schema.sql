@@ -333,31 +333,46 @@ $$;
 --       Ces policies s'AJOUTENT à "Users can read own role" (permissives,
 --       combinées en OR) — un agent/compte en attente continue de ne voir
 --       que sa propre ligne, seul un admin voit tout.
+--
+-- BUG CONFIRMÉ EN PRODUCTION : la première version de ces policies
+-- utilisait EXISTS(SELECT ... FROM user_roles ...) directement dans leur
+-- USING/WITH CHECK. Un tel sous-select, écrit EN CLAIR dans une policy DE
+-- user_roles, s'exécute avec les droits de l'appelant (authenticated) — il
+-- redéclenche donc l'évaluation RLS de user_roles pour cette sous-requête,
+-- qui réévalue la MÊME policy, qui relance la sous-requête, etc. Postgres
+-- a fini par renvoyer "infinite recursion detected in policy for relation
+-- user_roles" — et cette erreur cassait AUSSI toute AUTRE table dont une
+-- policy sous-interroge user_roles (agent_positions, target_zones), pas
+-- seulement user_roles lui-même.
+--
+-- is_admin_user(), comme is_approved_user() plus bas, contourne le
+-- problème : SECURITY DEFINER fait exécuter la sous-requête interne avec
+-- les droits du propriétaire de la fonction (postgres, qui contourne RLS)
+-- — elle n'est donc plus soumise aux policies de user_roles, la récursion
+-- est cassée à la source.
+CREATE OR REPLACE FUNCTION is_admin_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid() AND role = 'admin'
+  );
+$$;
+
 DROP POLICY IF EXISTS "Admin can read all roles" ON user_roles;
 CREATE POLICY "Admin can read all roles"
   ON user_roles FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+  USING (is_admin_user());
 
 DROP POLICY IF EXISTS "Admin can update roles" ON user_roles;
 CREATE POLICY "Admin can update roles"
   ON user_roles FOR UPDATE TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  )
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+  USING (is_admin_user())
+  WITH CHECK (is_admin_user());
 
 -- 3ter. user_roles ne contient JAMAIS l'e-mail (RGPD minimal + auth.users
 --       n'est de toute façon pas lisible par le client "authenticated").

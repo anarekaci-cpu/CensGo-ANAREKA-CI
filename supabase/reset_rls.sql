@@ -53,31 +53,40 @@ CREATE POLICY "Service role manages roles"
 -- comptes (notamment ceux en attente, role IS NULL) et peut changer leur
 -- rôle, sans passer par le dashboard Supabase. S'ajoute (OR) à la policy
 -- "Users can read own role" ci-dessus.
+--
+-- is_admin_user() est SECURITY DEFINER — INDISPENSABLE ici, pas juste une
+-- bonne pratique : un EXISTS(SELECT ... FROM user_roles ...) écrit EN
+-- CLAIR dans une policy DE user_roles s'exécute avec les droits de
+-- l'appelant, donc redéclenche l'évaluation RLS de user_roles pour cette
+-- sous-requête → réévalue la même policy → relance la sous-requête, etc.
+-- ("infinite recursion detected in policy for relation user_roles",
+-- confirmé en production — cassait aussi agent_positions/target_zones,
+-- dont les policies sous-interrogent également user_roles). SECURITY
+-- DEFINER fait tourner la sous-requête interne avec les droits du
+-- propriétaire (postgres, qui contourne RLS) : plus de récursion.
+CREATE OR REPLACE FUNCTION is_admin_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM user_roles
+    WHERE user_id = auth.uid() AND role = 'admin'
+  );
+$$;
+
 DROP POLICY IF EXISTS "Admin can read all roles" ON user_roles;
 CREATE POLICY "Admin can read all roles"
   ON user_roles FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+  USING (is_admin_user());
 
 DROP POLICY IF EXISTS "Admin can update roles" ON user_roles;
 CREATE POLICY "Admin can update roles"
   ON user_roles FOR UPDATE TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  )
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+  USING (is_admin_user())
+  WITH CHECK (is_admin_user());
 
 -- user_roles ne contient jamais l'e-mail (auth.users n'est pas lisible par
 -- le client "authenticated") — cette fonction jointe à auth.users tourne en
