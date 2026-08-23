@@ -56,7 +56,13 @@ export function initMap(containerId = "map") {
     "bottom-right"
   );
 
-  clusterInstance = new Supercluster({ radius: 60, maxZoom: 17 });
+  // minPoints très élevé => les points ne fusionnent JAMAIS en bulle "N
+  // points" : chaque point reste son propre marqueur, visible individuellement
+  // à n'importe quel niveau de zoom (y compris dézoomé sur toute la zone).
+  // Supercluster est conservé (index spatial + rendu uniquement des points
+  // dans le viewport courant, indispensable avec 500+ points), seule la
+  // FUSION visuelle en bulles est désactivée.
+  clusterInstance = new Supercluster({ radius: 60, maxZoom: 17, minPoints: Infinity });
 
   return mapInstance;
 }
