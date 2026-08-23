@@ -1,7 +1,7 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs } from "../../db/database.js";
+import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict } from "../../db/database.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
@@ -12,6 +12,8 @@ const MAX_CONCURRENT = 3;
 const OP_TIMEOUT_MS = 15000;
 
 export async function initSyncEngine() {
+  store.set("sync.conflicts", await getSyncConflicts());
+
   window.addEventListener("online", () => {
     isOnline = true;
     store.set("sync.status", "idle");
@@ -26,6 +28,27 @@ export async function initSyncEngine() {
   setInterval(() => {
     if (isOnline) triggerSync();
   }, CONFIG.SYNC_INTERVAL_MS);
+
+  // Retour au premier plan (agent qui rouvre l'app après l'avoir mise en
+  // arrière-plan, ou juste reverrouillé son téléphone) : ne pas attendre
+  // jusqu'à SYNC_INTERVAL_MS (30s) pour pousser les fiches en attente —
+  // triggerSync() est déjà protégé contre les appels concurrents (isSyncing)
+  // donc ce déclenchement supplémentaire est sans risque.
+  //
+  // NB : ce n'est PAS l'API Background Sync (qui réveillerait un service
+  // worker même app fermée) — celle-ci demanderait de réécrire le service
+  // worker généré par vite-plugin-pwa (mode generateSW/Workbox) en mode
+  // injectManifest avec un handler d'événement "sync" custom, un
+  // changement plus risqué qu'on ne peut pas valider dans cet
+  // environnement sans appareil réel. Ceci couvre le cas dominant en
+  // pratique (app remise au premier plan) avec un risque quasi nul.
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && isOnline) {
+        triggerSync();
+      }
+    });
+  }
 
   if (isOnline) await triggerSync();
 }
@@ -81,22 +104,78 @@ async function withTimeout(promiseBuilder) {
   }
 }
 
+/**
+ * Enregistre le conflit et "résout" la file d'attente pour cet item :
+ * pas de retry infini sur un conflit qui ne se résoudra jamais tout seul,
+ * et markPointSynced() lève l'exclusion du point des futurs rechargements
+ * Supabase (voir savePoints()/unsyncedIds, database.js) — sans ça le point
+ * resterait exclu indéfiniment, jamais rafraîchi depuis le serveur. Le
+ * payload local est conservé dans le conflit pour permettre une révision
+ * manuelle plutôt qu'une perte silencieuse.
+ */
+async function handleConflict(item) {
+  await recordSyncConflict({
+    pointId: item.pointId,
+    action: item.action,
+    localPayload: item.payload,
+    detectedAt: new Date().toISOString()
+  });
+  await markPointSynced(item.pointId);
+  await markSyncDone(item.id);
+}
+
 async function syncOne(supabase, item) {
   if (item.action === "update_visit") {
-    const { error } = await withTimeout((signal) =>
-      supabase
-        .from(CONFIG.TABLE_NAME)
-        .update({
-          visited: item.payload.visited,
-          status: item.payload.status,
-          updated_at: new Date().toISOString()
-        })
-        .eq("point_id", item.pointId)
-        .abortSignal(signal)
-    );
+    let query = supabase
+      .from(CONFIG.TABLE_NAME)
+      .update({
+        visited: item.payload.visited,
+        status: item.payload.status,
+        updated_at: new Date().toISOString()
+      })
+      .eq("point_id", item.pointId);
+
+    // Écriture CONDITIONNELLE quand on connaît le updated_at serveur au
+    // moment de l'édition locale (baseUpdatedAt) : si un autre agent a
+    // modifié ce point depuis, la condition ne correspond à aucune ligne
+    // -> conflit détecté au lieu d'écraser silencieusement son changement
+    // (last-write-wins). NB : une ligne bloquée par une policy RLS produit
+    // le même résultat "0 ligne" — voir handleConflict, le libellé côté UI
+    // reste volontairement prudent ("ne semble pas avoir été appliquée")
+    // plutôt que d'affirmer à tort une édition concurrente.
+    if (item.baseUpdatedAt) {
+      query = query.eq("updated_at", item.baseUpdatedAt);
+    }
+
+    const { data, error } = await withTimeout((signal) => query.select("point_id").abortSignal(signal));
     if (error) throw error;
+
+    if (item.baseUpdatedAt && (!data || data.length === 0)) {
+      await handleConflict(item);
+      return;
+    }
   } else if (item.action === "upsert_point") {
     const p = item.payload;
+
+    // upsert() ne permet pas de filtre conditionnel côté Supabase — on
+    // vérifie donc l'état serveur par une lecture préalable. Best-effort :
+    // une lecture échouée ne bloque PAS l'écriture (mieux vaut risquer un
+    // écrasement que perdre une fiche entière pour un souci réseau
+    // ponctuel sur cette seule vérification).
+    if (item.baseUpdatedAt) {
+      try {
+        const { data: serverRow } = await withTimeout((signal) =>
+          supabase.from(CONFIG.TABLE_NAME).select("updated_at").eq("point_id", p.id).abortSignal(signal).maybeSingle()
+        );
+        if (serverRow?.updated_at && serverRow.updated_at !== item.baseUpdatedAt) {
+          await handleConflict(item);
+          return;
+        }
+      } catch {
+        // Vérification indisponible — on procède à l'upsert normal.
+      }
+    }
+
     const user = store.get("user");
     const { error } = await withTimeout((signal) =>
       supabase
@@ -184,6 +263,7 @@ export async function triggerSync() {
     store.set("sync.deadCount", dead.length);
     store.set("sync.status", dead.length > 0 ? "error" : (remaining.length > 0 ? "syncing" : "idle"));
     store.set("sync.lastSync", new Date().toISOString());
+    store.set("sync.conflicts", await getSyncConflicts());
   } catch (err) {
     store.set("sync.status", "error");
     console.error("Sync engine error:", err);
@@ -196,5 +276,10 @@ export async function retryFailedSyncs() {
   const count = await retryDeadSyncs();
   if (count > 0 && isOnline) await triggerSync();
   return count;
+}
+
+export async function dismissConflict(pointId) {
+  await dismissSyncConflict(pointId);
+  store.set("sync.conflicts", await getSyncConflicts());
 }
 

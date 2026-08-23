@@ -5,7 +5,19 @@ import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
-import { normalizePointId, escapeHtml } from "../../core/utils.js";
+import { normalizePointId, escapeHtml, stringSimilarity } from "../../core/utils.js";
+
+// Doublon "flou" : nom très proche (typo/variante d'orthographe) OU
+// téléphone identique, dans un rayon plus large que le doublon "strict"
+// (25m — même emplacement GPS). Un même établissement peut être re-recensé
+// à quelques dizaines de mètres d'écart si le GPS a dérivé, ou son nom
+// ressaisi avec une variante ("Kouassi"/"Kwassi").
+const FUZZY_DUPLICATE_RADIUS_M = 150;
+const FUZZY_NAME_THRESHOLD = 0.78;
+
+function normalizeTelDigits(tel) {
+  return String(tel || "").replace(/\D/g, "");
+}
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -255,6 +267,12 @@ function renderQuartierChips() {
 // Avertit si un point existant se trouve à moins de 25m — évite d'enregistrer
 // deux fois le même ménage (un agent qui n'a pas vu la fiche déjà créée par
 // un collègue, ou une double saisie accidentelle).
+let proximityDebounceTimer = null;
+function debouncedCheckProximity() {
+  if (proximityDebounceTimer) clearTimeout(proximityDebounceTimer);
+  proximityDebounceTimer = setTimeout(checkProximity, 400);
+}
+
 async function checkProximity() {
   const warningEl = document.getElementById("cf_proximity_warning");
   if (!warningEl) return;
@@ -269,14 +287,45 @@ async function checkProximity() {
   }
 
   const nearby = await findNearbyPoints(lat, lon, 25, currentId);
-  if (nearby.length === 0) {
+
+  // Doublon flou : même nom (à une variante d'orthographe près) ou même
+  // téléphone, dans un rayon plus large — capte les cas où le GPS a dérivé
+  // ou où l'agent ressaisit une fiche déjà créée sous un nom légèrement
+  // différent. Exclut les points déjà signalés par le contrôle strict
+  // ci-dessus pour ne pas doubler le même avertissement.
+  const name = document.getElementById("cf_name")?.value.trim() || "";
+  const tel = normalizeTelDigits(document.getElementById("cf_tel")?.value);
+  const strictIds = new Set(nearby.map(p => normalizePointId(p.id)));
+  let fuzzyMatches = [];
+
+  if (name || tel) {
+    const wide = await findNearbyPoints(lat, lon, FUZZY_DUPLICATE_RADIUS_M, currentId);
+    fuzzyMatches = wide.filter(p => {
+      if (strictIds.has(normalizePointId(p.id))) return false;
+      const telMatch = tel.length >= 8 && normalizeTelDigits(p.tel) === tel;
+      const nameMatch = name.length >= 3 && stringSimilarity(name, p.name) >= FUZZY_NAME_THRESHOLD;
+      return telMatch || nameMatch;
+    });
+  }
+
+  if (nearby.length === 0 && fuzzyMatches.length === 0) {
     warningEl.style.display = "none";
     return;
   }
 
-  const names = nearby.slice(0, 3).map(p => p.name || `Fiche #${p.order || p.id}`).join(", ");
+  const messages = [];
+  if (nearby.length > 0) {
+    const names = nearby.slice(0, 3).map(p => p.name || `Fiche #${p.order || p.id}`).join(", ");
+    messages.push(`⚠️ ${nearby.length} fiche(s) déjà enregistrée(s) à moins de 25m de cette position (${names}).`);
+  }
+  if (fuzzyMatches.length > 0) {
+    const names = fuzzyMatches.slice(0, 3).map(p => p.name || `Fiche #${p.order || p.id}`).join(", ");
+    messages.push(`🔍 ${fuzzyMatches.length} fiche(s) au nom/téléphone très proche à moins de ${FUZZY_DUPLICATE_RADIUS_M}m (${names}).`);
+  }
+  messages.push("Vérifiez qu'il ne s'agit pas d'un doublon avant d'enregistrer.");
+
   warningEl.style.display = "block";
-  warningEl.textContent = `⚠️ ${nearby.length} fiche(s) déjà enregistrée(s) à moins de 25m de cette position (${names}). Vérifiez qu'il ne s'agit pas d'un doublon avant d'enregistrer.`;
+  warningEl.textContent = messages.join(" ");
 }
 
 export async function closeCensusForm() {
@@ -326,10 +375,14 @@ function bindFormEvents() {
   });
 
   // Inputs live validation
-  document.getElementById("cf_name")?.addEventListener("input", validateFormRealtime);
+  document.getElementById("cf_name")?.addEventListener("input", () => {
+    validateFormRealtime();
+    debouncedCheckProximity();
+  });
   document.getElementById("cf_tel")?.addEventListener("input", (e) => {
     e.target.value = formatPhoneCI(e.target.value);
     validateFormRealtime();
+    debouncedCheckProximity();
   });
   document.getElementById("cf_quartier")?.addEventListener("input", validateFormRealtime);
 

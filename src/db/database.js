@@ -90,6 +90,13 @@ export async function updatePointVisit(pointId, visited, status) {
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return null;
 
+  // baseUpdatedAt : le "updated_at" serveur le plus récent connu de CET
+  // appareil pour ce point (soit sa dernière synchro confirmée, soit le
+  // updated_at reçu au dernier chargement Supabase). Transmis à syncEngine
+  // pour détecter si un AUTRE agent a modifié ce point entre-temps — voir
+  // syncOne()/mise à jour conditionnelle dans syncEngine.js.
+  const baseUpdatedAt = point.updatedAt || null;
+
   const updated = {
     ...point,
     visited,
@@ -104,6 +111,7 @@ export async function updatePointVisit(pointId, visited, status) {
     pointId,
     action: "update_visit",
     payload: { visited, status },
+    baseUpdatedAt,
     createdAt: new Date().toISOString(),
     attempts: 0,
     status: "pending"
@@ -115,6 +123,11 @@ export async function updatePointVisit(pointId, visited, status) {
 export async function upsertPoint(pointData) {
   let point = await db.points.where("id").equals(pointData.id || "").first();
   const now = new Date().toISOString();
+  // null pour un point tout neuf (rien n'existait avant -> aucun conflit
+  // possible) ; sinon le updated_at serveur connu de cet appareil pour ce
+  // point avant CETTE édition (voir commentaire équivalent dans
+  // updatePointVisit()).
+  const baseUpdatedAt = point?.updatedAt || null;
   let updated;
   let pendingSyncedFlag = false;
   if (point) {
@@ -162,6 +175,7 @@ export async function upsertPoint(pointData) {
     pointId: updated.id,
     action: "upsert_point",
     payload: updated,
+    baseUpdatedAt,
     createdAt: now,
     attempts: 0,
     status: "pending"
@@ -210,6 +224,31 @@ export async function retryDeadSyncs() {
     db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null })
   ));
   return dead.length;
+}
+
+const CONFLICTS_META_KEY = "syncConflicts";
+
+/**
+ * Conflits d'édition concurrente : détectés par syncEngine.js quand une
+ * écriture conditionnelle (basée sur le updated_at connu au moment de
+ * l'édition locale, voir baseUpdatedAt ci-dessus) ne touche aucune ligne —
+ * signe qu'un AUTRE agent a modifié ce point entre-temps. Persistés dans
+ * la table "meta" (pas de nouvelle table Dexie pour un objet aussi simple)
+ * pour survivre à un rechargement tant qu'un agent ne les a pas vus.
+ */
+export async function recordSyncConflict(conflict) {
+  const existing = (await getMeta(CONFLICTS_META_KEY)) || [];
+  const withoutSamePoint = existing.filter(c => c.pointId !== conflict.pointId);
+  await setMeta(CONFLICTS_META_KEY, [...withoutSamePoint, conflict]);
+}
+
+export async function getSyncConflicts() {
+  return (await getMeta(CONFLICTS_META_KEY)) || [];
+}
+
+export async function dismissSyncConflict(pointId) {
+  const existing = (await getMeta(CONFLICTS_META_KEY)) || [];
+  await setMeta(CONFLICTS_META_KEY, existing.filter(c => c.pointId !== pointId));
 }
 
 // Points dans un rayon donné (m) — utilisé pour avertir d'un doublon probable

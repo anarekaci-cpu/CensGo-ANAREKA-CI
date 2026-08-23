@@ -61,7 +61,63 @@ export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOP
     current = { lat: next.lat, lng: next.lon };
   }
 
-  return tour;
+  return _twoOptImprove(tour, startPos);
+}
+
+/**
+ * Passe d'amélioration locale 2-opt sur la tournée glouton (plus-proche-
+ * voisin) : le glouton est rapide mais myope — il choisit le plus proche à
+ * chaque étape sans jamais revenir en arrière, ce qui produit régulièrement
+ * des croisements évitables (deux segments du trajet qui se coupent).
+ * 2-opt élimine ces croisements en inversant des tronçons de la tournée
+ * tant que ça raccourcit la distance totale.
+ *
+ * Chemin OUVERT (départ fixe, pas de retour au point de départ) : le noeud
+ * de départ (index 0 virtuel) ne fait jamais partie d'un tronçon inversé.
+ * Plafonné à `maxPasses` passes complètes (O(n²) chacune) — sur
+ * MAX_TOUR_STOPS=150 arrêts ça reste largement sous la milliseconde,
+ * cohérent avec le plafond déjà en place pour le glouton lui-même.
+ */
+function _twoOptImprove(tourStops, startPos, maxPasses = 4) {
+  const n = tourStops.length;
+  if (n < 3) return tourStops;
+
+  // nodes[0] = départ virtuel (jamais renvoyé), nodes[1..n] = arrêts.
+  const nodes = [{ lat: startPos.lat, lon: startPos.lng }, ...tourStops];
+  const len = nodes.length;
+  const dist = (a, b) => _haversineKm(nodes[a].lat, nodes[a].lon, nodes[b].lat, nodes[b].lon);
+
+  let improved = true;
+  let pass = 0;
+  while (improved && pass < maxPasses) {
+    improved = false;
+    pass++;
+
+    for (let i = 0; i < len - 2; i++) {
+      for (let j = i + 2; j < len; j++) {
+        const hasNextEdge = j + 1 < len;
+        const removed = dist(i, i + 1) + (hasNextEdge ? dist(j, j + 1) : 0);
+        const added = dist(i, j) + (hasNextEdge ? dist(i + 1, j + 1) : 0);
+
+        if (added + 1e-9 < removed) {
+          let lo = i + 1;
+          let hi = j;
+          while (lo < hi) {
+            [nodes[lo], nodes[hi]] = [nodes[hi], nodes[lo]];
+            lo++;
+            hi--;
+          }
+          improved = true;
+        }
+      }
+    }
+  }
+
+  const result = [];
+  for (let k = 1; k < len; k++) {
+    result.push({ ...nodes[k], distanceFromPrev: dist(k - 1, k) });
+  }
+  return result;
 }
 
 function _haversineKm(lat1, lon1, lat2, lon2) {

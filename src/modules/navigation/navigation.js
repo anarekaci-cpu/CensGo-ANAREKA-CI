@@ -14,6 +14,7 @@ import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
 import { distanceToPolylineMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
+import { speak, cancelSpeech } from "../../core/speech.js";
 import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint } from "../map/map.js";
@@ -70,6 +71,7 @@ export function initNavigation() {
         currentSteps = [];
         currentStepIndex = 0;
         currentRouteCoords = null;
+        cancelSpeech();
 
         clearRoute();
       }
@@ -81,6 +83,22 @@ export function initNavigation() {
       if (store.get("navigation.active")) {
         scheduleStartNavigation();
       }
+    })
+  );
+
+  // Guidage vocal : store.set() ne notifie que sur un changement de valeur
+  // (core/store.js), donc ces abonnements ne se déclenchent naturellement
+  // qu'au passage à un NOUVEAU maneuver / à l'arrivée — pas à chaque fix
+  // GPS, même si l'appelant réécrit la même valeur en boucle.
+  navUnsubs.push(
+    store.subscribe("navigation.nextInstruction", (text) => {
+      if (text) speak(text);
+    })
+  );
+
+  navUnsubs.push(
+    store.subscribe("navigation.arrived", (arrived) => {
+      if (arrived) speak("Vous êtes arrivé à destination");
     })
   );
 

@@ -32,6 +32,7 @@ let mapInstance = null;
 let clusterInstance = null;
 let userLocationMarker = null;
 let destinationMarker = null;
+let heatmapVisible = false;
 
 export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
@@ -183,4 +184,88 @@ export function hideDestinationMarker() {
     destinationMarker.remove();
     destinationMarker = null;
   }
+}
+
+/**
+ * Carte de densité (couche "heatmap" native MapLibre) — vue d'ensemble de
+ * la couverture terrain que les marqueurs individuels/clusters ne donnent
+ * pas facilement à l'œil : où se concentrent les points RESTANT à visiter,
+ * pas juste où se concentrent les points tout court. Les points déjà
+ * visités pèsent volontairement peu (poids 0.15) dans le calcul plutôt que
+ * d'être exclus : une zone entièrement visitée reste visible en fond
+ * (faible intensité) au lieu de disparaître complètement de la carte.
+ */
+function applyCoverageHeatmapData(points) {
+  if (!mapInstance) return;
+
+  const geojson = {
+    type: "FeatureCollection",
+    features: (points || [])
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      .map(p => ({
+        type: "Feature",
+        properties: { weight: p.visited ? 0.15 : 1 },
+        geometry: { type: "Point", coordinates: [p.lon, p.lat] }
+      }))
+  };
+
+  const apply = () => {
+    const source = mapInstance.getSource("coverage-heatmap");
+    if (source) {
+      source.setData(geojson);
+      return;
+    }
+
+    mapInstance.addSource("coverage-heatmap", { type: "geojson", data: geojson });
+    mapInstance.addLayer({
+      id: "coverage-heatmap-layer",
+      type: "heatmap",
+      source: "coverage-heatmap",
+      layout: { visibility: heatmapVisible ? "visible" : "none" },
+      paint: {
+        "heatmap-weight": ["get", "weight"],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1, 15, 3],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 8, 15, 32],
+        "heatmap-opacity": 0.75,
+        "heatmap-color": [
+          "interpolate", ["linear"], ["heatmap-density"],
+          0, "rgba(0,0,0,0)",
+          0.2, "rgba(46,204,113,0.45)",
+          0.4, "rgba(241,196,15,0.6)",
+          0.6, "rgba(230,126,34,0.7)",
+          0.8, "rgba(231,76,60,0.8)",
+          1, "rgba(155,20,20,0.9)"
+        ]
+      }
+    });
+  };
+
+  if (!mapInstance.isStyleLoaded()) {
+    mapInstance.once("idle", apply);
+  } else {
+    apply();
+  }
+}
+
+/**
+ * Recalcule les données de la heatmap (à appeler à chaque mise à jour de
+ * "points") — sans effet si la couche n'est pas visible, pour ne pas
+ * payer le coût de recalcul quand personne ne la regarde.
+ */
+export function updateCoverageHeatmap(points) {
+  if (!heatmapVisible) return;
+  applyCoverageHeatmapData(points);
+}
+
+export function toggleCoverageHeatmap(points) {
+  heatmapVisible = !heatmapVisible;
+  applyCoverageHeatmapData(points);
+  if (mapInstance?.getLayer("coverage-heatmap-layer")) {
+    mapInstance.setLayoutProperty("coverage-heatmap-layer", "visibility", heatmapVisible ? "visible" : "none");
+  }
+  return heatmapVisible;
+}
+
+export function isCoverageHeatmapVisible() {
+  return heatmapVisible;
 }

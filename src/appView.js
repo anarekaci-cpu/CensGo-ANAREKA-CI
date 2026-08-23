@@ -1,6 +1,6 @@
 import { store } from "./core/store.js";
 import { getSupabaseClient } from "./core/supabase.js";
-import { initMap, fitToBounds, flyToPoint } from "./modules/map/map.js";
+import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap } from "./modules/map/map.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation } from "./modules/navigation/navigation.js";
@@ -8,15 +8,24 @@ import { locateAndCenter, findNearestUnvisited, getCurrentPosition } from "./mod
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
-import { retryFailedSyncs } from "./modules/sync/syncEngine.js";
+import { retryFailedSyncs, dismissConflict } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { confirmAction } from "./core/confirmModal.js";
-import { escapeHtml } from "./core/utils.js";
+import { escapeHtml, normalizePointId } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
 import { lazyImport } from "./core/lazyImport.js";
 import { getModeMeta } from "./modules/routing/routing.js";
+import { isSpeechEnabled, setSpeechEnabled } from "./core/speech.js";
+import { extractExifGps } from "./core/exif.js";
+import { haversineKm } from "./core/geo.js";
+
+// Au-delà de cette distance entre la position GPS EXIF de la photo et la
+// position actuelle de l'agent, la photo envoyée à l'Agent Vision est
+// probablement une ancienne photo de galerie plutôt qu'une prise fraîche
+// sur le terrain — voir checkPhotoGeotag().
+const PHOTO_GEOTAG_WARNING_M = 500;
 
 let emptyStateEl = null;
 
@@ -133,6 +142,9 @@ export async function mountAuthenticatedApp(container) {
           <div class="action-row">
             <button id="fitFilteredBtn" class="btn-overview">👁️ Vue d'ensemble filtrés</button>
           </div>
+          <div class="action-row">
+            <button id="heatmapBtn" class="btn-overview" style="grid-column: 1 / -1;" aria-pressed="false">🔥 Carte de densité (à visiter)</button>
+          </div>
           <div class="action-row" id="adminTrackingRow" style="display:none;">
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
           </div>
@@ -161,6 +173,7 @@ export async function mountAuthenticatedApp(container) {
             <div id="navInstruction">—</div>
             <div id="navSub"></div>
           </div>
+          <button id="navSpeechBtn" class="nav-recenter-btn" aria-label="Activer/désactiver le guidage vocal" aria-pressed="true">🔊</button>
           <button id="navRecenterBtn" class="nav-recenter-btn" aria-label="Recentrer la boussole sur ma position">🧭</button>
           <button id="navStopBtn" aria-label="Arrêter la navigation">✕</button>
         </div>
@@ -286,6 +299,31 @@ export async function mountAuthenticatedApp(container) {
   `;
 
   await initApp();
+}
+
+/**
+ * Fait défiler les conflits de sync (voir syncEngine.js/handleConflict)
+ * un par un : ouvre la fiche concernée pour révision manuelle par l'agent
+ * puis retire ce conflit de la liste. Ce n'est PAS une fusion automatique
+ * — juste de quoi retrouver rapidement quelle(s) fiche(s) ont divergé
+ * plutôt que de les perdre silencieusement.
+ */
+async function reviewNextConflict() {
+  const conflicts = store.get("sync.conflicts") || [];
+  const next = conflicts[0];
+  if (!next) return;
+
+  const point = (store.get("points") || []).find(p => normalizePointId(p.id) === normalizePointId(next.pointId));
+  const label = point?.name || next.localPayload?.name || `#${next.pointId}`;
+
+  toastWarning(`🔀 "${label}" a été modifiée ailleurs pendant votre édition hors-ligne. Vérifiez la fiche et corrigez si besoin.`);
+
+  if (point) {
+    flyToPoint(point.lat, point.lon, 17);
+    openPopup(point.id);
+  }
+
+  await dismissConflict(next.pointId);
 }
 
 function closeControls() {
@@ -450,6 +488,14 @@ function bindEvents() {
     closeControls();
   };
 
+  document.getElementById("heatmapBtn").onclick = () => {
+    const btn = document.getElementById("heatmapBtn");
+    const visible = toggleCoverageHeatmap(store.get("points"));
+    btn.classList.toggle("active", visible);
+    btn.setAttribute("aria-pressed", String(visible));
+    closeControls();
+  };
+
   let agentTrackingActive = false;
   document.getElementById("agentTrackingBtn")?.addEventListener("click", async () => {
     agentTrackingActive = !agentTrackingActive;
@@ -517,6 +563,17 @@ function bindEvents() {
   document.getElementById("navRecenterBtn").onclick = () => {
     recenterNavigation();
   };
+  const navSpeechBtn = document.getElementById("navSpeechBtn");
+  if (navSpeechBtn) {
+    navSpeechBtn.textContent = isSpeechEnabled() ? "🔊" : "🔇";
+    navSpeechBtn.setAttribute("aria-pressed", String(isSpeechEnabled()));
+    navSpeechBtn.onclick = () => {
+      const next = !isSpeechEnabled();
+      setSpeechEnabled(next);
+      navSpeechBtn.textContent = next ? "🔊" : "🔇";
+      navSpeechBtn.setAttribute("aria-pressed", String(next));
+    };
+  }
   document.querySelectorAll(".nav-mode-btn").forEach(btn => {
     btn.addEventListener("click", () => setNavigationMode(btn.dataset.mode));
   });
@@ -531,6 +588,35 @@ function bindEvents() {
   });
 
   bindAiEvents();
+}
+
+/**
+ * Recoupe la position GPS EXIF d'une photo sélectionnée pour l'Agent
+ * Vision avec la position actuelle de l'agent — avertit (sans bloquer
+ * l'analyse) si elles sont éloignées, signe probable d'une photo choisie
+ * dans la galerie plutôt que prise à l'instant sur le terrain.
+ *
+ * Best-effort à tous les niveaux : pas de position GPS actuelle, pas de
+ * métadonnées EXIF sur la photo (fréquent — beaucoup d'apps photo les
+ * retirent), ou erreur de lecture -> silence complet, jamais de blocage.
+ */
+async function checkPhotoGeotag(file) {
+  try {
+    const currentPos = store.get("geo.position");
+    if (!currentPos) return;
+
+    const buffer = await file.arrayBuffer();
+    const gps = extractExifGps(buffer);
+    if (!gps) return;
+
+    const distKm = haversineKm(currentPos.lat, currentPos.lng, gps.lat, gps.lon);
+    if (distKm * 1000 > PHOTO_GEOTAG_WARNING_M) {
+      const distLabel = distKm < 1 ? `${Math.round(distKm * 1000)} m` : `${distKm.toFixed(1)} km`;
+      toastWarning(`📍 Cette photo a été prise à ${distLabel} de votre position actuelle — vérifiez qu'il s'agit bien d'une photo prise ici, à l'instant.`);
+    }
+  } catch {
+    // Parsing EXIF best-effort — ne doit jamais empêcher l'analyse de la photo.
+  }
 }
 
 function bindAiEvents() {
@@ -716,6 +802,7 @@ function bindAiEvents() {
         if (runVisionBtn) runVisionBtn.style.display = "block";
       };
       reader.readAsDataURL(file);
+      checkPhotoGeotag(file);
     }
   });
 
@@ -747,6 +834,7 @@ function bindStoreListeners() {
     updateStats();
     renderQuartierCoverage();
     populateBlockFilter(points);
+    updateCoverageHeatmap(points);
     if (points && points.length > 0) {
       removeEmptyState();
       // Respecter les filtres actifs : l'arrivée de données fraîches ne doit
@@ -766,6 +854,7 @@ function bindStoreListeners() {
     const status = store.get("sync.status");
     const deadCount = store.get("sync.deadCount") || 0;
     const pendingCount = store.get("sync.pendingCount") || 0;
+    const conflicts = store.get("sync.conflicts") || [];
 
     if (deadCount > 0) {
       el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Voir`;
@@ -775,6 +864,14 @@ function bindStoreListeners() {
         toastWarning(`${deadCount} fiche(s) bloquée(s). Nouvelle tentative en cours...`);
         await retryFailedSyncs();
       };
+      return;
+    }
+
+    if (conflicts.length > 0) {
+      el.textContent = `🔀 ${conflicts.length} conflit${conflicts.length > 1 ? "s" : ""} de sync — Voir`;
+      el.title = "Ces fiches ont visiblement été modifiées ailleurs pendant que vous étiez hors-ligne. Cliquez pour les revoir une par une.";
+      el.style.cursor = "pointer";
+      el.onclick = () => reviewNextConflict();
       return;
     }
 
@@ -795,6 +892,7 @@ function bindStoreListeners() {
   store.subscribe("sync.status", renderSyncStatus);
   store.subscribe("sync.deadCount", renderSyncStatus);
   store.subscribe("sync.pendingCount", renderSyncStatus);
+  store.subscribe("sync.conflicts", renderSyncStatus);
 
   const renderGeoStatus = () => {
     const el = document.getElementById("geoStatus");

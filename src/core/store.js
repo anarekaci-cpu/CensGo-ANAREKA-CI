@@ -35,7 +35,8 @@ class Store {
         lastSync: null,
         pendingCount: 0,
         deadCount: 0,
-        pendingPointIds: []
+        pendingPointIds: [],
+        conflicts: []
       },
       ui: {
         loading: true,

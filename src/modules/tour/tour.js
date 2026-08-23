@@ -3,6 +3,15 @@ import { flyToPoint } from "../map/map.js";
 import { generateOptimizedTour } from "../../core/tourPlanner.js";
 import { normalizePointId } from "../../core/utils.js";
 import { lazyImport } from "../../core/lazyImport.js";
+import { calculateRoute } from "../routing/routing.js";
+import { log } from "../../core/debug.js";
+
+// Nombre d'étapes à venir dont l'itinéraire OSRM est préchargé — voir
+// prefetchUpcomingLegs(). Volontairement borné : précharger toute la
+// tournée (jusqu'à 150 arrêts) enverrait des dizaines de requêtes réseau
+// inutiles pour des arrêts que l'agent n'atteindra peut-être jamais
+// (visites hors ordre, tournée abandonnée en cours de route).
+const PREFETCH_LEGS = 3;
 
 let tourPoints = [];
 let currentIndex = 0;
@@ -64,10 +73,45 @@ export function goToNext() {
   }
 }
 
+/**
+ * Précharge dans le cache du service worker (Workbox "osrm-routes",
+ * StaleWhileRevalidate — voir vite.config.js) les itinéraires des
+ * PREFETCH_LEGS prochaines étapes de la tournée, en chaînant la position
+ * GPS actuelle -> tourPoints[index] -> tourPoints[index+1] -> ...
+ *
+ * Ces requêtes sont volontairement identiques à celles que navigation.js
+ * enverra plus tard en arrivant à chaque étape : une fois en cache, elles
+ * restent servables hors-ligne même si le réseau tombe entre-temps —
+ * exactement le scénario terrain visé par le "Mode offline complet".
+ * Best-effort : une étape déjà cachée ou une requête échouée n'interrompt
+ * pas les suivantes, et aucune erreur ne remonte à l'agent (le guidage
+ * en direct retentera de toute façon le calcul réel le moment venu).
+ */
+async function prefetchUpcomingLegs(fromIndex) {
+  if (!navigator.onLine) return;
+
+  const position = store.get("geo.position");
+  let from = position ? { lat: position.lat, lon: position.lng } : null;
+
+  const legs = tourPoints.slice(fromIndex, fromIndex + PREFETCH_LEGS);
+
+  for (const stop of legs) {
+    if (from) {
+      try {
+        await calculateRoute(from.lat, from.lon, stop.lat, stop.lon, store.get("navigation.mode"));
+      } catch (err) {
+        log.trace("TOUR", `prefetch échoué (${stop.id}):`, err?.message || err);
+      }
+    }
+    from = { lat: stop.lat, lon: stop.lon };
+  }
+}
+
 export function goToPoint(index) {
   const point = tourPoints[index];
   if (!point) return;
   flyToPoint(point.lat, point.lon, 17);
+  prefetchUpcomingLegs(index);
 
   // Annuler le popup en attente d'un appel précédent : sans ça, des taps
   // rapprochés sur "suivant" empilaient un setTimeout par appel et chacun
