@@ -1095,6 +1095,15 @@ input:checked + .slider:before { transform: translateX(24px); }
 .agent-row-status.role-pending { color: #d97706; }
 .agent-row-status.role-agent { color: #16a34a; }
 .agent-row-status.role-admin { color: #1a3d2b; }
+.agent-row-stats { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.agents-summary {
+  display: flex; flex-wrap: wrap; gap: 10px 16px;
+  font-size: 13px; font-weight: 600; color: var(--text-muted);
+  padding: 4px 2px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  margin-bottom: 10px;
+}
+.agents-summary-pending { color: #d97706; }
 .agent-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .agent-action-btn {
   border: 1px solid var(--border); background: white; color: var(--text-secondary);

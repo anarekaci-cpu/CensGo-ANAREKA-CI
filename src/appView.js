@@ -29,6 +29,7 @@ import { haversineKm } from "./core/geo.js";
 const PHOTO_GEOTAG_WARNING_M = 500;
 
 let emptyStateEl = null;
+let agentTrackingActive = false;
 
 function removeEmptyState() {
   if (emptyStateEl) {
@@ -318,6 +319,7 @@ export async function mountAuthenticatedApp(container) {
               <button id="agentsModalCloseBtn" class="ai-close-btn" aria-label="Fermer">✕</button>
             </div>
             <div class="ai-content-body">
+              <div id="agentsSummary" class="agents-summary"></div>
               <div id="agentsList" class="agents-list"></div>
             </div>
           </div>
@@ -523,7 +525,16 @@ function bindEvents() {
       "Déconnexion",
       "Voulez-vous vous déconnecter ? Les données non synchronisées seront conservées localement."
     );
-    if (ok) logout();
+    if (ok) {
+      // stopAgentTracking() : sinon le setInterval(30s) du suivi agents
+      // continue de tourner après déconnexion (session absente côté
+      // Supabase) et martèle des requêtes vouées à échouer indéfiniment.
+      stopAgentTracking();
+      agentTrackingActive = false;
+      const trackingBtn = document.getElementById("agentTrackingBtn");
+      if (trackingBtn) trackingBtn.textContent = "📍 Suivi Agents Terrain";
+      logout();
+    }
   };
 
   document.getElementById("menuToggleBtn").onclick = () => {
@@ -647,7 +658,6 @@ function bindEvents() {
     }
   });
 
-  let agentTrackingActive = false;
   document.getElementById("agentTrackingBtn")?.addEventListener("click", async () => {
     agentTrackingActive = !agentTrackingActive;
     const btn = document.getElementById("agentTrackingBtn");
@@ -983,13 +993,17 @@ function bindAiEvents() {
 
 const ROLE_LABELS = { agent: "Agent", admin: "Administrateur" };
 
-function renderAgentRow(row, currentUserId) {
+function renderAgentRow(row, currentUserId, stats) {
   const isSelf = row.user_id === currentUserId;
   const name = escapeHtml(row.full_name || "Sans nom renseigné");
   const email = row.email ? escapeHtml(row.email) : "";
   const number = row.agent_number != null ? `#${row.agent_number}` : "—";
   const statusLabel = row.role ? ROLE_LABELS[row.role] : "En attente de validation";
   const statusClass = row.role === "admin" ? "role-admin" : row.role === "agent" ? "role-agent" : "role-pending";
+  const agentStats = stats?.get(row.user_id);
+  const statsHTML = row.role === "agent" && agentStats
+    ? `<div class="agent-row-stats">📋 ${agentStats.created} recensement${agentStats.created > 1 ? "s" : ""}${agentStats.created ? ` · ✅ ${agentStats.visited} visité${agentStats.visited > 1 ? "s" : ""}` : ""}</div>`
+    : "";
 
   const actions = [];
   if (!isSelf) {
@@ -1012,6 +1026,7 @@ function renderAgentRow(row, currentUserId) {
           <div class="agent-row-name">${name}${isSelf ? " (vous)" : ""}</div>
           ${email ? `<div class="agent-row-email">${email}</div>` : ""}
           <div class="agent-row-status ${statusClass}">${statusLabel}</div>
+          ${statsHTML}
         </div>
       </div>
       <div class="agent-row-actions">${actions.join("")}</div>
@@ -1019,10 +1034,31 @@ function renderAgentRow(row, currentUserId) {
   `;
 }
 
+// Statistiques par agent (nb de points recensés / visités) calculées côté
+// client à partir de store.get("points") — déjà chargés pour la carte
+// partagée, donc aucune requête ni fonction SQL supplémentaire nécessaire.
+function computeAgentStats() {
+  const stats = new Map();
+  const points = store.get("points") || [];
+  for (const p of points) {
+    if (!p.createdBy) continue;
+    let entry = stats.get(p.createdBy);
+    if (!entry) {
+      entry = { created: 0, visited: 0 };
+      stats.set(p.createdBy, entry);
+    }
+    entry.created += 1;
+    if (p.visited) entry.visited += 1;
+  }
+  return stats;
+}
+
 async function refreshAgentsList() {
   const list = document.getElementById("agentsList");
+  const summary = document.getElementById("agentsSummary");
   if (!list) return;
   list.innerHTML = `<div class="agents-list-loading">Chargement des comptes…</div>`;
+  if (summary) summary.innerHTML = "";
   try {
     const { fetchAllAccounts } = await import("./modules/admin/roleManager.js");
     const rows = await fetchAllAccounts();
@@ -1031,7 +1067,20 @@ async function refreshAgentsList() {
       list.innerHTML = `<div class="agents-list-loading">Aucun compte inscrit pour le moment.</div>`;
       return;
     }
-    list.innerHTML = rows.map(r => renderAgentRow(r, currentUserId)).join("");
+    const stats = computeAgentStats();
+    if (summary) {
+      const pending = rows.filter(r => !r.role).length;
+      const agents = rows.filter(r => r.role === "agent").length;
+      const admins = rows.filter(r => r.role === "admin").length;
+      const totalPoints = store.get("points")?.length || 0;
+      summary.innerHTML = `
+        <span>👤 ${agents} agent${agents > 1 ? "s" : ""}</span>
+        <span>👑 ${admins} admin${admins > 1 ? "s" : ""}</span>
+        ${pending ? `<span class="agents-summary-pending">⏳ ${pending} en attente</span>` : ""}
+        <span>📋 ${totalPoints} point${totalPoints > 1 ? "s" : ""} au total</span>
+      `;
+    }
+    list.innerHTML = rows.map(r => renderAgentRow(r, currentUserId, stats)).join("");
   } catch (e) {
     list.innerHTML = `<div class="agents-list-loading">❌ ${escapeHtml(e.message || "Échec du chargement des comptes.")}</div>`;
   }
