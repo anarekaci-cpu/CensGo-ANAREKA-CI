@@ -1,7 +1,7 @@
 import { store } from "./store.js";
 import { CONFIG } from "./config.js";
 import { haversineKm } from "./geo.js";
-import { toastWarning } from "./toast.js";
+import { toastInfo, toastWarning } from "./toast.js";
 
 /**
  * Anti-fraude terrain : un agent ne doit pouvoir marquer un point "visité"
@@ -28,6 +28,10 @@ export function canMarkVisited(lat, lon) {
     toastWarning("Position GPS indisponible : activez la localisation pour marquer ce point visité.");
     return false;
   }
+
+  const accuracy = Number.isFinite(position.accuracy) ? `${Math.round(position.accuracy)} m` : "inconnue";
+  const measuredAt = position.timestamp ? new Date(position.timestamp).toLocaleString("fr-FR") : "heure inconnue";
+  toastInfo(`Validation GPS : précision ${accuracy}, relevé le ${measuredAt}.`);
 
   const distanceM = haversineKm(position.lat, position.lng, lat, lon) * 1000;
   if (distanceM > CONFIG.VISIT_GEOFENCE_RADIUS_M) {

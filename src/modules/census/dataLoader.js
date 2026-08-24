@@ -163,6 +163,7 @@ async function _loadCensusData(forceOffline) {
       if (sample) log.trace("STORE", "sample bgv_b01_01 =", sample);
     }
     store.set("ui.loading", false);
+    store.set("sync.dataSource", "cache");
     store.set("sync.status", navigator.onLine ? "syncing" : "offline");
     console.info(`📦 ${localPoints.length} points affichés depuis IndexedDB (cache-first)`);
   }
@@ -215,6 +216,7 @@ async function _loadCensusData(forceOffline) {
         "les règles d'accès (RLS) bloquent la lecture."
       );
       store.set("sync.status", localPoints.length > 0 ? "idle" : "error");
+      store.set("sync.dataSource", localPoints.length > 0 ? "cache" : "none");
       store.set("ui.loading", false);
       perfMark("FIN-VIDE");
       perfReport();
@@ -248,6 +250,7 @@ async function _loadCensusData(forceOffline) {
     }
 
     store.set("sync.status", "idle");
+    store.set("sync.dataSource", "server");
     store.set("sync.lastSync", nowIso);
     store.set("sync.warning", null);
     store.set("sync.errorDetail", null);
@@ -264,6 +267,7 @@ async function _loadCensusData(forceOffline) {
   } catch (err) {
     console.error("[DATA] Échec du chargement Supabase:", err);
     store.set("sync.errorDetail", describeSyncError(err));
+    store.set("sync.lastError", describeSyncError(err));
     store.set("sync.status", localPoints.length > 0 ? "offline" : "error");
     store.set("ui.loading", false);
     if (localPoints.length === 0) {

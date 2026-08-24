@@ -23,6 +23,8 @@ import { extractExifGps } from "./core/exif.js";
 import { haversineKm } from "./core/geo.js";
 import { getWeather, getRainAlert, describeWeatherCode } from "./modules/weather/weather.js";
 import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
+import { auditExportQuality } from "./core/exportQuality.js";
+import { getPendingSyncs } from "./db/database.js";
 import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
@@ -100,7 +102,7 @@ export async function mountAuthenticatedApp(container) {
         </div>
         <div class="right">
           <div id="weatherWidget" style="display:none;" title="Météo à votre position"></div>
-          <div id="syncStatus">🌐 Connexion...</div>
+          <button id="syncStatus" type="button" aria-label="État de synchronisation">🌐 Connexion...</button>
           <div class="header-actions">
             <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement" aria-label="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
             <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain" aria-label="Boussole terrain">🧭 <span class="btn-label">Boussole</span></button>
@@ -175,6 +177,7 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="action-row" id="exportRow" style="display:none;">
             <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
+            <div id="exportQualitySummary" class="export-quality-summary" hidden role="status"></div>
           </div>
           <div class="action-row" id="tourReportRow" style="display:none;">
             <button id="tourReportBtn" class="btn-export" style="grid-column: 1 / -1;">🖨️ Rapport PDF de la dernière tournée</button>
@@ -1314,13 +1317,16 @@ function bindStoreListeners() {
     const deadCount = store.get("sync.deadCount") || 0;
     const pendingCount = store.get("sync.pendingCount") || 0;
     const conflicts = store.get("sync.conflicts") || [];
+    const dataSource = store.get("sync.dataSource");
+    const lastError = store.get("sync.lastError") || store.get("sync.errorDetail");
 
     if (deadCount > 0) {
       el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Voir`;
-      el.title = "Ces fiches n'ont pas pu être envoyées après plusieurs tentatives. Cliquez pour voir les détails.";
+      el.title = lastError || "Ces fiches n'ont pas pu être envoyées après plusieurs tentatives. Cliquez pour voir les détails.";
+      el.className = "sync-status sync-status-error";
       el.style.cursor = "pointer";
       el.onclick = async () => {
-        toastWarning(`${deadCount} fiche(s) bloquée(s). Nouvelle tentative en cours...`);
+        toastWarning(`${deadCount} fiche(s) bloquée(s). ${lastError || "Nouvelle tentative en cours..."}`);
         await retryFailedSyncs();
       };
       return;
@@ -1328,6 +1334,7 @@ function bindStoreListeners() {
 
     if (conflicts.length > 0) {
       el.textContent = `🔀 ${conflicts.length} conflit${conflicts.length > 1 ? "s" : ""} de sync — Voir`;
+      el.className = "sync-status sync-status-error";
       el.title = "Ces fiches ont visiblement été modifiées ailleurs pendant que vous étiez hors-ligne. Cliquez pour les revoir une par une.";
       el.style.cursor = "pointer";
       el.onclick = () => reviewNextConflict();
@@ -1336,15 +1343,24 @@ function bindStoreListeners() {
 
     el.onclick = null;
     el.style.cursor = "default";
-    const labels = {
-      idle: "🟢 Synchronisé",
-      offline: "📴 Mode offline",
-      error: "⚠️ Erreur sync"
-    };
     if (status === "syncing" && pendingCount > 0) {
       el.textContent = `🔄 Sync... ${pendingCount} restante${pendingCount > 1 ? "s" : ""}`;
+      el.className = "sync-status sync-status-syncing";
+      el.title = "Synchronisation avec Supabase en cours.";
+    } else if (status === "error") {
+      el.textContent = "⚠️ Échec sync — Voir";
+      el.className = "sync-status sync-status-error";
+      el.title = lastError || "La synchronisation a échoué. Cliquez pour afficher les détails.";
+      el.style.cursor = "pointer";
+      el.onclick = () => toastWarning(lastError || "Une erreur de synchronisation est survenue.");
+    } else if (dataSource === "cache" || status === "offline") {
+      el.textContent = "◌ Cache local";
+      el.className = "sync-status sync-status-cache";
+      el.title = "Données affichées depuis le stockage local. Elles restent utilisables hors connexion.";
     } else {
-      el.textContent = labels[status] || status;
+      el.textContent = "✓ À jour";
+      el.className = "sync-status sync-status-ready";
+      el.title = "Données synchronisées avec Supabase.";
     }
   };
 
@@ -1352,6 +1368,8 @@ function bindStoreListeners() {
   store.subscribe("sync.deadCount", renderSyncStatus);
   store.subscribe("sync.pendingCount", renderSyncStatus);
   store.subscribe("sync.conflicts", renderSyncStatus);
+  store.subscribe("sync.dataSource", renderSyncStatus);
+  store.subscribe("sync.lastError", renderSyncStatus);
 
   const renderGeoStatus = () => {
     const el = document.getElementById("geoStatus");
@@ -1676,7 +1694,7 @@ function renderQuartierCoverage() {
   });
 }
 
-function exportCSV() {
+async function exportCSV() {
   // Second verrou (le bouton est déjà masqué pour les non-admins) : au cas
   // où exportCSV() serait un jour appelée par un autre chemin que le clic
   // sur #exportBtn, l'export de données reste bloqué pour un compte agent.
@@ -1685,6 +1703,17 @@ function exportCSV() {
     return;
   }
   const points = store.get("points");
+  const pending = await getPendingSyncs();
+  const quality = auditExportQuality(points, pending.length);
+  const qualityEl = document.getElementById("exportQualitySummary");
+  if (qualityEl) {
+    qualityEl.hidden = false;
+    qualityEl.textContent = `Contrôle qualité : ${quality.incompleteCount} incomplet(s), ${quality.pendingCount} en attente de sync, ${quality.duplicateCount} doublon(s) potentiel(s).`;
+    qualityEl.classList.toggle("export-quality-warning", Object.values(quality).some(value => value > 0));
+  }
+  if (quality.incompleteCount || quality.pendingCount || quality.duplicateCount) {
+    toastWarning(`Export autorisé avec avertissement : ${quality.incompleteCount} incomplet(s), ${quality.pendingCount} en attente, ${quality.duplicateCount} doublon(s) potentiel(s).`);
+  }
   const header = ["id", "block", "name", "etablissement", "activityType", "tel", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
   const rows = points.map(p => [
     p.id, p.block, p.name, p.etablissement, p.activityType, p.tel, p.quartier, p.address,

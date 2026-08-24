@@ -254,7 +254,9 @@ async function syncWithConcurrency(items, supabase) {
           attempts++;
           if (attempts >= 3) {
             console.error(`Sync failed after 3 attempts for ${item.pointId}:`, err);
-            await markSyncFailed(item.id, err.message, CONFIG.MAX_RETRY_ATTEMPTS);
+            const message = err?.message || "Erreur réseau ou synchronisation échouée";
+            await markSyncFailed(item.id, message, CONFIG.MAX_RETRY_ATTEMPTS);
+            store.set("sync.lastError", message);
           } else {
             await sleep(500 * Math.pow(2, attempts - 1));
           }
@@ -294,6 +296,7 @@ export async function triggerSync() {
       store.set("sync.pendingCount", 0);
       store.set("sync.deadCount", dead.length);
       store.set("sync.status", dead.length > 0 ? "error" : "idle");
+        store.set("sync.lastError", null);
       store.set("sync.conflicts", await getSyncConflicts());
       return;
     }
@@ -311,10 +314,12 @@ export async function triggerSync() {
     store.set("sync.pendingPointIds", [...new Set(remaining.map(p => p.pointId))]);
     store.set("sync.deadCount", dead.length);
     store.set("sync.status", dead.length > 0 ? "error" : (remaining.length > 0 ? "syncing" : "idle"));
+    store.set("sync.lastError", null);
     store.set("sync.lastSync", new Date().toISOString());
     store.set("sync.conflicts", await getSyncConflicts());
   } catch (err) {
     store.set("sync.status", "error");
+    store.set("sync.lastError", err?.message || "Erreur réseau ou synchronisation échouée");
     console.error("Sync engine error:", err);
   } finally {
     isSyncing = false;

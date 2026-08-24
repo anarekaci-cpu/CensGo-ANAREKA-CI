@@ -41,7 +41,9 @@ class Store {
       },
       sync: {
         status: "idle", // idle | syncing | error | offline
+        dataSource: "none", // none | cache | server
         lastSync: null,
+        lastError: null,
         pendingCount: 0,
         deadCount: 0,
         pendingPointIds: [],
