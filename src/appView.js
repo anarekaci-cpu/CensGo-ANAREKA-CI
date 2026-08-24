@@ -725,7 +725,7 @@ function bindEvents() {
     }
     const points = store.get("points").filter(p => !p.visited);
     const { generateOptimizedTour, startTour } = await getTourModule();
-    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng });
+    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading });
     if (tour.length === 0) {
       toastInfo("Tous les points non-visités ont déjà été traités !");
       return;

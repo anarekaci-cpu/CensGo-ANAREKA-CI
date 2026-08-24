@@ -44,6 +44,59 @@ describe("generateOptimizedTour", () => {
     expect(typeof tour[1].distanceFromPrev).toBe("number");
   });
 
+  // Cas réel signalé (audit, capture d'écran) : le glouton pur (distance
+  // seule) choisissait un point géométriquement un peu plus proche mais
+  // hors de l'axe déjà engagé, plutôt que de "ramasser" au passage les
+  // points alignés sur la direction de progression — provoquant un détour
+  // puis un retour en arrière au lieu d'une progression naturelle.
+  it("privilégie la continuation sur l'axe engagé plutôt qu'un point hors-axe légèrement plus proche", () => {
+    const start = { lat: 5.350, lng: -3.990 };
+    // A droit au nord du départ (~111m) ; B droit au nord de A (~111m de
+    // plus, même cap) ; X à l'est de A (~90m, donc plus proche de A que B)
+    // mais à 90° du cap nord déjà établi par le trajet départ->A.
+    const A = mkPoint("A", 5.3510, -3.9900);
+    const B = mkPoint("B", 5.3520, -3.9900);
+    const X = mkPoint("X", 5.3510, -3.98919);
+
+    const tour = generateOptimizedTour([B, X, A], start);
+
+    expect(tour.map(p => p.id)).toEqual(["A", "B", "X"]);
+  });
+
+  // Reprend le scénario ci-dessus mais avec une troisième étape (C) sur le
+  // même axe, pour vérifier le "ramassage" complet dans l'ordre naturel
+  // avant le détour vers X — exactement le comportement attendu décrit
+  // dans le rapport terrain (sweep avant détour).
+  it("balaie plusieurs points alignés dans l'ordre avant de faire le détour", () => {
+    const start = { lat: 5.350, lng: -3.990 };
+    const A = mkPoint("A", 5.3510, -3.9900);
+    const B = mkPoint("B", 5.3520, -3.9900);
+    const C = mkPoint("C", 5.3530, -3.9900);
+    const X = mkPoint("X", 5.3510, -3.98919);
+
+    const tour = generateOptimizedTour([C, B, X, A], start);
+
+    expect(tour.map(p => p.id)).toEqual(["A", "B", "C", "X"]);
+  });
+
+  // Le cap GPS live (startPos.heading) sert de direction de progression
+  // déjà établie pour le TOUT PREMIER choix, avant même le premier
+  // déplacement — sans lui, rien ne distingue "devant" de "à côté" pour ce
+  // premier point (voir aussi le test suivant, sans heading fourni).
+  it("utilise le cap GPS live pour orienter le tout premier choix", () => {
+    // X légèrement plus proche du départ que N, mais à l'est (90°) alors
+    // que l'agent se déplace vers le nord (heading=0).
+    const N = mkPoint("N", 5.3510, -3.9900);   // ~111m au nord, cap 0°
+    const X = mkPoint("X", 5.3502, -3.98919);  // ~90m à l'est, cap ~90°
+
+    const withHeading = generateOptimizedTour([X, N], { lat: 5.350, lng: -3.990, heading: 0 });
+    expect(withHeading[0].id).toBe("N");
+
+    // Sans heading connu, le premier choix reste un plus-proche-voisin pur.
+    const withoutHeading = generateOptimizedTour([X, N], { lat: 5.350, lng: -3.990 });
+    expect(withoutHeading[0].id).toBe("X");
+  });
+
   it("plafonné à MAX_TOUR_STOPS — pas d'explosion O(N²) sur 10k points", () => {
     const pts = [];
     for (let i = 0; i < 10000; i++) {

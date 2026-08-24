@@ -223,6 +223,25 @@ export function remainingRouteDistanceMeters(lat, lon, polyline) {
   return bestRemaining;
 }
 
+/**
+ * Différence angulaire absolue entre deux caps, dans [0, 180] — la plus
+ * courte des deux façons de tourner de l'un vers l'autre (ex: 350° et 10°
+ * ne sont écartés que de 20°, pas de 340°). Sert à mesurer à quel point un
+ * point candidat oblige à dévier de la direction de progression établie
+ * (voir tourPlanner.js, routing.js: findNearestByRoad) — 0° = droit devant,
+ * 180° = demi-tour complet.
+ *
+ * @param {number} a cap en degrés
+ * @param {number} b cap en degrés
+ * @returns {number} écart en degrés dans [0, 180], ou 0 si une entrée n'est
+ * pas un nombre fini (pas de pénalité applicable sans cap connu).
+ */
+export function angleDiffDeg(a, b) {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  const diff = Math.abs(a - b) % 360;
+  return diff > 180 ? 360 - diff : diff;
+}
+
 const CARDINAL_LABELS = [
   "Nord",
   "Nord-Est",
