@@ -32,6 +32,7 @@ import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintW
 const PHOTO_GEOTAG_WARNING_M = 500;
 
 let emptyStateEl = null;
+let routeBannerCollapseTimer = null;
 let agentTrackingActive = false;
 // BUG corrigé (audit) : initApp() est rappelée à chaque reconnexion dans la
 // même session (logout -> login sans recharger la page, appShell.js remet
@@ -843,6 +844,12 @@ function bindEvents() {
   document.getElementById("closeRouteBtn").onclick = () => {
     store.set("navigation.active", false);
   };
+  document.getElementById("routeBanner")?.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    const banner = document.getElementById("routeBanner");
+    banner?.classList.remove("is-compact");
+    if (routeBannerCollapseTimer) clearTimeout(routeBannerCollapseTimer);
+  });
   document.getElementById("routeChoiceBtn")?.addEventListener("click", () => {
     const route = store.get("navigation.route");
     if (!route?.alternatives?.length || route.suggested === route.shortest) return;
@@ -896,7 +903,10 @@ function bindEvents() {
     };
   }
   document.querySelectorAll(".nav-mode-btn").forEach(btn => {
-    btn.addEventListener("click", () => setNavigationMode(btn.dataset.mode));
+    btn.addEventListener("click", () => {
+      setNavigationMode(btn.dataset.mode);
+      document.getElementById("navModeRow")?.classList.add("is-collapsed");
+    });
   });
   document.getElementById("arrivalYesBtn").onclick = () => markArrivedVisited();
   document.getElementById("arrivalNoBtn").onclick = () => {
@@ -1387,6 +1397,17 @@ function bindStoreListeners() {
     const modeRow = document.getElementById("navModeRow");
     if (modeRow) modeRow.style.display = active ? "flex" : "none";
     if (active) renderNavModeButtons();
+    const routeBanner = document.getElementById("routeBanner");
+    if (routeBanner) {
+      routeBanner.classList.remove("is-compact");
+      if (routeBannerCollapseTimer) clearTimeout(routeBannerCollapseTimer);
+      if (active) {
+        routeBannerCollapseTimer = setTimeout(() => {
+          routeBanner.classList.add("is-compact");
+        }, 7000);
+      }
+    }
+    if (!active) document.getElementById("navModeRow")?.classList.remove("is-collapsed");
     const icon = document.getElementById("navIcon");
     if (icon) icon.textContent = getModeMeta(store.get("navigation.mode")).icon;
   });

@@ -467,8 +467,9 @@ header {
 #navBottomStack {
   position: absolute; bottom: 84px; left: 16px; right: 16px;
   display: flex; flex-direction: column; gap: 10px;
-  z-index: 300; margin-bottom: var(--safe-bottom);
+  z-index: 300; margin-bottom: var(--safe-bottom); pointer-events: none;
 }
+#navBottomStack > * { pointer-events: auto; }
 #navPanel {
   background: rgba(255, 255, 255, 0.98); border-radius: var(--radius-lg);
   padding: 16px 18px; display: none;
@@ -476,9 +477,9 @@ header {
   box-shadow: var(--shadow-lg);
   border: 1px solid rgba(26, 61, 43, 0.1);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  max-height: 40dvh; overflow: auto; position: relative; touch-action: pan-y;
+  min-height: 60px; max-height: 40dvh; overflow: auto; position: relative; touch-action: pan-y;
 }
-#navPanel.is-collapsed { max-height: 68px; padding-top: 10px; padding-bottom: 10px; }
+#navPanel.is-collapsed { max-height: 68px; min-height: 60px; padding-top: 10px; padding-bottom: 10px; }
 #navPanel.is-collapsed #navInfo { max-height: 0; opacity: 0; overflow: hidden; }
 #navPanel.is-loading #navInstruction { color: #0369a1; }
 #navPanel.is-loading #navInstruction::before {
@@ -519,6 +520,7 @@ header {
 #navModeRow {
   display: none; gap: 8px; justify-content: center;
 }
+#navModeRow.is-collapsed { max-height: 0; opacity: 0; overflow: hidden; pointer-events: none; margin: 0; }
 .nav-mode-btn {
   flex: 1; max-width: 140px; padding: 9px 10px; min-height: 44px;
   border-radius: 999px; border: 1px solid rgba(26, 61, 43, 0.15);
@@ -562,10 +564,14 @@ header {
   background: linear-gradient(135deg, #0d2818, #1a3d2b); color: white;
   border-radius: 14px; padding: 12px 18px;
   display: none; align-items: center; justify-content: space-between;
-  z-index: 300; font-size: 13.5px; font-weight: 600;
+  z-index: 300; font-size: 12.5px; font-weight: 600;
   box-shadow: 0 8px 24px rgba(0,0,0,0.2);
   margin-top: var(--safe-top);
+  min-height: 44px; padding-top: 6px; padding-bottom: 6px;
 }
+#routeBanner.is-compact { left: auto; right: 16px; width: 44px; min-height: 44px; padding: 0; border-radius: 50%; overflow: hidden; }
+#routeBanner.is-compact > span, #routeBanner.is-compact #routeChoiceBtn { display: none !important; }
+#routeBanner.is-compact #closeRouteBtn { display: flex; width: 44px; height: 44px; }
 #closeRouteBtn {
   background: rgba(255,255,255,0.15); border: none; color: white;
   width: 44px; height: 44px; border-radius: 50%;

@@ -134,6 +134,9 @@ export function addRouteLayer(geojson, mode) {
   if (mapInstance.getLayer("route-line-layer")) {
     mapInstance.removeLayer("route-line-layer");
   }
+  if (mapInstance.getLayer("route-line-casing")) {
+    mapInstance.removeLayer("route-line-casing");
+  }
   if (mapInstance.getSource("route-line")) {
     mapInstance.removeSource("route-line");
   }
@@ -141,6 +144,13 @@ export function addRouteLayer(geojson, mode) {
   const { "line-cap": lineCap, ...paint } = ROUTE_LINE_STYLES[mode] || ROUTE_LINE_STYLES.car;
 
   mapInstance.addSource("route-line", { type: "geojson", data: geojson });
+  mapInstance.addLayer({
+    id: "route-line-casing",
+    type: "line",
+    source: "route-line",
+    layout: { "line-cap": lineCap, "line-join": "round" },
+    paint: { "line-color": "#ffffff", "line-width": paint["line-width"] + 4, "line-opacity": 0.9 }
+  });
   mapInstance.addLayer({
     id: "route-line-layer",
     type: "line",
@@ -242,7 +252,16 @@ export function showUserLocation(lat, lng, accuracy) {
   userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
   updateAccuracyCircle(lat, lng, accuracy);
   if (cameraFollowEnabled && store.get("navigation.active")) {
-    mapInstance.easeTo({ center: [lng, lat], duration: 450, essential: true });
+    const heading = store.get("geo.position")?.heading;
+    const mapHeight = mapInstance.getContainer().getBoundingClientRect().height;
+    mapInstance.easeTo({
+      center: [lng, lat],
+      zoom: Math.max(mapInstance.getZoom(), 16.5),
+      bearing: Number.isFinite(heading) ? heading : mapInstance.getBearing(),
+      padding: { top: 0, right: 0, bottom: Math.round(mapHeight * 0.22), left: 0 },
+      duration: 450,
+      essential: true
+    });
   }
 }
 
@@ -262,6 +281,9 @@ export function clearRouteLayers() {
   if (!mapInstance) return;
   if (mapInstance.getLayer("route-line-layer")) {
     mapInstance.removeLayer("route-line-layer");
+  }
+  if (mapInstance.getLayer("route-line-casing")) {
+    mapInstance.removeLayer("route-line-casing");
   }
   if (mapInstance.getSource("route-line")) {
     mapInstance.removeSource("route-line");
