@@ -6,6 +6,7 @@ import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDead
 let isOnline = navigator.onLine;
 let isSyncing = false;
 const MAX_CONCURRENT = 3;
+const DEAD_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 // Timeout par opération : sans lui, une requête suspendue (réseau mobile)
 // bloquait la file entière indéfiniment — les fiches restaient "en attente"
 // sans jamais réussir ni échouer.
@@ -17,7 +18,7 @@ export async function initSyncEngine() {
   window.addEventListener("online", () => {
     isOnline = true;
     store.set("sync.status", "idle");
-    triggerSync();
+    retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
   });
 
   window.addEventListener("offline", () => {
@@ -28,6 +29,12 @@ export async function initSyncEngine() {
   setInterval(() => {
     if (isOnline) triggerSync();
   }, CONFIG.SYNC_INTERVAL_MS);
+
+  setInterval(() => {
+    if (isOnline) {
+      retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
+    }
+  }, DEAD_RETRY_INTERVAL_MS);
 
   // Retour au premier plan (agent qui rouvre l'app après l'avoir mise en
   // arrière-plan, ou juste reverrouillé son téléphone) : ne pas attendre
