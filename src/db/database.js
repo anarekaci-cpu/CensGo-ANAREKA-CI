@@ -73,6 +73,27 @@ export async function savePoints(pointsArray) {
   });
 }
 
+export async function mergePoints(pointsArray) {
+  return db.transaction("rw", db.points, async () => {
+    const localPoints = await db.points.toArray();
+    const incomingById = new Map(pointsArray.map(point => [point.id, point]));
+    const merged = localPoints.map(point => {
+      const incoming = incomingById.get(point.id);
+      if (!incoming || !point.syncedAt) return point;
+      return { ...incoming, localId: point.localId, syncedAt: new Date().toISOString() };
+    });
+    const existingIds = new Set(localPoints.map(point => point.id));
+    for (const point of pointsArray) {
+      if (!existingIds.has(point.id)) {
+        merged.push({ ...point, localId: merged.length + 1, syncedAt: new Date().toISOString() });
+      }
+    }
+    await db.points.clear();
+    await db.points.bulkAdd(merged);
+    return merged.length;
+  });
+}
+
 export async function getAllPoints() {
   const all = await db.points.toArray();
   // Déduplication défensive par id (dernier gagnant) : des résidus de

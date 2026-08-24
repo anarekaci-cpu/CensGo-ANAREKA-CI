@@ -1,7 +1,7 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { savePoints, getAllPoints, getMeta, setMeta } from "../../db/database.js";
+import { savePoints, mergePoints, getAllPoints, getMeta, setMeta } from "../../db/database.js";
 import { normalizePoint } from "../../core/normalize.js";
 import { log, isVerbose } from "../../core/debug.js";
 
@@ -157,6 +157,7 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
 
   // ===== ÉTAPE 1 : CACHE LOCAL (instantané, ne bloque jamais l'UI) =====
   let localPoints = [];
+  let lastSync = null;
   const t0IdbRead = performance.now();
   try {
     localPoints = await getAllPoints();
@@ -207,7 +208,7 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
     let data = null;
     let supaError = null;
     try {
-      const lastSync = !forceFullSync && !forceRefresh ? await getMeta("lastSync") : null;
+      lastSync = !forceFullSync && !forceRefresh ? await getMeta("lastSync") : null;
       store.set("sync.warning", null);
       store.set("sync.partialLoad", null);
       data = await fetchAllPages(supabase, { since: lastSync });
@@ -250,7 +251,11 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
 
     // Persistance IndexedDB
     const t0Write = performance.now();
-    if (formatted.length > 0) await savePoints(formatted);
+    if (lastSync && !forceFullSync && !forceRefresh) {
+      if (formatted.length > 0) await mergePoints(formatted);
+    } else {
+      await savePoints(formatted);
+    }
     const merged = await getAllPoints();
     idbWriteDuration = Math.round(performance.now() - t0Write);
     log.trace("INDEXEDDB", `write = true\npoints = ${merged.length}\ndurationMs = ${idbWriteDuration}`);
