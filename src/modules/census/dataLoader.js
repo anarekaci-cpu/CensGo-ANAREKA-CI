@@ -1,7 +1,7 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { savePoints, getAllPoints, setMeta } from "../../db/database.js";
+import { savePoints, getAllPoints, getMeta, setMeta } from "../../db/database.js";
 import { normalizePoint } from "../../core/normalize.js";
 import { log, isVerbose } from "../../core/debug.js";
 
@@ -74,12 +74,12 @@ const MAX_PAGES = 100; // garde-fou : 100 x 1000 = 100k points max
  * Chaque page a son propre timeout ; en cas d'échec après au moins une page
  * reçue, on retourne ce qui a été obtenu plutôt que de tout jeter.
  */
-async function fetchAllPages(supabase) {
+export async function fetchAllPages(supabase, { since = null } = {}) {
   const allRows = [];
   for (let page = 0; page < MAX_PAGES; page++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
-    const { data, error } = await supabase
+    let query = supabase
       .from(CONFIG.TABLE_NAME)
       // Colonnes explicites plutôt que select(*) : pas de colonne inutile
       // téléchargée (le volume transféré compte sur lien 3G terrain).
@@ -91,14 +91,17 @@ async function fetchAllPages(supabase) {
       .select("point_id,block,order,name,tel,etablissement,activity_type,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_by")
       .order("block", { ascending: true })
       .order("order", { ascending: true })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-      .abortSignal(controller.signal);
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    if (since) query = query.gte("updated_at", since);
+    const { data, error } = await query.abortSignal(controller.signal);
     clearTimeout(timeoutId);
 
     if (error) {
       if (allRows.length > 0) {
         // Réseau coupé en cours de pagination : on garde les pages reçues.
-        console.warn(`[DATA] Pagination interrompue après ${allRows.length} lignes:`, error.message);
+        const warning = `Synchronisation partielle : ${page} page(s), ${allRows.length} ligne(s) reçue(s) avant l'interruption. Les données locales sont conservées.`;
+        store.set("sync.warning", warning);
+        console.warn(`[DATA] ${warning}`, error.message);
         return allRows;
       }
       throw error;
@@ -129,15 +132,15 @@ let loadPromise = null;
  * @param {boolean} [options.forceRefresh] - ignore la promesse partagée en cours
  * @returns {Promise<object[]>} points normalisés affichés
  */
-export function loadCensusData(forceOffline = false, { forceRefresh = false } = {}) {
+export function loadCensusData(forceOffline = false, { forceRefresh = false, forceFullSync = false } = {}) {
   if (loadPromise && !forceRefresh) return loadPromise;
-  loadPromise = _loadCensusData(forceOffline).finally(() => {
+  loadPromise = _loadCensusData(forceOffline, { forceRefresh, forceFullSync }).finally(() => {
     loadPromise = null;
   });
   return loadPromise;
 }
 
-async function _loadCensusData(forceOffline) {
+async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefresh = false } = {}) {
   perfStart();
   const tStartAll = performance.now();
   perfMark("INIT");
@@ -194,7 +197,9 @@ async function _loadCensusData(forceOffline) {
     let data = null;
     let supaError = null;
     try {
-      data = await fetchAllPages(supabase);
+      const lastSync = !forceFullSync && !forceRefresh ? await getMeta("lastSync") : null;
+      store.set("sync.warning", null);
+      data = await fetchAllPages(supabase, { since: lastSync });
     } catch (e) {
       supaError = e;
     }
@@ -234,7 +239,7 @@ async function _loadCensusData(forceOffline) {
 
     // Persistance IndexedDB
     const t0Write = performance.now();
-    await savePoints(formatted);
+    if (formatted.length > 0) await savePoints(formatted);
     const merged = await getAllPoints();
     idbWriteDuration = Math.round(performance.now() - t0Write);
     log.trace("INDEXEDDB", `write = true\npoints = ${merged.length}\ndurationMs = ${idbWriteDuration}`);
