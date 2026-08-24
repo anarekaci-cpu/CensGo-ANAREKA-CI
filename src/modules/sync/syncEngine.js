@@ -136,7 +136,7 @@ async function handleConflict(item) {
     localPayload: item.payload,
     detectedAt: new Date().toISOString()
   });
-  await markPointSynced(item.pointId);
+  await markPointSynced(item.pointId, item.id);
   await markSyncDone(item.id);
 }
 
@@ -209,7 +209,9 @@ async function syncOne(supabase, item) {
           return;
         }
       } catch {
-        // Vérification indisponible — on procède à l'upsert normal.
+        // Sans vérification de version, l'upsert pourrait écraser une
+        // modification concurrente. L'opération reste en file pour retry.
+        throw new Error("Vérification de version serveur indisponible");
       }
     }
 
@@ -243,7 +245,7 @@ async function syncOne(supabase, item) {
   // Idempotence : une opération n'est retirée de la file QUE si le serveur
   // l'a acceptée (pas d'erreur ci-dessus). markSyncDone ne s'exécute jamais
   // après un échec — la donnée locale ET l'entrée pending sont conservées.
-  await markPointSynced(item.pointId);
+  await markPointSynced(item.pointId, item.id);
   await markSyncDone(item.id);
 }
 

@@ -233,9 +233,14 @@ export async function upsertPoint(pointData) {
   return { ...updated, pendingSync: pendingSyncedFlag };
 }
 
-export async function markPointSynced(pointId) {
+export async function markPointSynced(pointId, completedQueueId = null) {
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return;
+  const remaining = await db.syncQueue
+    .where("pointId").equals(pointId)
+    .filter(item => item.id !== completedQueueId && (item.status === "pending" || item.status === "dead"))
+    .count();
+  if (remaining > 0) return;
   await db.points.put({ ...point, syncedAt: new Date().toISOString() });
 }
 
