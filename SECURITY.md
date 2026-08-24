@@ -26,7 +26,7 @@ ne correspondent PAS au schéma réel.
 ### Table `census_points`
 
 | Opération | Qui | Condition |
-|-----------|-----|-----------|
+| ----------- | ----- | ----------- |
 | SELECT | tout utilisateur authentifié | `USING (true)` — modèle collaboratif : chaque agent voit toutes les fiches pour couvrir sa zone |
 | INSERT | agent | uniquement ses propres lignes (`created_by = auth.uid()`) ; admin : tout |
 | UPDATE | agent | uniquement ses propres lignes ; admin : tout |
@@ -109,7 +109,7 @@ utilisateur : celui-ci doit être ajouté côté Supabase avant un usage IA à g
 ## 🛡️ Bonnes pratiques
 
 | Pratique | Statut |
-|----------|--------|
+| ---------- | -------- |
 | Clés API dans `.env` uniquement (hook pre-commit anti-`.env`) | ✅ |
 | RLS activé sur toutes les tables + policies par rôle | ✅ reset_rls.sql |
 | Rotation de la clé anon exposée | ⚠️ À faire côté dashboard |
@@ -127,4 +127,4 @@ utilisateur : celui-ci doit être ajouté côté Supabase avant un usage IA à g
 ## 🚨 Signalement de vulnérabilités
 
 Si vous découvrez une faille de sécurité, merci de contacter :  
-**security@anareka.ci** (ou ouvrir une issue privée sur GitHub).
+[security@anareka.ci](mailto:security@anareka.ci) (ou ouvrir une issue privée sur GitHub).
