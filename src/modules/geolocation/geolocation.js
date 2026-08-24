@@ -10,6 +10,7 @@ import { shouldAcceptGpsFix, smoothGpsPosition } from "../../core/positionSmooth
 let position = null;
 let displayPosition = null;
 let hasAutoCentered = false;
+let watchId = null;
 
 export function initGeolocation() {
   if (!navigator.geolocation) {
@@ -18,7 +19,8 @@ export function initGeolocation() {
     return;
   }
 
-  navigator.geolocation.watchPosition(
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = navigator.geolocation.watchPosition(
     (pos) => {
       const rawPosition = {
         lat: pos.coords.latitude,
@@ -57,6 +59,17 @@ export function initGeolocation() {
     },
     { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
   );
+}
+
+export function stopGeolocation() {
+  if (watchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  position = null;
+  displayPosition = null;
+  hasAutoCentered = false;
+  store.set("geo.tracking", false);
 }
 
 function describeGeoError(err) {

@@ -1,5 +1,6 @@
 import { getSession, signIn, signUp, signOut, onAuthStateChange } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
+import { initGeolocation } from "../geolocation/geolocation.js";
 
 export async function initAuth() {
   try {
@@ -28,6 +29,7 @@ export async function login(email, password) {
   try {
     const session = await signIn(email, password);
     store.set("user", session.user);
+    initGeolocation();
     return session;
   } finally {
     store.set("ui.loading", false);
@@ -44,6 +46,7 @@ export async function register(email, password, fullName) {
     if (session) {
       // Confirmation par e-mail désactivée sur ce projet : session immédiate.
       store.set("user", session.user);
+      initGeolocation();
       return { needsEmailConfirmation: false };
     }
     // Confirmation par e-mail requise par le projet Supabase : signUp()
