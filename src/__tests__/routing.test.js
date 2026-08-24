@@ -17,7 +17,7 @@ vi.mock("../modules/map/map.js", () => ({
   hideDestinationMarker: vi.fn()
 }));
 
-const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode, findNearestByRoad, formatManeuverInstruction, getManeuverIcon } = await import("../modules/routing/routing.js");
+const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode, findNearestByRoad, fetchRoadDistanceTable, formatManeuverInstruction, getManeuverIcon } = await import("../modules/routing/routing.js");
 
 describe("calculateRoute", () => {
   const originalFetch = globalThis.fetch;
@@ -260,6 +260,47 @@ describe("findNearestByRoad", () => {
 
   it("retourne null sans appel réseau si la liste de candidats est vide", async () => {
     const result = await findNearestByRoad(5.36, -3.97, []);
+    expect(result).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+// fetchRoadDistanceTable() est la primitive bas-niveau extraite de
+// findNearestByRoad() — utilisée directement par core/routeAwarePlanner.js
+// pour vérifier l'accessibilité routière réelle de PLUSIEURS candidats à
+// la fois (pas seulement en garder le meilleur).
+describe("fetchRoadDistanceTable", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("retourne le tableau de distances, dans l'ordre des candidats", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ code: "Ok", distances: [[120, null, 480]] })
+    });
+    const result = await fetchRoadDistanceTable(5.36, -3.97, [
+      { lat: 5.37, lon: -3.98 },
+      { lat: 5.38, lon: -3.99 },
+      { lat: 5.39, lon: -4.00 }
+    ]);
+    expect(result).toEqual([120, null, 480]);
+  });
+
+  it("retourne null si la requête échoue", async () => {
+    globalThis.fetch.mockRejectedValue(new Error("network down"));
+    const result = await fetchRoadDistanceTable(5.36, -3.97, [{ lat: 5.37, lon: -3.98 }]);
+    expect(result).toBeNull();
+  });
+
+  it("retourne null sans appel réseau si la liste de candidats est vide", async () => {
+    const result = await fetchRoadDistanceTable(5.36, -3.97, []);
     expect(result).toBeNull();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });

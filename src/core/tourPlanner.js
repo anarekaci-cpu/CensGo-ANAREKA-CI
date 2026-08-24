@@ -50,6 +50,36 @@ export const MAX_TOUR_STOPS = 150;
 const DIRECTION_PENALTY_PER_DEGREE_M = 2;
 
 /**
+ * Filtre les points utilisables (non visités, coordonnées valides) et
+ * plafonne aux `maxStops` plus proches du départ à vol d'oiseau (tri
+ * partiel O(N log N)) — partagé par generateOptimizedTour() ci-dessous et
+ * par le planificateur route-aware (routeAwarePlanner.js), qui opère sur
+ * le même bassin de candidats avant d'y superposer sa propre logique de
+ * corridor/progression.
+ *
+ * @param {object[]} points
+ * @param {{lat:number, lng:number}} startPos
+ * @param {number} maxStops
+ * @returns {object[]}
+ */
+export function preselectNearestStops(points, startPos, maxStops) {
+  if (!Array.isArray(points) || !startPos) return [];
+
+  const usable = points.filter(p =>
+    !p.visited &&
+    Number.isFinite(p.lat) && Number.isFinite(p.lon)
+  );
+  if (usable.length === 0) return [];
+  if (usable.length <= maxStops) return usable;
+
+  return usable
+    .map(p => ({ p, d0: haversineKm(startPos.lat, startPos.lng, p.lat, p.lon) }))
+    .sort((a, b) => a.d0 - b.d0)
+    .slice(0, maxStops)
+    .map(e => e.p);
+}
+
+/**
  * @param {object[]} points - points normalisés (lat/lon numériques)
  * @param {{lat:number, lng:number, heading?:number}} startPos - position de
  *   départ ; `heading` (cap GPS live, API Geolocation) optionnel — s'il est
@@ -62,21 +92,8 @@ const DIRECTION_PENALTY_PER_DEGREE_M = 2;
 export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOPS) {
   if (!Array.isArray(points) || !startPos) return [];
 
-  const usable = points.filter(p =>
-    !p.visited &&
-    Number.isFinite(p.lat) && Number.isFinite(p.lon)
-  );
-  if (usable.length === 0) return [];
-
-  // Pré-sélection O(N) des K plus proches du départ (tri partiel par distance).
-  let candidates = usable;
-  if (usable.length > maxStops) {
-    candidates = usable
-      .map(p => ({ p, d0: haversineKm(startPos.lat, startPos.lng, p.lat, p.lon) }))
-      .sort((a, b) => a.d0 - b.d0)
-      .slice(0, maxStops)
-      .map(e => e.p);
-  }
+  const candidates = preselectNearestStops(points, startPos, maxStops);
+  if (candidates.length === 0) return [];
 
   const tour = [];
   let current = { lat: startPos.lat, lng: startPos.lng };

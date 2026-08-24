@@ -65,29 +65,24 @@ const AVERAGE_SPEEDS_MPS = {
 };
 
 /**
- * Trouve, parmi une liste de candidats PRÉ-FILTRÉE (voir
- * findNearestUnvisited(), geolocation.js), celui le plus proche par
- * DISTANCE ROUTÉE réelle (service OSRM /table) plutôt qu'à vol d'oiseau.
- *
- * BUG CONFIRMÉ EN TERRAIN : à vol d'oiseau, un point de l'autre côté d'une
- * lagune/d'un fleuve (fréquent à Abidjan) paraît "le plus proche" alors
- * qu'il faut en réalité faire tout le tour par le pont — pendant ce
- * détour, l'agent passe devant des dizaines d'autres points non-visités
- * qui, eux, étaient vraiment les plus proches PAR LA ROUTE. Le "plus
- * proche" affiché n'avait donc souvent aucun rapport avec le trajet réel.
+ * Interroge le service OSRM /table pour obtenir, en UN SEUL appel réseau,
+ * la distance ROUTÉE réelle depuis (fromLat, fromLng) vers chacun des
+ * `candidates` (dans le même ordre qu'en entrée). Primitive partagée par
+ * findNearestByRoad() (garde le meilleur) et par le planificateur de
+ * tournée route-aware (core/routeAwarePlanner.js — vérifie l'accessibilité
+ * routière réelle de plusieurs candidats "sur le corridor" à la fois).
  *
  * @param {number} fromLat
  * @param {number} fromLng
- * @param {Array<{lat:number, lon:number}>} candidates présélection à vol
- *   d'oiseau — le service /table public a une limite pratique de
- *   coordonnées par requête, d'où la présélection en amont.
- * @returns {Promise<{index:number, distanceM:number}|null>} index dans
- *   `candidates` du plus proche par la route, ou null si la requête échoue
- *   (offline, timeout) — l'appelant doit alors retomber sur le tri à vol
- *   d'oiseau plutôt que d'échouer complètement (résilience offline-first).
+ * @param {Array<{lat:number, lon:number}>} candidates
+ * @returns {Promise<Array<number|null>|null>} distances en mètres, dans
+ *   l'ordre de `candidates` (null = destination inatteignable par la
+ *   route depuis la source) ; ou null si la requête échoue entièrement
+ *   (offline, timeout, réponse invalide) — l'appelant doit alors retomber
+ *   sur une estimation à vol d'oiseau plutôt que d'échouer complètement.
  */
-export async function findNearestByRoad(fromLat, fromLng, candidates) {
-  if (!candidates.length) return null;
+export async function fetchRoadDistanceTable(fromLat, fromLng, candidates) {
+  if (!candidates?.length) return null;
 
   // Seul profil réel exposé par le serveur configuré — voir NAV_MODES.
   const profile = NAV_MODES.foot.profile;
@@ -116,26 +111,57 @@ export async function findNearestByRoad(fromLat, fromLng, candidates) {
       throw new Error(`Réponse OSRM table invalide (code=${data.code})`);
     }
 
-    let bestIndex = -1;
-    let bestDistance = Infinity;
-    distances.forEach((d, i) => {
-      // null possible : destination inatteignable par la route depuis la
-      // source (île sans pont piéton connu du graphe, etc.) — ignorée
-      // plutôt que de faire planter la comparaison.
-      if (typeof d === "number" && d < bestDistance) {
-        bestDistance = d;
-        bestIndex = i;
-      }
-    });
-
-    if (bestIndex === -1) return null;
-    return { index: bestIndex, distanceM: bestDistance };
+    return distances;
   } catch (err) {
-    log.warn("ROUTE", "findNearestByRoad() échoué, repli sur le vol d'oiseau:", err?.message || err);
+    log.warn("ROUTE", "fetchRoadDistanceTable() échoué:", err?.message || err);
     return null;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Trouve, parmi une liste de candidats PRÉ-FILTRÉE (voir
+ * findNearestUnvisited(), geolocation.js), celui le plus proche par
+ * DISTANCE ROUTÉE réelle (service OSRM /table) plutôt qu'à vol d'oiseau.
+ *
+ * BUG CONFIRMÉ EN TERRAIN : à vol d'oiseau, un point de l'autre côté d'une
+ * lagune/d'un fleuve (fréquent à Abidjan) paraît "le plus proche" alors
+ * qu'il faut en réalité faire tout le tour par le pont — pendant ce
+ * détour, l'agent passe devant des dizaines d'autres points non-visités
+ * qui, eux, étaient vraiment les plus proches PAR LA ROUTE. Le "plus
+ * proche" affiché n'avait donc souvent aucun rapport avec le trajet réel.
+ *
+ * @param {number} fromLat
+ * @param {number} fromLng
+ * @param {Array<{lat:number, lon:number}>} candidates présélection à vol
+ *   d'oiseau — le service /table public a une limite pratique de
+ *   coordonnées par requête, d'où la présélection en amont.
+ * @returns {Promise<{index:number, distanceM:number}|null>} index dans
+ *   `candidates` du plus proche par la route, ou null si la requête échoue
+ *   (offline, timeout) — l'appelant doit alors retomber sur le tri à vol
+ *   d'oiseau plutôt que d'échouer complètement (résilience offline-first).
+ */
+export async function findNearestByRoad(fromLat, fromLng, candidates) {
+  if (!candidates.length) return null;
+
+  const distances = await fetchRoadDistanceTable(fromLat, fromLng, candidates);
+  if (!distances) return null;
+
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  distances.forEach((d, i) => {
+    // null possible : destination inatteignable par la route depuis la
+    // source (île sans pont piéton connu du graphe, etc.) — ignorée
+    // plutôt que de faire planter la comparaison.
+    if (typeof d === "number" && d < bestDistance) {
+      bestDistance = d;
+      bestIndex = i;
+    }
+  });
+
+  if (bestIndex === -1) return null;
+  return { index: bestIndex, distanceM: bestDistance };
 }
 
 /**

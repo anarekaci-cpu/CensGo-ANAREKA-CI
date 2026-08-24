@@ -17,7 +17,9 @@ import { escapeHtml, normalizePointId } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
 import { lazyImport } from "./core/lazyImport.js";
-import { getModeMeta } from "./modules/routing/routing.js";
+import { getModeMeta, calculateRoute, fetchRoadDistanceTable } from "./modules/routing/routing.js";
+import { planRouteAwareTour } from "./core/routeAwarePlanner.js";
+import { isVerbose, log } from "./core/debug.js";
 import { isSpeechEnabled, setSpeechEnabled } from "./core/speech.js";
 import { extractExifGps } from "./core/exif.js";
 import { haversineKm } from "./core/geo.js";
@@ -730,13 +732,46 @@ function bindEvents() {
       return;
     }
     const points = store.get("points").filter(p => !p.visited);
-    const { generateOptimizedTour, startTour } = await getTourModule();
-    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading });
-    if (tour.length === 0) {
+    const { startTour } = await getTourModule();
+
+    const btn = document.getElementById("tourBtn");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⏳ Calcul de la tournée...";
+
+    let sequence = [];
+    try {
+      // Planificateur route-aware : projette les points restants sur la
+      // géométrie de route réelle (OSRM) à chaque étape pour les "ramasser"
+      // dans l'ordre où l'agent les rencontrera physiquement sur le
+      // terrain, plutôt qu'un simple plus-proche-voisin à vol d'oiseau —
+      // voir core/routeAwarePlanner.js pour l'architecture complète.
+      // Se dégrade automatiquement (hors-ligne, échec réseau, ou trop de
+      // lots) vers l'ancien glouton direction-aware de tourPlanner.js.
+      const result = await planRouteAwareTour(points, { lat: pos.lat, lng: pos.lng }, {
+        mode: store.get("navigation.mode"),
+        fetchRoute: (fromLat, fromLng, toLat, toLng, mode) => calculateRoute(fromLat, fromLng, toLat, toLng, mode),
+        fetchRoadDistances: fetchRoadDistanceTable,
+        debug: isVerbose()
+      });
+      sequence = result.sequence;
+      if (isVerbose() && result.debugLog.length) {
+        log.debug("TOUR", `planRouteAwareTour: ${result.debugLog.length} lot(s) — voir logs ci-dessus`);
+      }
+    } catch (err) {
+      log.warn("TOUR", "planRouteAwareTour a échoué entièrement, repli sur le glouton hors-ligne:", err?.message || err);
+      const { generateOptimizedTour } = await getTourModule();
+      sequence = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+
+    if (sequence.length === 0) {
       toastInfo("Tous les points non-visités ont déjà été traités !");
       return;
     }
-    startTour(tour);
+    startTour(sequence);
     closeControls();
   };
 
