@@ -305,6 +305,8 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION handle_new_user_role() FROM PUBLIC;
+
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
@@ -371,8 +373,8 @@ CREATE POLICY "Admin can read all roles"
 DROP POLICY IF EXISTS "Admin can update roles" ON user_roles;
 CREATE POLICY "Admin can update roles"
   ON user_roles FOR UPDATE TO authenticated
-  USING (is_admin_user())
-  WITH CHECK (is_admin_user());
+  USING (is_admin_user() AND user_id <> auth.uid())
+  WITH CHECK (is_admin_user() AND user_id <> auth.uid());
 
 -- 3ter. user_roles ne contient JAMAIS l'e-mail (RGPD minimal + auth.users
 --       n'est de toute façon pas lisible par le client "authenticated").
