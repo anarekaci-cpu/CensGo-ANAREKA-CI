@@ -37,4 +37,17 @@ describe("fetchAllPages", () => {
     expect(store.get("sync.warning")).toContain("1 page(s), 1000 ligne(s)");
     expect(store.get("sync.partialLoad")).toEqual(expect.objectContaining({ pages: 1, rows: 1000 }));
   });
+
+  it("nettoie le timer si la requête Supabase rejette sa promesse", async () => {
+    vi.useFakeTimers();
+    try {
+      const query = createQuery(null);
+      query.abortSignal.mockRejectedValueOnce(new Error("transport fermé"));
+      const supabase = { from: query.from };
+      await expect(fetchAllPages(supabase)).rejects.toThrow("transport fermé");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

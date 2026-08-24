@@ -93,8 +93,17 @@ export async function fetchAllPages(supabase, { since = null } = {}) {
       .order("order", { ascending: true })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
     if (since) query = query.gte("updated_at", since);
-    const { data, error } = await query.abortSignal(controller.signal);
-    clearTimeout(timeoutId);
+    // Le timeout doit être nettoyé même si supabase-js rejette la promesse
+    // (fermeture de page, annulation réseau ou erreur transport). Les appels
+    // du moteur de sync ont déjà cette garantie via withTimeout(); la
+    // pagination doit l'avoir également pour ne pas accumuler des timers.
+    let response;
+    try {
+      response = await query.abortSignal(controller.signal);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const { data, error } = response;
 
     if (error) {
       if (allRows.length > 0) {
