@@ -41,6 +41,9 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_SUPABASE_TABLE: ${{ vars.VITE_SUPABASE_TABLE }}
           VITE_OSRM_URL: ${{ secrets.VITE_OSRM_URL }}
+          VITE_ORS_API_KEY: ${{ secrets.VITE_ORS_API_KEY }}
+          VITE_ORS_URL: ${{ vars.VITE_ORS_URL }}
+          VITE_TRAFFIC_RUSH_HOUR_FACTOR: ${{ vars.VITE_TRAFFIC_RUSH_HOUR_FACTOR }}
           VITE_MAP_CENTER_LAT: ${{ vars.VITE_MAP_CENTER_LAT }}
           VITE_MAP_CENTER_LNG: ${{ vars.VITE_MAP_CENTER_LNG }}
           VITE_MAP_ZOOM: ${{ vars.VITE_MAP_ZOOM }}

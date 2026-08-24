@@ -14,6 +14,12 @@ import { db } from "./db/database.js";
 import { store } from "./core/store.js";
 import { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } from "./core/diagnostics.js";
 import { escapeHtml } from "./core/utils.js";
+import { initTheme } from "./core/theme.js";
+
+// Avant tout rendu (y compris le boot-screen) : évite un flash de thème
+// clair si l'agent a explicitement choisi le sombre lors d'une session
+// précédente (voir core/theme.js).
+initTheme();
 
 async function bootstrap() {
   const app = document.getElementById("app");

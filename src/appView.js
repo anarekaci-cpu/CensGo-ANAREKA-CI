@@ -21,6 +21,8 @@ import { getModeMeta } from "./modules/routing/routing.js";
 import { isSpeechEnabled, setSpeechEnabled } from "./core/speech.js";
 import { extractExifGps } from "./core/exif.js";
 import { haversineKm } from "./core/geo.js";
+import { getWeather, getRainAlert, describeWeatherCode } from "./modules/weather/weather.js";
+import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo envoyée à l'Agent Vision est
@@ -95,11 +97,13 @@ export async function mountAuthenticatedApp(container) {
           </div>
         </div>
         <div class="right">
+          <div id="weatherWidget" style="display:none;" title="Météo à votre position"></div>
           <div id="syncStatus">🌐 Connexion...</div>
           <div class="header-actions">
             <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement" aria-label="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
             <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain" aria-label="Boussole terrain">🧭 <span class="btn-label">Boussole</span></button>
             <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA" aria-label="Assistant & Optimisation IA">🤖 <span class="btn-label">Agents IA</span></button>
+            <button id="themeToggleBtn" title="Basculer le thème clair/sombre" aria-label="Basculer le thème clair/sombre">🌙</button>
             <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
           </div>
         </div>
@@ -371,6 +375,61 @@ function closeControls() {
   document.getElementById("controls")?.classList.remove("open");
 }
 
+// Rafraîchie toutes les 30 minutes (alignée sur le TTL du cache météo, voir
+// modules/weather/weather.js) plutôt qu'à chaque mise à jour GPS — la météo
+// ne justifie pas un appel réseau à chaque déplacement de l'agent.
+let weatherIntervalId = null;
+
+async function refreshWeatherWidget() {
+  const el = document.getElementById("weatherWidget");
+  if (!el) return;
+
+  const pos = store.get("geo.position") || getCurrentPosition();
+  if (!pos) {
+    el.style.display = "none";
+    return;
+  }
+
+  try {
+    const weather = await getWeather(pos.lat, pos.lng);
+    const { icon, label } = describeWeatherCode(weather.current.weatherCode);
+    const temp = Number.isFinite(weather.current.temperatureC) ? `${Math.round(weather.current.temperatureC)}°C` : "";
+    el.style.display = "";
+    el.innerHTML = `<span aria-hidden="true">${icon}</span><span>${temp}</span>`;
+    el.title = `${label}${temp ? " — " + temp : ""}${weather.stale ? " (dernière donnée connue, hors-ligne)" : ""}`;
+  } catch {
+    // Ni réseau ni cache disponible : widget simplement masqué, pas d'erreur UI.
+    el.style.display = "none";
+  }
+}
+
+let weatherPositionUnsub = null;
+
+function startWeatherRefreshLoop() {
+  // Réentrance possible (reconnexion sans recharger la page, voir
+  // appEventsInitialized) : on repart d'un intervalle propre à chaque fois
+  // plutôt que d'en empiler un par connexion.
+  if (weatherIntervalId) clearInterval(weatherIntervalId);
+  if (weatherPositionUnsub) weatherPositionUnsub();
+
+  refreshWeatherWidget();
+  weatherIntervalId = setInterval(refreshWeatherWidget, 30 * 60 * 1000);
+
+  // Premier appel ci-dessus presque toujours SANS position : watchPosition()
+  // (geolocation.js) est asynchrone et son premier fix arrive après le
+  // montage — sans ce complément, le widget restait caché jusqu'au prochain
+  // rafraîchissement périodique (jusqu'à 30 min) même si une position
+  // devenait disponible quelques secondes plus tard. Un seul rattrapage
+  // suffit : les rafraîchissements suivants sont couverts par l'intervalle.
+  let weatherFetchedOnce = false;
+  weatherPositionUnsub = store.subscribe("geo.position", (pos) => {
+    if (pos && !weatherFetchedOnce) {
+      weatherFetchedOnce = true;
+      refreshWeatherWidget();
+    }
+  });
+}
+
 async function initApp() {
   initMap("map");
   initNavigation();
@@ -419,6 +478,8 @@ async function initApp() {
   }
 
   document.getElementById("tourBtn").disabled = false;
+
+  startWeatherRefreshLoop();
 
   // Rôle admin : requête réseau NON bloquante (elle ne doit pas retarder
   // d'un aller-retour HTTP l'interface déjà affichée).
@@ -579,6 +640,12 @@ function bindEvents() {
     document.getElementById("controls").classList.toggle("open");
   };
 
+  const themeBtn = document.getElementById("themeToggleBtn");
+  themeBtn.textContent = getEffectiveTheme() === "dark" ? "☀️" : "🌙";
+  themeBtn.onclick = () => {
+    themeBtn.textContent = toggleTheme() === "dark" ? "☀️" : "🌙";
+  };
+
   const handleOpenCensus = () => {
     // RLS refuse déjà toute écriture pour un compte pas encore validé — le
     // signaler tout de suite plutôt que de laisser l'agent remplir toute
@@ -723,6 +790,11 @@ function bindEvents() {
       toastWarning("Position GPS indisponible pour le moment. Réessayez dans quelques secondes.");
       return;
     }
+    // Non bloquant par conception (getRainAlert() ne lève jamais) : en
+    // pratique quasi instantané, le widget météo a déjà rempli le cache.
+    const rainAlert = await getRainAlert(pos.lat, pos.lng);
+    if (rainAlert) toastWarning(`${rainAlert.icon} ${rainAlert.message}`);
+
     const points = store.get("points").filter(p => !p.visited);
     const { generateOptimizedTour, startTour } = await getTourModule();
     const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading });

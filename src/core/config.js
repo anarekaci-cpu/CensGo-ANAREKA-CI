@@ -14,6 +14,17 @@ export const CONFIG = {
   // OSRM Routing
   OSRM_URL: import.meta.env.VITE_OSRM_URL || 'https://router.project-osrm.org',
 
+  // OpenRouteService — itinéraires réels par mode (piéton/vélo/voiture),
+  // voir modules/routing/routing.js. Sans clé, l'app retombe automatiquement
+  // sur OSRM (profil "foot" unique — voir commentaires dans routing.js).
+  ORS_API_KEY: import.meta.env.VITE_ORS_API_KEY || '',
+  ORS_URL: import.meta.env.VITE_ORS_URL || 'https://api.openrouteservice.org',
+
+  // Trafic heuristique (Priorité 2 roadmap) : facteur de ralentissement
+  // appliqué à la vitesse moyenne voiture aux heures de pointe
+  // Abidjan/Bingerville (7h-9h, 17h-19h) — voir modules/traffic/trafficHeuristic.js.
+  TRAFFIC_RUSH_HOUR_FACTOR: Number(import.meta.env.VITE_TRAFFIC_RUSH_HOUR_FACTOR) || 1.6,
+
   // Application
   APP_NAME: import.meta.env.VITE_APP_NAME || 'CensGo',
   APP_VERSION: import.meta.env.VITE_APP_VERSION || '2.0.0',

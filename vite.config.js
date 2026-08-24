@@ -68,6 +68,19 @@ export default defineConfig({
             }
           },
           {
+            // OpenRouteService (Priorité 1 roadmap) : requête GET, coordonnées
+            // dans l'URL (voir calculateRouteViaORS, routing.js) — même
+            // stratégie de cache que "osrm-routes" ci-dessus, sûre car la clé
+            // de cache (l'URL) identifie le trajet de façon unique.
+            urlPattern: /^https:\/\/api\.openrouteservice\.org\/v2\/directions\/.*/,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "ors-routes",
+              expiration: { maxEntries: 500, maxAgeSeconds: 86400 },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
+          {
             urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/,
             handler: "CacheFirst",
             options: {
@@ -82,6 +95,15 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    // maplibre-gl (~800 Ko minifié) n'a pas de build allégé côté npm sans
+    // perdre le clustering/heatmap déjà utilisés (modules/map/map.js,
+    // modules/census/markers.js) — aucune réduction de poids possible sans
+    // réécrire ces fonctionnalités. Le chunk dédié ci-dessous n'est chargé
+    // qu'après authentification (import() différé dans appShell.js), donc
+    // hors du chemin critique (écran de connexion : ~44 Ko gzip pour
+    // index.js). Seuil relevé pour ne plus avertir sur CE chunk isolé et
+    // déjà paresseux — pas pour masquer une vraie régression ailleurs.
+    chunkSizeWarningLimit: 850,
     rollupOptions: {
       output: {
         manualChunks: {

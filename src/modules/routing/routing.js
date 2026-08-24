@@ -10,26 +10,34 @@ import {
 import { isValidLatLng } from "../../core/normalize.js";
 import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
+import { getHeuristicCarSpeedMps, applyRushHourDurationFactor } from "../traffic/trafficHeuristic.js";
 
 /**
  * Métadonnées des modes de navigation.
  *
- * Le serveur OSRM configuré pour ce projet (CONFIG.OSRM_URL) n'expose
- * qu'un seul profil de routage, "foot" (voir SECURITY.md / historique) —
- * interroger /route/v1/bike/ ou /route/v1/car/ sur ce même serveur
- * renverrait soit une erreur, soit (pire, silencieusement) le même
- * itinéraire piéton mal étiqueté "vélo"/"véhicule". calculateRoute()
- * interroge donc toujours le profil "foot" pour obtenir une géométrie et
- * une distance réelles (suivant les voies).
+ * Itinéraires réels par mode (Priorité 1 roadmap) : calculateRoute()
+ * interroge d'abord OpenRouteService (CONFIG.ORS_API_KEY, un vrai profil
+ * par mode — foot-walking/cycling-regular/driving-car, voir ORS_PROFILES)
+ * quand une clé est configurée. Sans clé, ou si ORS échoue (quota, réseau,
+ * panne), repli automatique sur OSRM (CONFIG.OSRM_URL).
  *
- * BUG CONFIRMÉ EN PRODUCTION : la durée renvoyée par ce serveur pour le
- * profil "foot" n'est PAS un temps de marche — un trajet de 20,8 km a été
- * renvoyé avec duration=27min, soit ~46 km/h (vitesse voiture, pas
- * piéton). Le serveur ne calcule donc pas de vraie durée piétonne malgré
- * le nom du profil dans l'URL. La durée n'est JAMAIS prise depuis la
- * réponse OSRM, pour aucun mode : elle est systématiquement dérivée de
- * la distance réelle (routée) et d'une vitesse moyenne par mode
- * (AVERAGE_SPEEDS_MPS) — voir calculateRoute().
+ * Le serveur OSRM configuré pour ce projet n'expose lui qu'un SEUL profil
+ * de routage, "foot" (voir SECURITY.md / historique) — interroger
+ * /route/v1/bike/ ou /route/v1/car/ sur ce même serveur renverrait soit une
+ * erreur, soit (pire, silencieusement) le même itinéraire piéton mal
+ * étiqueté "vélo"/"véhicule". Le repli OSRM interroge donc toujours le
+ * profil "foot" pour obtenir une géométrie et une distance réelles (suivant
+ * les voies), peu importe le mode demandé.
+ *
+ * BUG CONFIRMÉ EN PRODUCTION (repli OSRM uniquement) : la durée renvoyée
+ * par ce serveur pour le profil "foot" n'est PAS un temps de marche — un
+ * trajet de 20,8 km a été renvoyé avec duration=27min, soit ~46 km/h
+ * (vitesse voiture, pas piéton). La durée OSRM n'est donc JAMAIS réutilisée
+ * telle quelle, pour aucun mode : elle est systématiquement dérivée de la
+ * distance réelle (routée) et d'une vitesse moyenne par mode
+ * (AVERAGE_SPEEDS_MPS) — voir calculateRoute(). ORS, lui, renvoie une vraie
+ * durée par profil et celle-ci est utilisée directement (ajustée par le
+ * trafic heuristique pour le mode voiture, voir trafficHeuristic.js).
  */
 export const NAV_MODES = {
   foot: {
@@ -63,6 +71,82 @@ const AVERAGE_SPEEDS_MPS = {
   bike: 4.2,   // ≈ 15 km/h
   car: 11.1    // ≈ 40 km/h — prudent en zone urbaine/piste non bitumée
 };
+
+/**
+ * Vitesse moyenne effective pour `mode`, ajustée par le trafic heuristique
+ * (mode voiture uniquement — voir modules/traffic/trafficHeuristic.js).
+ */
+function resolveAverageSpeedMps(mode) {
+  const base = AVERAGE_SPEEDS_MPS[mode];
+  return mode === "car" ? getHeuristicCarSpeedMps(base) : base;
+}
+
+/** Profils OpenRouteService — un vrai profil distinct par mode (voir NAV_MODES). */
+const ORS_PROFILES = {
+  foot: "foot-walking",
+  bike: "cycling-regular",
+  car: "driving-car"
+};
+
+/**
+ * Calcule un itinéraire réel via OpenRouteService pour le profil exact du
+ * mode demandé (contrairement au repli OSRM, toujours "foot" — voir
+ * commentaire NAV_MODES). Lève en cas d'échec (réseau, quota, clé
+ * invalide) : à l'appelant (calculateRoute()) de retomber sur OSRM.
+ */
+async function calculateRouteViaORS(fromLat, fromLng, toLat, toLng, mode) {
+  const profile = ORS_PROFILES[mode] || ORS_PROFILES.foot;
+  // GET plutôt que POST : les coordonnées font partie de l'URL, ce qui la
+  // rend sûre à mettre en cache par le service worker (voir "ors-routes"
+  // dans vite.config.js) — une réponse en cache reste garantie de
+  // correspondre EXACTEMENT à ce trajet, comme pour les appels OSRM
+  // existants. Une clé de cache basée sur une URL fixe + un corps POST
+  // variable aurait pu servir l'itinéraire d'un autre trajet en cache.
+  const url =
+    `${CONFIG.ORS_URL}/v2/directions/${profile}/geojson` +
+    `?start=${fromLng},${fromLat}&end=${toLng},${toLat}` +
+    "&instructions=true&language=fr";
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: CONFIG.ORS_API_KEY },
+      signal: controller.signal
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const feature = data.features?.[0];
+    const summary = feature?.properties?.summary;
+    if (!feature || !summary) throw new Error("Itinéraire ORS impossible");
+
+    const coords = feature.geometry?.coordinates || [];
+    // way_points[0] = index (dans `coords`) du point de départ de ce
+    // maneuver — reconstitue la forme {maneuver:{location:[lon,lat]}}
+    // attendue par le guidage pas-à-pas (navigation.js/advanceGuidanceSteps),
+    // identique à celle des steps OSRM.
+    const steps = (feature.properties?.segments?.[0]?.steps || []).map(s => ({
+      instruction: s.instruction,
+      name: s.name,
+      maneuver: { location: coords[s.way_points?.[0]] || null }
+    }));
+
+    return {
+      distance: summary.distance,
+      duration: applyRushHourDurationFactor(summary.duration, mode),
+      geometry: feature.geometry,
+      steps,
+      mode,
+      estimated: false,
+      provider: "ors"
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /**
  * Trouve, parmi une liste de candidats PRÉ-FILTRÉE (voir
@@ -220,6 +304,20 @@ export async function calculateRoute(
     );
   }
 
+  // Priorité 1 roadmap : un vrai profil par mode via OpenRouteService quand
+  // une clé est configurée. Échec (réseau, quota, clé invalide) -> repli
+  // silencieux sur OSRM ci-dessous, jamais une erreur remontée à l'agent
+  // pour ce seul motif.
+  if (CONFIG.ORS_API_KEY) {
+    try {
+      const orsRoute = await calculateRouteViaORS(fromLat, fromLng, toLat, toLng, resolvedMode);
+      log.info("ROUTE", `provider=ORS profile=${ORS_PROFILES[resolvedMode]} ok`);
+      return orsRoute;
+    } catch (err) {
+      log.warn("ROUTE", "ORS échoué, repli sur OSRM:", err?.message || err);
+    }
+  }
+
   // Toujours le profil "foot" réel du serveur — voir le commentaire sur
   // NAV_MODES plus haut. La durée est recalculée plus bas selon le mode.
   const profile = NAV_MODES.foot.profile;
@@ -300,7 +398,7 @@ routeVisible = true`
     // trajet piéton de 20,8 km renvoyé avec un temps de voiture, ~46 km/h).
     // La distance ROUTÉE (suit les voies réelles) reste fiable ; seule la
     // durée est systématiquement recalculée nous-mêmes, pour tous les modes.
-    const duration = route.distance / AVERAGE_SPEEDS_MPS[resolvedMode];
+    const duration = route.distance / resolveAverageSpeedMps(resolvedMode);
 
     return {
       distance: route.distance,
@@ -357,7 +455,7 @@ export function estimateFallbackRoute(
   const resolvedMode = isValidNavMode(mode) ? mode : "foot";
 
   const distance = haversineKm(fromLat, fromLng, toLat, toLng) * 1000;
-  const duration = distance / AVERAGE_SPEEDS_MPS[resolvedMode];
+  const duration = distance / resolveAverageSpeedMps(resolvedMode);
 
   return {
     distance,
@@ -484,7 +582,14 @@ const MODIFIER_LABELS = {
  * @returns {string} instruction en français, ou "" si step est invalide
  */
 export function formatManeuverInstruction(step) {
-  if (!step?.maneuver) return "";
+  if (!step) return "";
+
+  // Steps ORS (calculateRouteViaORS) : instruction déjà prête en français
+  // (language: "fr" demandé à l'API) — pas de reconstruction à faire, à
+  // l'inverse des steps OSRM (type/modifier) traités plus bas.
+  if (step.instruction) return step.instruction;
+
+  if (!step.maneuver) return "";
 
   const { type, modifier } = step.maneuver;
   const streetName = step.name?.trim();

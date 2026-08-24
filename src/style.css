@@ -24,8 +24,9 @@
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+/* Préférence système (pas de choix explicite mémorisé — voir core/theme.js) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg-primary: #0f172a;
     --bg-card: #1e293b;
     --bg-surface: #1a2332;
@@ -42,6 +43,26 @@
     --shadow-md: 0 8px 24px rgba(0,0,0,0.3);
     --shadow-lg: 0 16px 40px rgba(0,0,0,0.4);
   }
+}
+
+/* Choix explicite de l'agent (bouton bascule dans le header) — l'emporte sur
+   la préférence système dans les deux sens, voir core/theme.js. */
+:root[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-card: #1e293b;
+  --bg-surface: #1a2332;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: #334155;
+  --border-focus: #4ade80;
+  --green-dark: #a3e635;
+  --green-mid: #84cc16;
+  --green-accent: #4ade80;
+  --green-light: #14532d;
+  --shadow-sm: 0 2px 6px rgba(0,0,0,0.2);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.3);
+  --shadow-lg: 0 16px 40px rgba(0,0,0,0.4);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -246,6 +267,12 @@ header {
   display: flex; align-items: center; gap: 6px;
   max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+#weatherWidget {
+  font-size: 12px; color: #e2e8f0; font-weight: 600;
+  background: rgba(255,255,255,0.08); padding: 4px 10px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.12); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  display: flex; align-items: center; gap: 4px; white-space: nowrap;
+}
 .header-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .header-actions button {
   height: 44px; min-width: 44px; border-radius: var(--radius-md);
@@ -389,15 +416,19 @@ header {
   border-bottom: 1.5px solid #f1f5f9;
   letter-spacing: -0.01em;
 }
-.popup-row { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.4; }
+/* Couleurs fixes (pas var(--text-*)) : la popup MapLibre garde un fond
+   toujours blanc (style par défaut de la librairie, non piloté par le
+   thème app) — un texte qui suivrait le thème (clair en mode sombre)
+   deviendrait illisible sur ce fond qui, lui, ne change jamais. */
+.popup-row { font-size: 13px; color: #475569; margin-bottom: 6px; line-height: 1.4; }
 .popup-row b { color: #0f172a; font-weight: 700; }
 .popup-status {
   font-size: 12px; font-weight: 700;
   padding: 6px 12px; border-radius: 20px;
   margin: 10px 0; display: inline-flex; align-items: center; gap: 4px;
 }
-.popup-coords { font-size: 12px; color: var(--text-muted); font-family: monospace; }
-.popup-updated { font-size: 11.5px; color: var(--text-muted); font-style: italic; margin-bottom: 8px; }
+.popup-coords { font-size: 12px; color: #5b6b82; font-family: monospace; }
+.popup-updated { font-size: 11.5px; color: #5b6b82; font-style: italic; margin-bottom: 8px; }
 .popup-dist {
   font-size: 12.5px; color: #166534; font-weight: 700;
   background: #f0fdf4; padding: 4px 10px; border-radius: 8px;
@@ -405,7 +436,7 @@ header {
 }
 .popup-details { margin: 8px 0 4px; }
 .popup-details summary {
-  font-size: 12.5px; font-weight: 700; color: var(--text-secondary);
+  font-size: 12.5px; font-weight: 700; color: #475569;
   cursor: pointer; padding: 8px 4px; min-height: 32px; display: flex; align-items: center;
   list-style: none; user-select: none;
 }
@@ -421,7 +452,7 @@ header {
 .go-btn:hover { background: #275940; }
 .btn-visit { background: #16a34a; color: white; box-shadow: 0 2px 8px rgba(22, 163, 74, 0.2); }
 .btn-visit:hover { background: #22c55e; }
-.btn-unvisit { background: #f1f5f9; color: var(--text-secondary); border: 1px solid #cbd5e1; }
+.btn-unvisit { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
 /* #navModeRow et #navPanel étaient chacun positionnés indépendamment avec
    un décalage fixe en pixels (bottom:156 / bottom:84) supposant une hauteur
@@ -476,7 +507,7 @@ header {
 .nav-mode-btn {
   flex: 1; max-width: 140px; padding: 9px 10px; min-height: 44px;
   border-radius: 999px; border: 1px solid rgba(26, 61, 43, 0.15);
-  background: rgba(255, 255, 255, 0.95); color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.95); color: #475569;
   font-size: 12.5px; font-weight: 700; cursor: pointer;
   box-shadow: var(--shadow-md); transition: all 0.2s ease;
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
@@ -509,7 +540,7 @@ header {
   font-size: 13.5px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;
 }
 .arrival-yes { background: #16a34a; color: white; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3); }
-.arrival-no { background: #f1f5f9; color: var(--text-secondary); }
+.arrival-no { background: #f1f5f9; color: #475569; }
 
 #routeBanner {
   position: absolute; top: 76px; left: 16px; right: 60px;
@@ -585,13 +616,13 @@ header {
   margin-bottom: 12px;
 }
 .tour-title { font-size: 15px; font-weight: 700; }
-.tour-progress { font-size: 12px; color: #888; margin-top: 2px; }
+.tour-progress { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 #tourCloseBtn {
   width: 44px; height: 44px; border-radius: 50%;
-  background: #f5f5f5; border: none; cursor: pointer;
+  background: var(--bg-surface); border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.tour-summary { font-size: 13px; color: #555; margin-bottom: 12px; }
+.tour-summary { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
 .tour-go-next {
   width: 100%; padding: 14px; min-height: 48px;
   background: #1a3d2b; color: white;
@@ -957,21 +988,26 @@ header {
 
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label {
-  font-size: 13px; font-weight: 700; color: #1e293b; letter-spacing: 0.01em;
+  font-size: 13px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.01em;
 }
 .form-group label .req { color: #ef4444; }
 
 .input-with-icon { position: relative; display: flex; align-items: center; }
 .input-with-icon input {
   width: 100%; padding: 12px 14px; padding-right: 90px; min-height: 44px;
-  border: 1.5px solid #cbd5e1; border-radius: var(--radius-md);
+  border: 1.5px solid var(--border); border-radius: var(--radius-md);
   font-size: 14px; background: var(--bg-surface);
-  color: #0f172a; transition: all 0.2s ease; box-sizing: border-box;
+  color: var(--text-primary); transition: all 0.2s ease; box-sizing: border-box;
 }
 .input-with-icon input:focus {
-  outline: none; border-color: #10b981; background: #ffffff;
+  outline: none; border-color: #10b981; background: var(--bg-card);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
+/* Sans cette règle, ::placeholder retombe sur le gris par défaut du
+   navigateur (pensé pour un fond clair) — quasi invisible une fois le fond
+   du champ passé en var(--bg-surface) sombre (constaté à l'écran, capture
+   du formulaire en mode sombre : placeholder illisible). */
+.input-with-icon input::placeholder { color: var(--text-muted); opacity: 1; }
 
 .input-val-badge {
   position: absolute; right: 10px; font-size: 11px; font-weight: 800;
@@ -987,7 +1023,7 @@ header {
 }
 .status-pill {
   padding: 10px 14px; min-height: 44px; border-radius: var(--radius-md);
-  border: 1.5px solid var(--border); background: var(--bg-card); color: #334155;
+  border: 1.5px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
   font-size: 12.5px; font-weight: 700; cursor: pointer;
   display: flex; align-items: center; gap: 8px; transition: all 0.2s ease;
   box-sizing: border-box; flex: 1 1 calc(50% - 6px);
@@ -1038,7 +1074,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 }
 .chip-q, .chip-p, .chip-a {
   padding: 8px 14px; min-height: 44px; border-radius: 20px; border: 1px solid #cbd5e1;
-  background: var(--bg-surface); color: #334155; font-size: 12px; font-weight: 700;
+  background: var(--bg-surface); color: var(--text-secondary); font-size: 12px; font-weight: 700;
   cursor: pointer; transition: all 0.15s ease;
 }
 .chip-q:hover, .chip-p:hover, .chip-a:hover { background: #e2e8f0; }
@@ -1124,7 +1160,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .agents-summary-pending { color: #d97706; }
 .agent-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .agent-action-btn {
-  border: 1px solid var(--border); background: white; color: var(--text-secondary);
+  border: 1px solid var(--border); background: var(--bg-surface); color: var(--text-secondary);
   border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 600;
   cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
 }
@@ -1185,7 +1221,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   border: none; border-radius: var(--radius-md);
   font-size: 14px; font-weight: 600; cursor: pointer;
 }
-.confirm-cancel { background: #f1f5f9; color: var(--text-secondary); }
+.confirm-cancel { background: var(--bg-surface); color: var(--text-secondary); }
 .confirm-danger { background: #dc2626; color: white; }
 .confirm-primary { background: #1a3d2b; color: white; }
 
@@ -1227,6 +1263,9 @@ input:checked + .slider:before { transform: translateX(24px); }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
   #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
+  /* Sur très petit écran, le statut de sync a déjà peu de place — la météo
+     n'est pas assez critique pour se disputer cet espace avec lui. */
+  #weatherWidget { display: none; }
   /* Icônes seules sur petit écran : à cette largeur, "➕ Saisie" / "🧭
      Boussole" / "🤖 Agents IA" + le bouton menu ne tiennent pas sur une
      ligne à côté du titre et du statut de sync — le texte débordait de la

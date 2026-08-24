@@ -18,6 +18,14 @@ import { speak, cancelSpeech } from "../../core/speech.js";
 import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint } from "../map/map.js";
+import { isRushHour } from "../traffic/trafficHeuristic.js";
+
+// Mode voiture uniquement (voir trafficHeuristic.js) : signale à l'agent que
+// la durée affichée intègre déjà un ralentissement heure de pointe estimé,
+// plutôt que de le laisser croire à une durée mesurée précise.
+function rushHourSuffix(mode) {
+  return mode === "car" && isRushHour() ? " · 🚦 heure de pointe (estimé)" : "";
+}
 
 let navUnsubs = [];
 let gpsWaitToastShown = false;
@@ -393,7 +401,7 @@ async function startNavigation() {
 
     store.set(
       "navigation.instruction",
-      `${formatDistance(route.distance)} — ${formatDuration(route.duration)}`
+      `${formatDistance(route.distance)} — ${formatDuration(route.duration)}${rushHourSuffix(route.mode)}`
     );
 
     store.set(
@@ -451,7 +459,7 @@ async function startNavigation() {
 
     store.set(
       "navigation.instruction",
-      `≈ ${formatDistance(fallback.distance)} — ${formatDuration(fallback.duration)} (estimation, hors-ligne)`
+      `≈ ${formatDistance(fallback.distance)} — ${formatDuration(fallback.duration)} (estimation, hors-ligne)${rushHourSuffix(fallback.mode)}`
     );
     store.set(
       "navigation.nextInstruction",
