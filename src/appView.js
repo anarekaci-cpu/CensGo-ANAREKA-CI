@@ -30,6 +30,12 @@ const PHOTO_GEOTAG_WARNING_M = 500;
 
 let emptyStateEl = null;
 let agentTrackingActive = false;
+// Bandeau "Itinéraire vers X — distance/durée" (#routeBanner) : confirmation
+// temporaire affichée quelques secondes au démarrage d'une navigation, puis
+// masquée automatiquement — voir bindStoreListeners()/navigation.active.
+// #navPanel (bas d'écran, déjà compact) reste affiché en permanence comme
+// résumé persistant (distance/direction) une fois ce bandeau disparu.
+let routeBannerHideTimer = null;
 // BUG corrigé (audit) : initApp() est rappelée à chaque reconnexion dans la
 // même session (logout -> login sans recharger la page, appShell.js remet
 // _appMounted à false). document.addEventListener() et store.subscribe()
@@ -1250,7 +1256,24 @@ function bindStoreListeners() {
 
   store.subscribe("navigation.active", (active) => {
     const banner = document.getElementById("routeBanner");
-    if (banner) banner.style.display = active ? "flex" : "none";
+    if (banner) {
+      banner.style.display = active ? "flex" : "none";
+      banner.classList.remove("route-banner-fade-out");
+    }
+    // Confirmation temporaire (audit UX — "les popups ne doivent pas rester
+    // devant la carte") : le bandeau du haut (destination + distance/durée)
+    // reste pleinement visible quelques secondes puis s'efface — #navPanel
+    // (bas d'écran) affiche déjà en permanence le même résumé essentiel
+    // (distance/prochaine manœuvre), donc rien d'utile ne disparaît, juste
+    // le doublon du haut qui grignotait de l'espace carte.
+    clearTimeout(routeBannerHideTimer);
+    routeBannerHideTimer = null;
+    if (active) {
+      routeBannerHideTimer = setTimeout(() => {
+        const b = document.getElementById("routeBanner");
+        if (b) b.classList.add("route-banner-fade-out");
+      }, 7000);
+    }
     // #fabAdd occupe la même bande verticale (bottom:84) que #navPanel une
     // fois la navigation active : le bouton restait cliquable "sous" le
     // panneau, invisible mais interceptant parfois le tap. On le masque
@@ -1286,6 +1309,21 @@ function bindStoreListeners() {
     // vers  — "), sans nom de destination ni info de trajet.
     const nameEl = document.getElementById("routeDestName");
     if (nameEl) nameEl.textContent = destination?.name || "";
+
+    // Nouvelle destination pendant une navigation déjà active (l'agent
+    // change de cible sans fermer le guidage) : annule le timer précédent
+    // et redonne au bandeau sa fenêtre complète de visibilité pour CETTE
+    // nouvelle destination, au lieu de disparaître prématurément sur la
+    // base du minuteur de l'ancienne cible.
+    if (destination && store.get("navigation.active")) {
+      clearTimeout(routeBannerHideTimer);
+      const banner = document.getElementById("routeBanner");
+      if (banner) banner.classList.remove("route-banner-fade-out");
+      routeBannerHideTimer = setTimeout(() => {
+        const b = document.getElementById("routeBanner");
+        if (b) b.classList.add("route-banner-fade-out");
+      }, 7000);
+    }
   });
 
   store.subscribe("navigation.instruction", (text) => {

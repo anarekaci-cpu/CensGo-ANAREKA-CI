@@ -454,6 +454,7 @@ export function clearRoute() {
 }
 
 const MANEUVER_VERBS = {
+  turn: "Tournez",
   "new name": "Continuez",
   merge: "Rejoignez la voie",
   "on ramp": "Prenez la bretelle",
@@ -477,8 +478,44 @@ const MODIFIER_LABELS = {
   "sharp left": "fortement à gauche"
 };
 
+// Pictogramme par modifier OSRM — ne dépend JAMAIS uniquement de la couleur
+// ni du texte seul : un agent qui jette un oeil rapide au téléphone en
+// marchant doit reconnaître le geste attendu (gauche/droite/tout droit/
+// demi-tour) d'un simple coup d'oeil sur l'icône.
+const MODIFIER_ICONS = {
+  uturn: "↩️",
+  "sharp right": "↱",
+  right: "↱",
+  "slight right": "↗️",
+  straight: "⬆️",
+  "slight left": "↖️",
+  left: "↰",
+  "sharp left": "↰"
+};
+
 /**
- * Formate un pas de guidage OSRM (route.steps[i]) en instruction lisible.
+ * Pictogramme représentant la manœuvre d'un pas de guidage OSRM — voir
+ * formatManeuverInstruction() pour le texte associé. Ne PAS déduire cette
+ * icône depuis autre chose que le `modifier`/`type` réels renvoyés par le
+ * moteur de routing (jamais de latitude/longitude devinées) : c'est
+ * exactement la même donnée source que le texte, juste représentée
+ * visuellement.
+ *
+ * @param {{maneuver?:{type?:string,modifier?:string}}} step
+ * @returns {string} un seul émoji/pictogramme
+ */
+export function getManeuverIcon(step) {
+  if (!step?.maneuver) return "⬆️";
+  const { type, modifier } = step.maneuver;
+  if (type === "arrive") return "🏁";
+  if (type === "depart") return "🚦";
+  if (type === "roundabout" || type === "rotary" || type === "roundabout turn") return "🔄";
+  return MODIFIER_ICONS[modifier] || "⬆️";
+}
+
+/**
+ * Formate un pas de guidage OSRM (route.steps[i]) en instruction lisible,
+ * précédée de son pictogramme (getManeuverIcon).
  *
  * @param {{maneuver?:{type?:string,modifier?:string}, name?:string}} step
  * @returns {string} instruction en français, ou "" si step est invalide
@@ -488,17 +525,26 @@ export function formatManeuverInstruction(step) {
 
   const { type, modifier } = step.maneuver;
   const streetName = step.name?.trim();
+  const icon = getManeuverIcon(step);
 
-  if (type === "arrive") return "🏁 Vous êtes arrivé à destination";
+  if (type === "arrive") return `${icon} Vous êtes arrivé à destination`;
   if (type === "depart") {
-    return streetName ? `🚦 Départ sur ${streetName}` : "🚦 Départ";
+    return streetName ? `${icon} Départ sur ${streetName}` : `${icon} Départ`;
+  }
+  // Cas particulier : "Tournez faites demi-tour" n'est pas une phrase
+  // française correcte — MODIFIER_LABELS["uturn"] est déjà un verbe
+  // complet ("faites demi-tour"), contrairement aux autres modifiers qui
+  // ne sont que des compléments de direction ("à droite", "tout droit"...).
+  if (modifier === "uturn") {
+    const onStreetUturn = streetName ? ` sur ${streetName}` : "";
+    return `${icon} Faites demi-tour${onStreetUturn}`;
   }
 
   const verb = MANEUVER_VERBS[type] || "Continuez";
   const dir = modifier ? MODIFIER_LABELS[modifier] : "";
   const onStreet = streetName ? ` sur ${streetName}` : "";
 
-  return `${verb}${dir ? " " + dir : ""}${onStreet}`.trim();
+  return `${icon} ${verb}${dir ? " " + dir : ""}${onStreet}`.trim();
 }
 
 /**

@@ -519,6 +519,17 @@ header {
   z-index: 300; font-size: 13.5px; font-weight: 600;
   box-shadow: 0 8px 24px rgba(0,0,0,0.2);
   margin-top: var(--safe-top);
+  opacity: 1; transform: translateY(0);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+/* Confirmation temporaire au démarrage d'une navigation (audit UX) : ce
+   bandeau s'efface tout seul après quelques secondes — #navPanel (bas
+   d'écran) reste le résumé permanent, donc rien d'essentiel ne disparaît.
+   pointer-events:none une fois effacé : un bandeau invisible ne doit plus
+   intercepter les taps destinés à la carte en dessous. */
+.route-banner-fade-out {
+  opacity: 0; transform: translateY(-6px);
+  pointer-events: none;
 }
 #closeRouteBtn {
   background: rgba(255,255,255,0.15); border: none; color: white;

@@ -15,9 +15,9 @@ import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
 import { distanceToPolylineMeters, remainingRouteDistanceMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
 import { speak, cancelSpeech } from "../../core/speech.js";
-import { toastWarning } from "../../core/toast.js";
+import { toastWarning, toastInfo } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
-import { flyToPoint } from "../map/map.js";
+import { getMap } from "../map/map.js";
 
 let navUnsubs = [];
 let gpsWaitToastShown = false;
@@ -44,6 +44,14 @@ const REROUTE_DEBOUNCE_MS = 15000;
 // Distance (m) sous laquelle le prochain maneuver OSRM est considéré
 // "atteint" et le guidage passe au pas suivant.
 const STEP_ADVANCE_RADIUS_M = 20;
+
+// Mode suivi ("mode navigation orienté") : tant qu'actif, chaque nouveau fix
+// GPS recentre (et si le cap est fiable, oriente) la caméra automatiquement
+// — voir recenterNavigation()/applyFollowCamera(). Un geste de pan manuel
+// de l'agent le désactive (voir ensureFollowDragListener), pour ne jamais
+// "combattre" une carte que l'agent essaie justement de consulter librement.
+let followModeActive = false;
+let followDragListenerBound = false;
 
 // BUG (itinéraire "pas exact", surtout à pied) : geolocation.js publie
 // CHAQUE fix GPS brut sans filtrage, y compris une position avec une
@@ -154,6 +162,17 @@ export function initNavigation() {
       } else {
         updateNavigationProgress(position);
       }
+
+      if (followModeActive) applyFollowCamera(position);
+    })
+  );
+
+  // Le mode suivi ne doit pas survivre à la fermeture de la navigation —
+  // sinon la prochaine navigation démarrée hériterait silencieusement d'un
+  // état "suivi actif" jamais demandé pour CE nouveau trajet.
+  navUnsubs.push(
+    store.subscribe("navigation.active", (active) => {
+      if (!active) followModeActive = false;
     })
   );
 }
@@ -236,7 +255,11 @@ function updateNavigationModeUI() {
 }
 
 /**
- * Recentre la carte sur la dernière position GPS connue.
+ * Recentre la carte sur la dernière position GPS connue ET active le mode
+ * suivi (chaque nouveau fix GPS recentre automatiquement — voir
+ * applyFollowCamera(), câblé sur l'abonnement "geo.position" ci-dessus).
+ * Un pan manuel de l'agent désactive le suivi (ensureFollowDragListener) ;
+ * ce bouton reste alors le moyen de le réactiver, toujours accessible.
  */
 export function recenterNavigation() {
   const position = store.get("geo.position");
@@ -257,17 +280,76 @@ export function recenterNavigation() {
     return false;
   }
 
-  /*
-   * flyToPoint attend (lat, lon).
-   */
-  flyToPoint(lat, lng, 17);
+  followModeActive = true;
+  ensureFollowDragListener();
+  applyFollowCamera(position);
 
   log.info(
     "ROUTE",
-    `Carte recentrée sur la position GPS [${lat}, ${lng}]`
+    `Carte recentrée sur la position GPS [${lat}, ${lng}] — mode suivi activé`
   );
 
   return true;
+}
+
+/**
+ * Recentre (et si le cap GPS est fiable, oriente) la caméra sur `position`.
+ * Appelée à chaque nouveau fix GPS tant que le mode suivi est actif.
+ *
+ * Le cap n'est utilisé pour ORIENTER la carte que si :
+ *  - l'API Geolocation en fournit un (`heading` fini — généralement absent
+ *    à l'arrêt sur la plupart des navigateurs, ce qui exclut déjà la
+ *    majorité des fixes "immobiles" sans logique de vitesse dédiée) ;
+ *  - la précision du fix est dans le seuil de confiance déjà utilisé
+ *    ailleurs dans ce module pour juger un fix exploitable
+ *    (MAX_TRUSTED_ACCURACY_M) — jamais de rotation sur un cap dérivé d'un
+ *    GPS trop imprécis pour être fiable.
+ * Sinon, la caméra recentre sans toucher à l'orientation actuelle.
+ */
+function applyFollowCamera(position) {
+  const map = getMap();
+  if (!map) return;
+
+  const lat = Number(position.lat);
+  const lng = Number(position.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  // Contrairement à isPositionTrustworthy() (utilisée ailleurs dans ce
+  // fichier), qui fait bénéficier du doute un fix SANS accuracy connue —
+  // acceptable pour une décision de fond (recalcul, avancement du guidage)
+  // déjà protégée par ses propres seuils, mais pas ici : orienter la carte
+  // est une action visible et perturbante, elle exige une accuracy
+  // EXPLICITEMENT bonne, jamais une simple absence de contre-preuve.
+  const headingIsTrustworthy =
+    Number.isFinite(position.heading)
+    && Number.isFinite(position.accuracy)
+    && position.accuracy <= MAX_TRUSTED_ACCURACY_M;
+
+  map.easeTo({
+    center: [lng, lat],
+    zoom: Math.max(map.getZoom(), 16),
+    bearing: headingIsTrustworthy ? position.heading : map.getBearing(),
+    duration: 500
+  });
+}
+
+/**
+ * Un geste de pan MANUEL (dragstart — jamais déclenché par easeTo/flyTo
+ * programmatiques) désactive le mode suivi : sans ça, la caméra "arrache"
+ * la carte des mains de l'agent au prochain fix GPS pendant qu'il essaie
+ * justement de consulter une autre zone. Lié UNE SEULE FOIS par instance de
+ * carte (mapInstance persiste au-delà d'une navigation individuelle).
+ */
+function ensureFollowDragListener() {
+  const map = getMap();
+  if (!map || followDragListenerBound) return;
+  followDragListenerBound = true;
+  map.on("dragstart", () => {
+    if (followModeActive) {
+      followModeActive = false;
+      toastInfo("Suivi désactivé — appuyez sur 🧭 pour recentrer.");
+    }
+  });
 }
 
 function scheduleStartNavigation() {
@@ -591,6 +673,12 @@ function maybeReroute(position) {
   if (Date.now() - lastRerouteAt < REROUTE_DEBOUNCE_MS) return;
 
   log.info("ROUTE", `écart de tracé détecté (${Math.round(deviation)}m) — recalcul de l'itinéraire`);
+  // Recalcul auparavant totalement silencieux (juste une trace console) :
+  // l'agent voyait l'itinéraire "sauter" sans comprendre pourquoi. Le
+  // débounce ci-dessus (REROUTE_DEBOUNCE_MS) protège déjà contre le spam —
+  // ce toast peut donc s'afficher à chaque recalcul réel sans devenir
+  // envahissant.
+  toastWarning("⚠️ Vous avez quitté l'itinéraire — recalcul...");
   lastRerouteAt = Date.now();
   startNavigation();
 }

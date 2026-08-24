@@ -17,7 +17,7 @@ vi.mock("../modules/map/map.js", () => ({
   hideDestinationMarker: vi.fn()
 }));
 
-const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode, findNearestByRoad } = await import("../modules/routing/routing.js");
+const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode, findNearestByRoad, formatManeuverInstruction, getManeuverIcon } = await import("../modules/routing/routing.js");
 
 describe("calculateRoute", () => {
   const originalFetch = globalThis.fetch;
@@ -291,6 +291,46 @@ describe("estimateFallbackRoute", () => {
     const foot = estimateFallbackRoute(5.36, -3.97, 5.40, -3.99, "foot");
     const car = estimateFallbackRoute(5.36, -3.97, 5.40, -3.99, "car");
     expect(car.duration).toBeLessThan(foot.duration);
+  });
+});
+
+// Guidage gauche/droite/tout droit/demi-tour : la classification vient
+// TOUJOURS du maneuver.modifier réel renvoyé par OSRM (steps), jamais d'une
+// déduction latitude/longitude — voir le commentaire de getManeuverIcon().
+describe("formatManeuverInstruction / getManeuverIcon — guidage directionnel", () => {
+  it("virage à droite", () => {
+    const step = { maneuver: { type: "turn", modifier: "right" }, name: "Rue du Commerce" };
+    expect(getManeuverIcon(step)).toBe("↱");
+    expect(formatManeuverInstruction(step)).toBe("↱ Tournez à droite sur Rue du Commerce");
+  });
+
+  it("virage à gauche", () => {
+    const step = { maneuver: { type: "turn", modifier: "left" }, name: "Boulevard Latrille" };
+    expect(getManeuverIcon(step)).toBe("↰");
+    expect(formatManeuverInstruction(step)).toBe("↰ Tournez à gauche sur Boulevard Latrille");
+  });
+
+  it("tout droit", () => {
+    const step = { maneuver: { type: "continue", modifier: "straight" } };
+    expect(getManeuverIcon(step)).toBe("⬆️");
+    expect(formatManeuverInstruction(step)).toBe("⬆️ Continuez tout droit");
+  });
+
+  it("demi-tour", () => {
+    const step = { maneuver: { type: "turn", modifier: "uturn" } };
+    expect(getManeuverIcon(step)).toBe("↩️");
+    expect(formatManeuverInstruction(step)).toBe("↩️ Faites demi-tour");
+  });
+
+  it("arrivée et départ ont leurs propres icônes", () => {
+    expect(getManeuverIcon({ maneuver: { type: "arrive" } })).toBe("🏁");
+    expect(getManeuverIcon({ maneuver: { type: "depart" } })).toBe("🚦");
+  });
+
+  it("step invalide -> chaîne/icône neutres, jamais d'exception", () => {
+    expect(formatManeuverInstruction(null)).toBe("");
+    expect(formatManeuverInstruction({})).toBe("");
+    expect(getManeuverIcon(null)).toBe("⬆️");
   });
 });
 
