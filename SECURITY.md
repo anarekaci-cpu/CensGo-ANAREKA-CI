@@ -80,6 +80,16 @@ ne peut pas être appliqué depuis ce dépôt seul).
 
 ## ⚠️ Actions requises avant production
 
+### Edge Function IA
+
+Définir le secret `AI_ALLOWED_ORIGINS` dans Supabase avec les origines
+exactes de production et, si nécessaire, de développement. La fonction refuse
+les requêtes portant une origine absente de cette liste, limite la taille des
+payloads et des prompts, et ne renvoie plus les messages internes de Gemini.
+Ces contrôles réduisent l'abus mais ne remplacent pas un quota persistant par
+utilisateur : celui-ci doit être ajouté côté Supabase avant un usage IA à grande
+échelle.
+
 1. **Exécuter `supabase/reset_rls.sql`** dans le SQL Editor Supabase
    (idempotent : crée les tables manquantes, remplace les policies, ne
    supprime aucune donnée).

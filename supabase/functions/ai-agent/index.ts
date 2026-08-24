@@ -1,14 +1,33 @@
 import { GoogleGenAI } from "npm:@google/genai@^2.14.0";
 import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin") || "";
+  const configured = (Deno.env.get("AI_ALLOWED_ORIGINS") || "").split(",").map(value => value.trim()).filter(Boolean);
+  const allowed = configured.includes(origin);
+  return {
+    ...(allowed ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" } : {}),
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+  };
+}
+
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_PROMPT_LENGTH = 12000;
+const MAX_POINTS = 500;
+const ALLOWED_ACTIONS = new Set(["optimize_tour", "audit_quality", "parse_voice_note", "vision_ocr", "daily_briefing"]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: getCorsHeaders(req) });
+  }
+
+  const origin = req.headers.get("Origin");
+  const allowedOrigins = (Deno.env.get("AI_ALLOWED_ORIGINS") || "").split(",").map(value => value.trim()).filter(Boolean);
+  if (origin && !allowedOrigins.includes(origin)) {
+    return new Response(JSON.stringify({ error: "Origine non autorisée." }), {
+      status: 403, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" }
+    });
   }
 
   try {
@@ -16,7 +35,7 @@ Deno.serve(async (req) => {
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -36,7 +55,7 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !supabaseAnonKey) {
       return new Response(
         JSON.stringify({ error: "Configuration serveur incomplète (SUPABASE_URL/SUPABASE_ANON_KEY)." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -48,7 +67,7 @@ Deno.serve(async (req) => {
     if (authUserError || !user) {
       return new Response(
         JSON.stringify({ error: "Session invalide ou expirée." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -60,7 +79,7 @@ Deno.serve(async (req) => {
     if (!roleRow || (roleRow.role !== "agent" && roleRow.role !== "admin")) {
       return new Response(
         JSON.stringify({ error: "Compte non approuvé — accès refusé." }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 403, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -68,11 +87,34 @@ Deno.serve(async (req) => {
     if (!apiKey) {
       return new Response(
         JSON.stringify({ success: false, fallback: true, message: "GEMINI_API_KEY not configured." }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
     const { action, prompt, points, userPos, imageBase64, mimeType } = await req.json();
+
+    const contentLength = Number(req.headers.get("Content-Length") || 0);
+    if (contentLength > MAX_BODY_BYTES || typeof action !== "string" || !ALLOWED_ACTIONS.has(action)) {
+      return new Response(JSON.stringify({ error: contentLength > MAX_BODY_BYTES ? "Requête trop volumineuse." : "Action IA non autorisée." }), {
+        status: contentLength > MAX_BODY_BYTES ? 413 : 400,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" }
+      });
+    }
+    if (prompt !== undefined && (typeof prompt !== "string" || prompt.length > MAX_PROMPT_LENGTH)) {
+      return new Response(JSON.stringify({ error: "Texte de requête trop long." }), {
+        status: 413, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" }
+      });
+    }
+    if (points !== undefined && (!Array.isArray(points) || points.length > MAX_POINTS)) {
+      return new Response(JSON.stringify({ error: "Nombre de points trop élevé." }), {
+        status: 413, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" }
+      });
+    }
+    if (imageBase64 !== undefined && (typeof imageBase64 !== "string" || imageBase64.length > MAX_BODY_BYTES)) {
+      return new Response(JSON.stringify({ error: "Image trop volumineuse." }), {
+        status: 413, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" }
+      });
+    }
 
     const ai = new GoogleGenAI({
       apiKey,
@@ -111,13 +153,13 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ success: true, result: response.text }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("AI Edge Function Error:", err);
+    console.error("AI Edge Function Error:", err instanceof Error ? err.message : "unknown error");
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: false, error: "Le service IA est temporairement indisponible." }),
+      { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   }
 });
