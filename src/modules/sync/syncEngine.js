@@ -289,7 +289,14 @@ export async function triggerSync() {
   try {
     const pending = await getPendingSyncs();
     store.set("sync.pendingPointIds", [...new Set(pending.map(p => p.pointId))]);
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      const dead = await getDeadSyncs();
+      store.set("sync.pendingCount", 0);
+      store.set("sync.deadCount", dead.length);
+      store.set("sync.status", dead.length > 0 ? "error" : "idle");
+      store.set("sync.conflicts", await getSyncConflicts());
+      return;
+    }
 
     store.set("sync.status", "syncing");
     store.set("sync.pendingCount", pending.length);

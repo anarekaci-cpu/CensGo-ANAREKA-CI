@@ -15,6 +15,8 @@ import { normalizePointId, escapeHtml, stringSimilarity } from "../../core/utils
 // ressaisi avec une variante ("Kouassi"/"Kwassi").
 const FUZZY_DUPLICATE_RADIUS_M = 150;
 const FUZZY_NAME_THRESHOLD = 0.78;
+const CENSUS_DRAFT_KEY = "censgo.census-form-draft";
+const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe", "visited", "quartier", "address", "produits", "lat", "lon"];
 
 function normalizeTelDigits(tel) {
   return String(tel || "").replace(/\D/g, "");
@@ -213,6 +215,11 @@ export function openCensusForm(point = null) {
     const userPos = store.get("geo.position");
     document.getElementById("cf_lat").value = userPos ? userPos.lat.toFixed(6) : fallbackCenter.lat.toFixed(6);
     document.getElementById("cf_lon").value = userPos ? userPos.lng.toFixed(6) : fallbackCenter.lng.toFixed(6);
+
+    const restored = restoreDraft();
+    if (restored) {
+      document.getElementById("censusValStatusText").textContent = "Brouillon local restauré — vérifiez les données avant d'enregistrer.";
+    }
   }
 
   // Synchroniser l'état des composants tactiles
@@ -357,7 +364,12 @@ function bindFormEvents() {
   // redimensionnent (ou pire, panent) la fenêtre à l'ouverture du clavier,
   // le champ actif restait masqué derrière le clavier et l'agent tapait
   // "dans le vide".
-  document.getElementById("censusForm")?.addEventListener("focusin", (e) => {
+  const form = document.getElementById("censusForm");
+  form?.addEventListener("input", saveDraft);
+  form?.addEventListener("change", saveDraft);
+  form?.addEventListener("click", () => queueMicrotask(saveDraft));
+
+  form?.addEventListener("focusin", (e) => {
     if (!e.target.matches("input, textarea, select")) return;
     setTimeout(() => {
       e.target.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -570,6 +582,7 @@ function bindFormEvents() {
       const pendingIds = new Set((store.get("sync.pendingPointIds") || []).map(normalizePointId));
       pendingIds.add(updatedId);
       store.set("sync.pendingPointIds", [...pendingIds]);
+      clearDraft();
 
       // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
       // marqueurs en respectant les filtres actifs (un point créé hors filtre
@@ -585,6 +598,58 @@ function bindFormEvents() {
       if (saveBtn) saveBtn.disabled = false;
     }
   });
+}
+
+function readDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(CENSUS_DRAFT_KEY) || "null");
+    return draft && typeof draft === "object" ? draft : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft() {
+  const id = document.getElementById("cf_id")?.value;
+  if (id) return;
+
+  const draft = {};
+  CENSUS_DRAFT_FIELDS.forEach(field => {
+    const element = document.getElementById(`cf_${field}`);
+    if (element) draft[field] = element.type === "checkbox" ? element.checked : element.value;
+  });
+
+  if (!draft.name && !draft.tel && !draft.etablissement && !draft.activity && !draft.quartier && !draft.address) {
+    clearDraft();
+    return;
+  }
+
+  try {
+    localStorage.setItem(CENSUS_DRAFT_KEY, JSON.stringify({ ...draft, savedAt: new Date().toISOString() }));
+  } catch {
+    // Storage may be unavailable in private browsing; the form remains usable.
+  }
+}
+
+function restoreDraft() {
+  const draft = readDraft();
+  if (!draft) return false;
+
+  CENSUS_DRAFT_FIELDS.forEach(field => {
+    const element = document.getElementById(`cf_${field}`);
+    if (!element || draft[field] === undefined) return;
+    if (element.type === "checkbox") element.checked = !!draft[field];
+    else element.value = draft[field];
+  });
+  return true;
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(CENSUS_DRAFT_KEY);
+  } catch {
+    // Storage may be unavailable; nothing else is required to clear in-memory state.
+  }
 }
 
 function syncSegmentedSexe() {
