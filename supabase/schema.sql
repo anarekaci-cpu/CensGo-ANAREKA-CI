@@ -554,3 +554,39 @@ $$;
 
 REVOKE ALL ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_occurred_at ON audit_events (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events (entity_type, entity_id);
+ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin can read audit events" ON audit_events;
+CREATE POLICY "Admin can read audit events"
+  ON audit_events FOR SELECT TO authenticated
+  USING (is_admin_user());
+
+CREATE OR REPLACE FUNCTION audit_census_point_changes()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.audit_events(user_id, action, entity_type, entity_id, metadata)
+  VALUES (auth.uid(), lower(TG_OP), 'census_point', COALESCE(NEW.point_id, OLD.point_id),
+    jsonb_build_object('visited', COALESCE(NEW.visited, OLD.visited), 'status', COALESCE(NEW.status, OLD.status)));
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+REVOKE ALL ON FUNCTION audit_census_point_changes() FROM PUBLIC;
+DROP TRIGGER IF EXISTS census_points_audit_trigger ON census_points;
+CREATE TRIGGER census_points_audit_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON census_points
+  FOR EACH ROW EXECUTE FUNCTION audit_census_point_changes();
