@@ -5,7 +5,7 @@ import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation, chooseRouteAlternative } from "./modules/navigation/navigation.js";
-import { locateAndCenter, findNearestUnvisited, getCurrentPosition } from "./modules/geolocation/geolocation.js";
+import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocation } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
@@ -646,6 +646,7 @@ function bindEvents() {
       // perdait ce message pour toute la session suivante — carte
       // silencieusement blanche, sans indication du pourquoi.
       emptyStateEl = null;
+      stopGeolocation();
       logout();
     }
   };
