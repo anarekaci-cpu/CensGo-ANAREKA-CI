@@ -44,6 +44,7 @@ class Store {
         dataSource: "none", // none | cache | server
         lastSync: null,
         lastError: null,
+        partialLoad: null,
         pendingCount: 0,
         deadCount: 0,
         pendingPointIds: [],

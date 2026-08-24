@@ -1319,6 +1319,7 @@ function bindStoreListeners() {
     const conflicts = store.get("sync.conflicts") || [];
     const dataSource = store.get("sync.dataSource");
     const lastError = store.get("sync.lastError") || store.get("sync.errorDetail");
+    const partialLoad = store.get("sync.partialLoad");
 
     if (deadCount > 0) {
       el.textContent = `⚠️ ${deadCount} fiche${deadCount > 1 ? "s" : ""} bloquée${deadCount > 1 ? "s" : ""} — Voir`;
@@ -1338,6 +1339,15 @@ function bindStoreListeners() {
       el.title = "Ces fiches ont visiblement été modifiées ailleurs pendant que vous étiez hors-ligne. Cliquez pour les revoir une par une.";
       el.style.cursor = "pointer";
       el.onclick = () => reviewNextConflict();
+      return;
+    }
+
+    if (partialLoad) {
+      el.textContent = "⚠️ Chargement partiel — Voir";
+      el.className = "sync-status sync-status-error";
+      el.title = partialLoad.message;
+      el.style.cursor = "pointer";
+      el.onclick = () => toastWarning(partialLoad.message);
       return;
     }
 
@@ -1370,6 +1380,7 @@ function bindStoreListeners() {
   store.subscribe("sync.conflicts", renderSyncStatus);
   store.subscribe("sync.dataSource", renderSyncStatus);
   store.subscribe("sync.lastError", renderSyncStatus);
+  store.subscribe("sync.partialLoad", renderSyncStatus);
 
   const renderGeoStatus = () => {
     const el = document.getElementById("geoStatus");

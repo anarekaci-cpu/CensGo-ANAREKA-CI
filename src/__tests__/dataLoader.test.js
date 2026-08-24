@@ -35,5 +35,6 @@ describe("fetchAllPages", () => {
     const rows = await fetchAllPages(supabase);
     expect(rows).toHaveLength(1000);
     expect(store.get("sync.warning")).toContain("1 page(s), 1000 ligne(s)");
+    expect(store.get("sync.partialLoad")).toEqual(expect.objectContaining({ pages: 1, rows: 1000 }));
   });
 });

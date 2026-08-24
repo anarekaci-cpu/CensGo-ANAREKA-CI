@@ -100,6 +100,7 @@ export async function fetchAllPages(supabase, { since = null } = {}) {
       if (allRows.length > 0) {
         // Réseau coupé en cours de pagination : on garde les pages reçues.
         const warning = `Synchronisation partielle : ${page} page(s), ${allRows.length} ligne(s) reçue(s) avant l'interruption. Les données locales sont conservées.`;
+        store.set("sync.partialLoad", { pages: page, rows: allRows.length, message: warning });
         store.set("sync.warning", warning);
         console.warn(`[DATA] ${warning}`, error.message);
         return allRows;
@@ -199,6 +200,7 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
     try {
       const lastSync = !forceFullSync && !forceRefresh ? await getMeta("lastSync") : null;
       store.set("sync.warning", null);
+      store.set("sync.partialLoad", null);
       data = await fetchAllPages(supabase, { since: lastSync });
     } catch (e) {
       supaError = e;
