@@ -196,6 +196,7 @@ export async function mountAuthenticatedApp(container) {
           </div>
 
           <div id="navPanel">
+            <button id="navCollapseBtn" class="nav-collapse-btn" type="button" tabindex="0" aria-label="Réduire le panneau de navigation" aria-expanded="true">⌄</button>
             <div id="navIcon">🚶</div>
             <div id="navInfo">
               <div id="navInstruction">—</div>
@@ -847,6 +848,35 @@ function bindEvents() {
   document.getElementById("navRecenterBtn").onclick = () => {
     recenterNavigation();
   };
+  document.getElementById("navCollapseBtn")?.addEventListener("click", () => {
+    const panel = document.getElementById("navPanel");
+    const button = document.getElementById("navCollapseBtn");
+    const collapsed = panel?.classList.toggle("is-collapsed");
+    button?.setAttribute("aria-expanded", String(!collapsed));
+    button?.setAttribute("aria-label", collapsed ? "Développer le panneau de navigation" : "Réduire le panneau de navigation");
+  });
+  document.getElementById("navCollapseBtn")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.currentTarget.click();
+    }
+  });
+  let navTouchStartY = null;
+  document.getElementById("navPanel")?.addEventListener("touchstart", (event) => {
+    navTouchStartY = event.touches[0]?.clientY ?? null;
+  }, { passive: true });
+  document.getElementById("navPanel")?.addEventListener("touchend", (event) => {
+    if (navTouchStartY === null) return;
+    const delta = event.changedTouches[0]?.clientY - navTouchStartY;
+    navTouchStartY = null;
+    if (Math.abs(delta) < 30) return;
+    const panel = document.getElementById("navPanel");
+    const button = document.getElementById("navCollapseBtn");
+    const collapsed = delta > 0;
+    panel?.classList.toggle("is-collapsed", collapsed);
+    button?.setAttribute("aria-expanded", String(!collapsed));
+    button?.setAttribute("aria-label", collapsed ? "Développer le panneau de navigation" : "Réduire le panneau de navigation");
+  }, { passive: true });
   const navSpeechBtn = document.getElementById("navSpeechBtn");
   if (navSpeechBtn) {
     navSpeechBtn.textContent = isSpeechEnabled() ? "🔊" : "🔇";
@@ -1372,6 +1402,12 @@ function bindStoreListeners() {
   store.subscribe("navigation.instruction", (text) => {
     const el = document.getElementById("navInstruction");
     if (el) el.textContent = text || "—";
+    const panel = document.getElementById("navPanel");
+    if (panel) {
+      const loading = /calcul de l'itinéraire/i.test(text || "");
+      panel.classList.toggle("is-loading", loading);
+      panel.setAttribute("aria-busy", String(loading));
+    }
     const infoEl = document.getElementById("routeInfo");
     if (infoEl) infoEl.textContent = text || "";
   });

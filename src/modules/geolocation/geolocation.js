@@ -5,8 +5,10 @@ import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
 import { toastInfo, toastWarning } from "../../core/toast.js";
 import { findNearestByRoad } from "../routing/routing.js";
+import { shouldAcceptGpsFix, smoothGpsPosition } from "../../core/positionSmoothing.js";
 
 let position = null;
+let displayPosition = null;
 let hasAutoCentered = false;
 
 export function initGeolocation() {
@@ -18,20 +20,23 @@ export function initGeolocation() {
 
   navigator.geolocation.watchPosition(
     (pos) => {
-      position = {
+      const rawPosition = {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         accuracy: pos.coords.accuracy,
         heading: pos.coords.heading,
         timestamp: pos.timestamp
       };
+      if (!shouldAcceptGpsFix(rawPosition, position)) return;
+      position = rawPosition;
+      displayPosition = smoothGpsPosition(displayPosition, rawPosition);
       log.debug("GPS", `fix lat=${position.lat} lng=${position.lng} accuracy=${position.accuracy}m`);
       store.set("geo.position", position);
       store.set("geo.tracking", true);
       store.set("geo.error", null);
       // La position était suivie en interne (distances, itinéraire) mais
       // jamais affichée sur la carte — un agent ne voyait jamais où il était.
-      showUserLocation(position.lat, position.lng, position.accuracy);
+      showUserLocation(displayPosition.lat, displayPosition.lng, position.accuracy);
       reportPosition(position);
 
       // La carte s'ouvrait toujours centrée sur Abidjan par défaut, quel que

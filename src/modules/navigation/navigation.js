@@ -17,7 +17,7 @@ import { distanceToPolylineMeters, remainingRouteDistanceMeters, bearingDeg, car
 import { speak, cancelSpeech } from "../../core/speech.js";
 import { toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
-import { flyToPoint } from "../map/map.js";
+import { flyToPoint, enableCameraFollow } from "../map/map.js";
 import { isRushHour } from "../traffic/trafficHeuristic.js";
 
 // Mode voiture uniquement (voir trafficHeuristic.js) : signale à l'agent que
@@ -100,6 +100,7 @@ export function initNavigation() {
   navUnsubs.push(
     store.subscribe("navigation.active", (active) => {
       if (active) {
+        enableCameraFollow();
         scheduleStartNavigation();
       } else {
         if (pendingNavFrame) {
@@ -264,6 +265,8 @@ export function recenterNavigation() {
     toastWarning("Position GPS invalide.");
     return false;
   }
+
+  enableCameraFollow();
 
   /*
    * flyToPoint attend (lat, lon).

@@ -476,7 +476,23 @@ header {
   box-shadow: var(--shadow-lg);
   border: 1px solid rgba(26, 61, 43, 0.1);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  max-height: 40dvh; overflow: auto; position: relative; touch-action: pan-y;
 }
+#navPanel.is-collapsed { max-height: 68px; padding-top: 10px; padding-bottom: 10px; }
+#navPanel.is-collapsed #navInfo { max-height: 0; opacity: 0; overflow: hidden; }
+#navPanel.is-loading #navInstruction { color: #0369a1; }
+#navPanel.is-loading #navInstruction::before {
+  content: ""; display: inline-block; width: 13px; height: 13px; margin-right: 8px;
+  border: 2px solid #bae6fd; border-top-color: #0284c7; border-radius: 50%;
+  vertical-align: -2px; animation: navSpin 0.8s linear infinite;
+}
+@keyframes navSpin { to { transform: rotate(360deg); } }
+.nav-collapse-btn {
+  position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+  width: 44px; height: 28px; border: 0; background: transparent;
+  color: #64748b; font-size: 20px; line-height: 1; cursor: pointer;
+}
+#navPanel.is-collapsed .nav-collapse-btn { transform: translateX(-50%) rotate(180deg); }
 #navIcon { font-size: 28px; }
 #navInfo { flex: 1; }
 #navInstruction { font-size: 14.5px; font-weight: 700; color: #0f172a; }
@@ -512,8 +528,8 @@ header {
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
 .nav-mode-btn.active {
-  background: linear-gradient(135deg, #1a3d2b, #275940);
-  color: white; border-color: transparent;
+  background: #0369a1;
+  color: white; border-color: #075985; box-shadow: 0 4px 12px rgba(3, 105, 161, 0.35);
 }
 
 #arrivalBanner {
@@ -710,6 +726,8 @@ header {
 
 .user-location-dot {
   width: 22px; height: 22px; position: relative;
+  transition: transform 450ms ease-out;
+  will-change: transform;
 }
 .user-location-core {
   position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;

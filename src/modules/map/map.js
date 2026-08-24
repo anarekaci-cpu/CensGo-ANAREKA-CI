@@ -4,6 +4,8 @@ import Supercluster from "supercluster";
 import { CONFIG } from "../../core/config.js";
 import { log } from "../../core/debug.js";
 import { destinationPoint } from "../../core/geo.js";
+import { store } from "../../core/store.js";
+import { calculateRoutePadding } from "../../core/routeView.js";
 
 const basemapStyle = {
   version: 8,
@@ -35,6 +37,7 @@ let clusterInstance = null;
 let userLocationMarker = null;
 let destinationMarker = null;
 let heatmapVisible = false;
+let cameraFollowEnabled = true;
 
 export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
@@ -47,6 +50,9 @@ export function initMap(containerId = "map") {
     zoom: CONFIG.MAP_ZOOM,
     maxZoom: CONFIG.MAP_MAX_ZOOM,
     attributionControl: false
+  });
+  mapInstance.on("dragstart", () => {
+    cameraFollowEnabled = false;
   });
 
   mapInstance.addControl(
@@ -105,9 +111,9 @@ export function fitToBounds(bounds, padding = [40, 40]) {
  * comme "à pied" sans être moins lisible que le trait plein vélo/véhicule.
  */
 const ROUTE_LINE_STYLES = {
-  foot: { "line-color": "#1a3d2b", "line-width": 5.5, "line-opacity": 0.9, "line-dasharray": [0, 1.8], "line-cap": "round" },
-  bike: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" },
-  car: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" }
+  foot: { "line-color": "#f97316", "line-width": 6, "line-opacity": 0.95, "line-dasharray": [0, 1.8], "line-cap": "round" },
+  bike: { "line-color": "#0284c7", "line-width": 5.5, "line-opacity": 0.95, "line-cap": "round" },
+  car: { "line-color": "#dc2626", "line-width": 5.5, "line-opacity": 0.95, "line-cap": "round" }
 };
 
 export function addRouteLayer(geojson, mode) {
@@ -235,6 +241,13 @@ export function showUserLocation(lat, lng, accuracy) {
   }
   userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
   updateAccuracyCircle(lat, lng, accuracy);
+  if (cameraFollowEnabled && store.get("navigation.active")) {
+    mapInstance.easeTo({ center: [lng, lat], duration: 450, essential: true });
+  }
+}
+
+export function enableCameraFollow() {
+  cameraFollowEnabled = true;
 }
 
 export function hideUserLocation() {
@@ -267,9 +280,13 @@ export function fitRouteBounds(geometry) {
   }
   const bounds = new maplibregl.LngLatBounds();
   for (const c of geometry.coordinates) bounds.extend(c);
-  // Padding haut plus grand : laisse la place au bandeau de navigation en bas.
+  const mapElement = mapInstance.getContainer();
+  const infoPanel = document.getElementById("navBottomStack");
+  const mapRect = mapElement.getBoundingClientRect();
+  const panelRect = infoPanel?.getBoundingClientRect();
+  const bottomObstruction = calculateRoutePadding(mapRect, panelRect);
   mapInstance.fitBounds(bounds, {
-    padding: { top: 80, bottom: 160, left: 60, right: 60 },
+    padding: { top: 80, bottom: bottomObstruction, left: 60, right: 60 },
     duration: 800,
     maxZoom: 17
   });
