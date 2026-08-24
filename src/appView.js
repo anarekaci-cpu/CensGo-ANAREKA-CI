@@ -23,6 +23,7 @@ import { extractExifGps } from "./core/exif.js";
 import { haversineKm } from "./core/geo.js";
 import { getWeather, getRainAlert, describeWeatherCode } from "./modules/weather/weather.js";
 import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
+import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo envoyée à l'Agent Vision est
@@ -173,6 +174,9 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="action-row" id="exportRow" style="display:none;">
             <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
+          </div>
+          <div class="action-row" id="tourReportRow" style="display:none;">
+            <button id="tourReportBtn" class="btn-export" style="grid-column: 1 / -1;">🖨️ Rapport PDF de la dernière tournée</button>
           </div>
           <div id="geoStatus"></div>
           <div class="controls-footer">
@@ -574,6 +578,10 @@ async function refreshAdminRole() {
     // exporter lui-même hors de l'app.
     const exportRow = document.getElementById("exportRow");
     if (exportRow) exportRow.style.display = isAdmin ? "flex" : "none";
+    // Rapport PDF de tournée : même restriction que l'export CSV (demande
+    // explicite, voir cadrage de la fonctionnalité).
+    const tourReportRow = document.getElementById("tourReportRow");
+    if (tourReportRow) tourReportRow.style.display = isAdmin ? "flex" : "none";
 
     renderAgentBadge();
     refreshEmptyStateContent();
@@ -810,6 +818,7 @@ function bindEvents() {
   document.getElementById("tourCloseBtn").onclick = async () => (await getTourModule()).stopTour();
 
   document.getElementById("exportBtn").onclick = () => exportCSV();
+  document.getElementById("tourReportBtn").onclick = () => generateTourReport();
 
   document.getElementById("addZoneBtn")?.addEventListener("click", async () => {
     const input = document.getElementById("newZoneInput");
@@ -1615,5 +1624,41 @@ function exportCSV() {
   a.download = `recensement_export_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+  closeControls();
+}
+
+/**
+ * Rapport PDF (impression navigateur) de la DERNIÈRE tournée démarrée
+ * (store "tour.originalPoints", voir tour.js/store.js) — reste générable
+ * après la fin de la tournée, jusqu'à ce qu'une nouvelle soit lancée.
+ */
+function generateTourReport() {
+  // Même double-verrou que exportCSV() ci-dessus : le bouton est déjà masqué
+  // pour les non-admins, ce contrôle protège un éventuel autre point d'entrée.
+  if (!store.get("ui.isAdmin")) {
+    toastWarning("Rapport réservé aux comptes administrateur.");
+    return;
+  }
+
+  const originalPoints = store.get("tour.originalPoints") || [];
+  if (originalPoints.length === 0) {
+    toastInfo("Aucune tournée effectuée pour le moment — lancez une tournée optimisée d'abord.");
+    return;
+  }
+
+  const stops = mergeTourStopsWithLiveStatus(originalPoints, store.get("points"));
+  const user = store.get("user");
+  const html = buildTourReportHtml(stops, {
+    agentName: store.get("ui.fullName"),
+    agentEmail: user?.email,
+    startedAt: store.get("tour.startedAt"),
+    endedAt: store.get("tour.endedAt")
+  });
+
+  try {
+    openTourReportPrintWindow(html);
+  } catch (err) {
+    toastWarning(err.message || "Impossible d'ouvrir la fenêtre d'impression.");
+  }
   closeControls();
 }

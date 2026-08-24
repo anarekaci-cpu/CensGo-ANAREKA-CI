@@ -367,7 +367,6 @@ header {
      limite ne sert plus que de garde-fou. */
   max-height: min(62dvh, 520px);
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   min-width: 270px;
   margin: 0 !important;
 }
@@ -438,7 +437,7 @@ header {
 .popup-details summary {
   font-size: 12.5px; font-weight: 700; color: #475569;
   cursor: pointer; padding: 8px 4px; min-height: 32px; display: flex; align-items: center;
-  list-style: none; user-select: none;
+  list-style: none; -webkit-user-select: none; user-select: none;
 }
 .popup-details summary::-webkit-details-marker { display: none; }
 .popup-details[open] summary { color: #1a3d2b; margin-bottom: 4px; }

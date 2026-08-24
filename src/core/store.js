@@ -28,7 +28,16 @@ class Store {
       tour: {
         active: false,
         points: [],
-        currentIndex: 0
+        currentIndex: 0,
+        // Snapshot COMPLET des arrêts au démarrage (jamais filtré, contrairement
+        // à "points" ci-dessus qui perd chaque arrêt dès qu'il est visité) —
+        // seule façon de savoir, une fois la tournée terminée, quels points en
+        // faisaient partie. Voir modules/report/tourReport.js. Conservé après
+        // stopTour() (pas remis à []) : un rapport reste générable tant qu'une
+        // nouvelle tournée n'a pas démarré.
+        originalPoints: [],
+        startedAt: null,
+        endedAt: null
       },
       sync: {
         status: "idle", // idle | syncing | error | offline

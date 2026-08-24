@@ -32,6 +32,12 @@ export function startTour(tour) {
   store.set("tour.active", true);
   store.set("tour.points", tour);
   store.set("tour.currentIndex", 0);
+  // Snapshot séparé pour le rapport PDF (tourReport.js) — voir le commentaire
+  // sur "tour.originalPoints" dans store.js : contrairement à "tour.points"
+  // ci-dessus, celui-ci n'est JAMAIS filtré au fil des visites.
+  store.set("tour.originalPoints", tour);
+  store.set("tour.startedAt", new Date().toISOString());
+  store.set("tour.endedAt", null);
 
   if (tour.length > 0) {
     goToPoint(0);
@@ -140,4 +146,8 @@ export function stopTour() {
   store.set("tour.active", false);
   store.set("tour.points", []);
   store.set("tour.currentIndex", 0);
+  // "tour.originalPoints"/"tour.startedAt" restent volontairement en place
+  // (pas remis à []/null) — le rapport PDF de LA DERNIÈRE tournée doit
+  // rester générable après sa fin, jusqu'au prochain startTour().
+  store.set("tour.endedAt", new Date().toISOString());
 }
