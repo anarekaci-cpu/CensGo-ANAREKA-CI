@@ -405,6 +405,7 @@ AS $$
   ORDER BY (ur.role IS NOT NULL), ur.agent_number;
 $$;
 
+REVOKE ALL ON FUNCTION admin_list_accounts() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_list_accounts() TO authenticated;
 
 -- Backfill : les comptes déjà créés AVANT ce correctif (via le dashboard,
@@ -549,4 +550,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;

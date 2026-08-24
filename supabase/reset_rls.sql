@@ -77,6 +77,9 @@ AS $$
   );
 $$;
 
+REVOKE ALL ON FUNCTION is_admin_user() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION is_admin_user() TO authenticated;
+
 DROP POLICY IF EXISTS "Admin can read all roles" ON user_roles;
 CREATE POLICY "Admin can read all roles"
   ON user_roles FOR SELECT TO authenticated
@@ -115,6 +118,7 @@ AS $$
   ORDER BY (ur.role IS NOT NULL), ur.agent_number;
 $$;
 
+REVOKE ALL ON FUNCTION admin_list_accounts() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION admin_list_accounts() TO authenticated;
 
 -- Backfill : comptes créés avant ce correctif — récupère un full_name déjà
@@ -163,6 +167,9 @@ AS $$
     WHERE user_id = auth.uid() AND role IN ('agent', 'admin')
   );
 $$;
+
+REVOKE ALL ON FUNCTION is_approved_user() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION is_approved_user() TO authenticated;
 
 -- =============================================================
 -- 1. census_points
@@ -385,4 +392,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;
