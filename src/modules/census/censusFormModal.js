@@ -16,6 +16,7 @@ import { normalizePointId, escapeHtml, stringSimilarity } from "../../core/utils
 const FUZZY_DUPLICATE_RADIUS_M = 150;
 const FUZZY_NAME_THRESHOLD = 0.78;
 const CENSUS_DRAFT_KEY = "censgo.census-form-draft";
+const CENSUS_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe", "visited", "quartier", "address", "produits", "lat", "lon"];
 
 function normalizeTelDigits(tel) {
@@ -603,7 +604,12 @@ function bindFormEvents() {
 function readDraft() {
   try {
     const draft = JSON.parse(localStorage.getItem(CENSUS_DRAFT_KEY) || "null");
-    return draft && typeof draft === "object" ? draft : null;
+    if (!draft || typeof draft !== "object") return null;
+    if (draft.savedAt && Date.now() - Date.parse(draft.savedAt) > CENSUS_DRAFT_MAX_AGE_MS) {
+      clearDraft();
+      return null;
+    }
+    return draft;
   } catch {
     return null;
   }
