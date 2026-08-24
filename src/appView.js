@@ -1496,8 +1496,8 @@ function renderQuartierCoverage() {
       <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.quartier)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.quartier)}</span>
         <span style="color:#64748b; min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
-        <div style="width:44px; height:6px; border-radius:3px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
-          <div style="height:100%; width:${r.pct}%; background:${color};"></div>
+        <div style="width:44px; height:7px; border-radius:4px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
+          <div style="height:100%; width:${r.pct}%; background:${color}; border-radius:4px; transition:width 0.4s ease;"></div>
         </div>
         ${removeBtn}
       </div>

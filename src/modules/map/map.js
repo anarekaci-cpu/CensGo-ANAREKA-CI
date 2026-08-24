@@ -93,11 +93,19 @@ export function fitToBounds(bounds, padding = [40, 40]) {
 /**
  * Style du tracé par mode : le trait plein (route/vélo) et le tracé piéton
  * doivent se distinguer d'un coup d'œil sur la carte, sans dépendre du
- * bandeau de navigation. "line-cap: round" étire les extrémités des
- * pointillés en gros points — "butt" est nécessaire pour un tireté net.
+ * bandeau de navigation.
+ *
+ * Piéton (audit UX) : le tireté net à bouts carrés ("line-cap: butt" +
+ * dasharray [0.4, 1.6], grand écart entre de très fins segments) donnait un
+ * résultat qui a été signalé comme peu esthétique — des traits épars plutôt
+ * qu'un tracé lisible. Remplacé par une ligne de points ronds régulièrement
+ * espacés ("line-cap: round" + dasharray [0, 1.8] : un dash de longueur 0
+ * avec un bout rond dessine un simple point), le même langage visuel que
+ * les itinéraires piétons de Google/Apple Maps — immédiatement reconnu
+ * comme "à pied" sans être moins lisible que le trait plein vélo/véhicule.
  */
 const ROUTE_LINE_STYLES = {
-  foot: { "line-color": "#1a3d2b", "line-width": 4.5, "line-opacity": 0.85, "line-dasharray": [0.4, 1.6], "line-cap": "butt" },
+  foot: { "line-color": "#1a3d2b", "line-width": 5.5, "line-opacity": 0.9, "line-dasharray": [0, 1.8], "line-cap": "round" },
   bike: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" },
   car: { "line-color": "#1a3d2b", "line-width": 5, "line-opacity": 0.8, "line-cap": "round" }
 };

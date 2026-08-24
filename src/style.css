@@ -234,7 +234,10 @@ header {
 .htitle h1 span { font-weight: 400; opacity: 0.82; color: #a3e635; font-size: 14px; }
 .stats { font-size: 12px; color: #dcfce7; font-weight: 500; opacity: 0.9; margin-top: 2px; }
 .progress-bar-wrap { width: 100%; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; margin-top: 4px; overflow: hidden; }
-.progress-bar-fill { height: 100%; background: #2ecc71; border-radius: 3px; transition: width 0.4s ease; }
+.progress-bar-fill {
+  height: 100%; border-radius: 3px; transition: width 0.4s ease;
+  background: linear-gradient(90deg, #a3e635, #2ecc71);
+}
 .right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 #syncStatus {
   font-size: 12px; color: #86efac; font-weight: 600;
@@ -614,6 +617,12 @@ header {
 .pin-hit {
   width: 44px; height: 52px;
   display: flex; align-items: flex-end; justify-content: center;
+  /* Léger relief (audit UX/design) : les pins étaient un simple aplat SVG
+     sans profondeur, contrairement aux FAB/clusters/boutons qui ont tous
+     déjà une ombre portée — incohérent visuellement. drop-shadow (et non
+     box-shadow, qui suivrait le rectangle du hit-target plutôt que la
+     silhouette réelle du pin) suit précisément la forme de la goutte SVG. */
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
 }
 
 /* Contrôles natifs MapLibre (~29px par défaut) portés à la norme 44px */
@@ -786,7 +795,10 @@ header {
   color: white; border: none; border-radius: 10px;
   font-weight: 600; font-size: 13px; cursor: pointer;
   box-shadow: 0 2px 8px rgba(26, 61, 43, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
 }
+.btn-ai-control:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(26, 61, 43, 0.3); filter: brightness(1.05); }
+.btn-ai-control:active { transform: scale(0.97); }
 
 .ai-modal {
   position: fixed; inset: 0; z-index: 999;
@@ -816,7 +828,10 @@ header {
   background: rgba(255,255,255,0.15); border: none; color: white;
   width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
   font-size: 16px; display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease, transform 0.15s ease;
 }
+.ai-close-btn:hover { background: rgba(255,255,255,0.28); }
+.ai-close-btn:active { transform: scale(0.92); }
 .ai-close-btn:hover { background: rgba(255,255,255,0.3); }
 
 .ai-tabs {
@@ -890,7 +905,10 @@ header {
   color: white; border: none; border-radius: var(--radius-md);
   font-weight: 700; font-size: 13px; cursor: pointer;
   box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
 }
+.btn-add-control:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35); filter: brightness(1.05); }
+.btn-add-control:active { transform: scale(0.97); }
 
 /* Modal Formulaire Recensement Tactile */
 .census-modal {

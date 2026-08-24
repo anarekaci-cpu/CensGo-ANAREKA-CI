@@ -17,7 +17,7 @@ vi.mock("../modules/map/map.js", () => ({
   hideDestinationMarker: vi.fn()
 }));
 
-const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode } = await import("../modules/routing/routing.js");
+const { calculateRoute, estimateFallbackRoute, formatDistance, formatDuration, NAV_MODES, isValidNavMode, findNearestByRoad } = await import("../modules/routing/routing.js");
 
 describe("calculateRoute", () => {
   const originalFetch = globalThis.fetch;
@@ -189,6 +189,79 @@ describe("calculateRoute", () => {
     const route = await calculateRoute(5.36, -3.97, 5.40, -3.99, "avion");
     expect(globalThis.fetch.mock.calls[0][0]).toContain("/route/v1/foot/");
     expect(route.mode).toBe("foot");
+  });
+});
+
+describe("findNearestByRoad", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  // Cas réel signalé : un point A est plus proche À VOL D'OISEAU qu'un
+  // point B, mais B est en réalité plus proche PAR LA ROUTE (A de l'autre
+  // côté d'une lagune, détour par un pont). findNearestByRoad() doit
+  // classer B devant A, contrairement à un simple tri haversine.
+  it("choisit le candidat le plus proche PAR LA ROUTE, pas à vol d'oiseau", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        // distances[0] : source -> [candidat A, candidat B], DANS L'ORDRE
+        // donné à findNearestByRoad(). A = 300m à vol d'oiseau mais 4000m
+        // par la route (détour) ; B = 800m à vol d'oiseau mais 850m par la
+        // route (direct) — B doit gagner.
+        distances: [[4000, 850]]
+      })
+    });
+
+    const candidates = [
+      { lat: 5.361, lon: -3.968 }, // A
+      { lat: 5.375, lon: -3.965 }  // B
+    ];
+    const result = await findNearestByRoad(5.36, -3.97, candidates);
+
+    expect(result.index).toBe(1); // B, pas A
+    expect(result.distanceM).toBe(850);
+  });
+
+  it("construit l'URL /table avec sources=0 et une destination par candidat", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ code: "Ok", distances: [[100, 200]] })
+    });
+    await findNearestByRoad(5.36, -3.97, [{ lat: 5.37, lon: -3.98 }, { lat: 5.38, lon: -3.99 }]);
+    const url = globalThis.fetch.mock.calls[0][0];
+    expect(url).toContain("/table/v1/foot/");
+    expect(url).toContain("sources=0");
+    expect(url).toContain("destinations=1;2");
+  });
+
+  it("ignore une destination inatteignable (null) plutôt que de planter", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ code: "Ok", distances: [[null, 600]] })
+    });
+    const result = await findNearestByRoad(5.36, -3.97, [{ lat: 5.37, lon: -3.98 }, { lat: 5.38, lon: -3.99 }]);
+    expect(result.index).toBe(1);
+    expect(result.distanceM).toBe(600);
+  });
+
+  it("retourne null (pas d'exception) si la requête réseau échoue — repli attendu côté appelant", async () => {
+    globalThis.fetch.mockRejectedValue(new Error("network down"));
+    const result = await findNearestByRoad(5.36, -3.97, [{ lat: 5.37, lon: -3.98 }]);
+    expect(result).toBeNull();
+  });
+
+  it("retourne null sans appel réseau si la liste de candidats est vide", async () => {
+    const result = await findNearestByRoad(5.36, -3.97, []);
+    expect(result).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 

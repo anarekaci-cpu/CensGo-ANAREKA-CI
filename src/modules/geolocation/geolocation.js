@@ -4,6 +4,7 @@ import { reportPosition } from "./agentTracking.js";
 import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
 import { toastInfo, toastWarning } from "../../core/toast.js";
+import { findNearestByRoad } from "../routing/routing.js";
 
 let position = null;
 let hasAutoCentered = false;
@@ -89,22 +90,47 @@ export function locateAndCenter() {
   flyToPoint(position.lat, position.lng, 17);
 }
 
+// Nombre de candidats (les plus proches à vol d'oiseau) soumis au calcul de
+// distance ROUTÉE réelle — voir findNearestByRoad() (routing.js). Assez
+// large pour couvrir un détour routier réaliste autour d'un obstacle
+// (lagune, fleuve — fréquent à Abidjan) sans dépasser la limite pratique de
+// coordonnées du service OSRM /table public.
+const ROAD_DISTANCE_CANDIDATE_COUNT = 12;
+
+/**
+ * BUG CONFIRMÉ EN TERRAIN (audit) : le "plus proche" était calculé à vol
+ * d'oiseau — près d'une lagune/d'un fleuve, un point de l'autre côté de
+ * l'eau paraît "proche" alors qu'il faut faire tout le tour par le pont ;
+ * l'agent passait alors devant des dizaines d'autres points non-visités
+ * réellement plus proches PAR LA ROUTE. On présélectionne maintenant les
+ * ROAD_DISTANCE_CANDIDATE_COUNT points les plus proches à vol d'oiseau
+ * (rapide, local, aucune requête réseau) puis on les départage par distance
+ * routée réelle (findNearestByRoad(), OSRM /table). Repli automatique sur
+ * le vol d'oiseau pur si la requête échoue (hors-ligne, timeout) — jamais
+ * de blocage total de la fonctionnalité.
+ */
 export async function findNearestUnvisited() {
   if (!position) return null;
 
   const points = store.get("points").filter(p => !p.visited);
   if (points.length === 0) return null;
 
-  let nearest = null;
-  let minDist = Infinity;
+  const byStraightLine = points
+    .map(pt => ({ point: pt, distance: haversineKm(position.lat, position.lng, pt.lat, pt.lon) }))
+    .sort((a, b) => a.distance - b.distance);
 
-  for (const pt of points) {
-    const d = haversineKm(position.lat, position.lng, pt.lat, pt.lon);
-    if (d < minDist) {
-      minDist = d;
-      nearest = { point: pt, distance: d };
+  const candidates = byStraightLine.slice(0, ROAD_DISTANCE_CANDIDATE_COUNT);
+
+  try {
+    const best = await findNearestByRoad(position.lat, position.lng, candidates.map(c => c.point));
+    if (best) {
+      return { point: candidates[best.index].point, distance: best.distanceM / 1000 };
     }
+  } catch (err) {
+    log.warn("GPS", "findNearestByRoad() indisponible, repli sur le vol d'oiseau:", err?.message || err);
   }
 
-  return nearest;
+  // Repli : hors-ligne, timeout, ou aucun candidat atteignable par la route
+  // connue d'OSRM — le plus proche à vol d'oiseau reste préférable à rien.
+  return byStraightLine[0] || null;
 }

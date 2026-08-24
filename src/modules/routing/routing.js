@@ -65,6 +65,80 @@ const AVERAGE_SPEEDS_MPS = {
 };
 
 /**
+ * Trouve, parmi une liste de candidats PRÉ-FILTRÉE (voir
+ * findNearestUnvisited(), geolocation.js), celui le plus proche par
+ * DISTANCE ROUTÉE réelle (service OSRM /table) plutôt qu'à vol d'oiseau.
+ *
+ * BUG CONFIRMÉ EN TERRAIN : à vol d'oiseau, un point de l'autre côté d'une
+ * lagune/d'un fleuve (fréquent à Abidjan) paraît "le plus proche" alors
+ * qu'il faut en réalité faire tout le tour par le pont — pendant ce
+ * détour, l'agent passe devant des dizaines d'autres points non-visités
+ * qui, eux, étaient vraiment les plus proches PAR LA ROUTE. Le "plus
+ * proche" affiché n'avait donc souvent aucun rapport avec le trajet réel.
+ *
+ * @param {number} fromLat
+ * @param {number} fromLng
+ * @param {Array<{lat:number, lon:number}>} candidates présélection à vol
+ *   d'oiseau — le service /table public a une limite pratique de
+ *   coordonnées par requête, d'où la présélection en amont.
+ * @returns {Promise<{index:number, distanceM:number}|null>} index dans
+ *   `candidates` du plus proche par la route, ou null si la requête échoue
+ *   (offline, timeout) — l'appelant doit alors retomber sur le tri à vol
+ *   d'oiseau plutôt que d'échouer complètement (résilience offline-first).
+ */
+export async function findNearestByRoad(fromLat, fromLng, candidates) {
+  if (!candidates.length) return null;
+
+  // Seul profil réel exposé par le serveur configuré — voir NAV_MODES.
+  const profile = NAV_MODES.foot.profile;
+  const coords = [
+    `${fromLng},${fromLat}`,
+    ...candidates.map(p => `${p.lon},${p.lat}`)
+  ].join(";");
+  // destinations=1;2;...;N (jamais 0, qui est la source elle-même) : la
+  // réponse distances[0] a alors exactement candidates.length entrées,
+  // dans le même ordre que `candidates` — aucun décalage à gérer.
+  const destinations = candidates.map((_, i) => i + 1).join(";");
+  const url =
+    `${CONFIG.OSRM_URL}/table/v1/${profile}/${coords}` +
+    `?sources=0&destinations=${destinations}&annotations=distance`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const distances = data.distances?.[0];
+    if (data.code !== "Ok" || !Array.isArray(distances) || distances.length !== candidates.length) {
+      throw new Error(`Réponse OSRM table invalide (code=${data.code})`);
+    }
+
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    distances.forEach((d, i) => {
+      // null possible : destination inatteignable par la route depuis la
+      // source (île sans pont piéton connu du graphe, etc.) — ignorée
+      // plutôt que de faire planter la comparaison.
+      if (typeof d === "number" && d < bestDistance) {
+        bestDistance = d;
+        bestIndex = i;
+      }
+    });
+
+    if (bestIndex === -1) return null;
+    return { index: bestIndex, distanceM: bestDistance };
+  } catch (err) {
+    log.warn("ROUTE", "findNearestByRoad() échoué, repli sur le vol d'oiseau:", err?.message || err);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Indique si `mode` est un mode de navigation connu.
  *
  * @param {unknown} mode
