@@ -10,7 +10,8 @@ import {
 import { isValidLatLng } from "../../core/normalize.js";
 import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
-import { getHeuristicCarSpeedMps, applyRushHourDurationFactor } from "../traffic/trafficHeuristic.js";
+import { getHeuristicCarSpeedMps } from "./trafficHeuristic.js";
+import { getTrafficFactor } from "./trafficHeuristic.js";
 
 /**
  * Métadonnées des modes de navigation.
@@ -94,55 +95,67 @@ const ORS_PROFILES = {
  * commentaire NAV_MODES). Lève en cas d'échec (réseau, quota, clé
  * invalide) : à l'appelant (calculateRoute()) de retomber sur OSRM.
  */
+function parseORSFeature(feature, mode, date = new Date()) {
+  const summary = feature?.properties?.summary;
+  const geometry = feature?.geometry;
+  if (!feature || !summary || !geometry?.coordinates?.length) return null;
+  const steps = (feature.properties?.segments?.[0]?.steps || []).map(s => ({
+    instruction: s.instruction,
+    name: s.name,
+    maneuver: { location: geometry.coordinates[s.way_points?.[0]] || null }
+  }));
+  const trafficFactor = mode === "car" ? getTrafficFactor(date, mode) : 1;
+  return {
+    distance: summary.distance,
+    duration: summary.duration * trafficFactor,
+    baseDuration: summary.duration,
+    trafficFactor,
+    geometry,
+    steps,
+    mode,
+    estimated: false,
+    provider: "ors"
+  };
+}
+
+export function selectBestRoutes(routes, mode, date = new Date()) {
+  const alternatives = routes.map(route => ({
+    ...route,
+    duration: (route.baseDuration ?? route.duration) * (mode === "car" ? getTrafficFactor(date, mode) : 1),
+    trafficFactor: mode === "car" ? getTrafficFactor(date, mode) : 1
+  }));
+  const suggested = [...alternatives].sort((a, b) => a.duration - b.duration)[0];
+  const shortest = [...alternatives].sort((a, b) => a.distance - b.distance)[0];
+  return { suggested, shortest, alternatives };
+}
+
 async function calculateRouteViaORS(fromLat, fromLng, toLat, toLng, mode) {
   const profile = ORS_PROFILES[mode] || ORS_PROFILES.foot;
-  // GET plutôt que POST : les coordonnées font partie de l'URL, ce qui la
-  // rend sûre à mettre en cache par le service worker (voir "ors-routes"
-  // dans vite.config.js) — une réponse en cache reste garantie de
-  // correspondre EXACTEMENT à ce trajet, comme pour les appels OSRM
-  // existants. Une clé de cache basée sur une URL fixe + un corps POST
-  // variable aurait pu servir l'itinéraire d'un autre trajet en cache.
-  const url =
-    `${CONFIG.ORS_URL}/v2/directions/${profile}/geojson` +
-    `?start=${fromLng},${fromLat}&end=${toLng},${toLat}` +
-    "&instructions=true&language=fr";
+  const url = `${CONFIG.ORS_URL}/v2/directions/${profile}/geojson`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     const res = await fetch(url, {
-      headers: { Authorization: CONFIG.ORS_API_KEY },
+      method: "POST",
+      headers: { Authorization: CONFIG.ORS_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coordinates: [[fromLng, fromLat], [toLng, toLat]],
+        instructions: true,
+        language: "fr",
+        alternative_routes: { target_count: 3, share_factor: 0.6 }
+      }),
       signal: controller.signal
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
-    const feature = data.features?.[0];
-    const summary = feature?.properties?.summary;
-    if (!feature || !summary) throw new Error("Itinéraire ORS impossible");
-
-    const coords = feature.geometry?.coordinates || [];
-    // way_points[0] = index (dans `coords`) du point de départ de ce
-    // maneuver — reconstitue la forme {maneuver:{location:[lon,lat]}}
-    // attendue par le guidage pas-à-pas (navigation.js/advanceGuidanceSteps),
-    // identique à celle des steps OSRM.
-    const steps = (feature.properties?.segments?.[0]?.steps || []).map(s => ({
-      instruction: s.instruction,
-      name: s.name,
-      maneuver: { location: coords[s.way_points?.[0]] || null }
-    }));
-
-    return {
-      distance: summary.distance,
-      duration: applyRushHourDurationFactor(summary.duration, mode),
-      geometry: feature.geometry,
-      steps,
-      mode,
-      estimated: false,
-      provider: "ors"
-    };
+    const routes = (data.features || []).map(feature => parseORSFeature(feature, mode)).filter(Boolean);
+    if (!routes.length) throw new Error("Itinéraire ORS impossible");
+    const selected = selectBestRoutes(routes, mode);
+    return { ...selected.suggested, suggested: selected.suggested, shortest: selected.shortest, alternatives: selected.alternatives, selection: "suggested" };
   } finally {
     clearTimeout(timeoutId);
   }

@@ -15,7 +15,7 @@ import { refreshMarker } from "../census/markers.js";
 import { normalizePointId } from "../../core/utils.js";
 import { distanceToPolylineMeters, remainingRouteDistanceMeters, bearingDeg, cardinalLabel } from "../../core/geo.js";
 import { speak, cancelSpeech } from "../../core/speech.js";
-import { toastWarning } from "../../core/toast.js";
+import { toastInfo, toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint, enableCameraFollow } from "../map/map.js";
 import { isRushHour } from "../traffic/trafficHeuristic.js";
@@ -216,6 +216,20 @@ export function setNavigationMode(mode) {
  */
 export function getNavigationMode() {
   return navigationMode;
+}
+
+export function chooseRouteAlternative(preference) {
+  const current = store.get("navigation.route");
+  const selected = current?.[preference];
+  if (!selected || !current?.alternatives?.length) return false;
+  store.set("navigation.route", { ...selected, suggested: current.suggested, shortest: current.shortest, alternatives: current.alternatives, selection: preference });
+  currentSteps = selected.steps || [];
+  currentStepIndex = 0;
+  currentRouteCoords = selected.geometry?.coordinates || null;
+  displayRoute(selected.geometry, selected.mode);
+  store.set("navigation.instruction", `${formatDistance(selected.distance)} — ${formatDuration(selected.duration)}${rushHourSuffix(selected.mode)}`);
+  store.set("navigation.nextInstruction", currentSteps[0] ? formatManeuverInstruction(currentSteps[0]) : "");
+  return true;
 }
 
 /**
@@ -428,6 +442,7 @@ async function startNavigation() {
       "STOP: erreur =",
       err?.message || err
     );
+    toastInfo("Itinéraire alternatif indisponible : estimation locale utilisée.");
 
     // Mode offline (#26/README "Mode offline complet") : un échec OSRM
     // (hors-ligne, timeout, coupure réseau terrain) laissait l'agent sans

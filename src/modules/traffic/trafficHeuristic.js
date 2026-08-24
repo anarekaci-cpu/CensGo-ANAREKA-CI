@@ -11,17 +11,7 @@
  * de ralentissement sans toucher au code.
  */
 
-import { CONFIG } from "../../core/config.js";
-
-// Heures de pointe Abidjan/Bingerville : trajet domicile-travail le matin,
-// retour en fin de journée. Bornes en heure LOCALE de l'appareil (l'app
-// n'a d'usage qu'en Côte d'Ivoire, pas de gestion de fuseau horaire).
-const MORNING_RUSH = { startHour: 7, endHour: 9 };
-const EVENING_RUSH = { startHour: 17, endHour: 19 };
-
-function isWithinHour(hour, range) {
-  return hour >= range.startHour && hour < range.endHour;
-}
+import { getTrafficFactor, applyTrafficFactor, getHeuristicCarSpeedMps } from "../routing/trafficHeuristic.js";
 
 /**
  * Facteur de ralentissement à appliquer à la vitesse moyenne voiture pour
@@ -31,11 +21,7 @@ function isWithinHour(hour, range) {
  * @returns {number}
  */
 export function getRushHourFactor(date = new Date()) {
-  const hour = date.getHours();
-  if (isWithinHour(hour, MORNING_RUSH) || isWithinHour(hour, EVENING_RUSH)) {
-    return CONFIG.TRAFFIC_RUSH_HOUR_FACTOR;
-  }
-  return 1;
+  return getTrafficFactor(date, "car");
 }
 
 /**
@@ -53,9 +39,7 @@ export function isRushHour(date = new Date()) {
  * @param {Date} [date]
  * @returns {number}
  */
-export function getHeuristicCarSpeedMps(baseSpeedMps, date = new Date()) {
-  return baseSpeedMps / getRushHourFactor(date);
-}
+export { getHeuristicCarSpeedMps };
 
 /**
  * Ajuste une durée déjà connue (ex: renvoyée par un fournisseur d'itinéraire
@@ -69,5 +53,5 @@ export function getHeuristicCarSpeedMps(baseSpeedMps, date = new Date()) {
  * @returns {number}
  */
 export function applyRushHourDurationFactor(durationSeconds, mode, date = new Date()) {
-  return mode === "car" ? durationSeconds * getRushHourFactor(date) : durationSeconds;
+  return applyTrafficFactor(durationSeconds, mode, date);
 }

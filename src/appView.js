@@ -4,7 +4,7 @@ import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverage
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
-import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation } from "./modules/navigation/navigation.js";
+import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation, chooseRouteAlternative } from "./modules/navigation/navigation.js";
 import { locateAndCenter, findNearestUnvisited, getCurrentPosition } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
@@ -217,7 +217,8 @@ export async function mountAuthenticatedApp(container) {
         </div>
         
         <div id="routeBanner">
-          <span>🗺️ Itinéraire vers <b id="routeDestName"></b> — <span id="routeInfo"></span></span>
+          <span>🗺️ Itinéraire vers <b id="routeDestName"></b> — <span id="routeInfo"></span> <small id="routeChoiceLabel"></small></span>
+          <button id="routeChoiceBtn" type="button" class="route-choice-btn" style="display:none;">Changer</button>
           <button id="closeRouteBtn" aria-label="Fermer l'itinéraire">✕</button>
         </div>
         
@@ -842,6 +843,12 @@ function bindEvents() {
   document.getElementById("closeRouteBtn").onclick = () => {
     store.set("navigation.active", false);
   };
+  document.getElementById("routeChoiceBtn")?.addEventListener("click", () => {
+    const route = store.get("navigation.route");
+    if (!route?.alternatives?.length || route.suggested === route.shortest) return;
+    const next = route.selection === "shortest" ? "suggested" : "shortest";
+    chooseRouteAlternative(next);
+  });
   document.getElementById("navStopBtn").onclick = () => {
     store.set("navigation.active", false);
   };
@@ -1397,6 +1404,8 @@ function bindStoreListeners() {
     // vers  — "), sans nom de destination ni info de trajet.
     const nameEl = document.getElementById("routeDestName");
     if (nameEl) nameEl.textContent = destination?.name || "";
+    const choiceBtn = document.getElementById("routeChoiceBtn");
+    if (choiceBtn) choiceBtn.style.display = "none";
   });
 
   store.subscribe("navigation.instruction", (text) => {
@@ -1410,6 +1419,17 @@ function bindStoreListeners() {
     }
     const infoEl = document.getElementById("routeInfo");
     if (infoEl) infoEl.textContent = text || "";
+    const route = store.get("navigation.route");
+    const choiceBtn = document.getElementById("routeChoiceBtn");
+    const choiceLabel = document.getElementById("routeChoiceLabel");
+    const hasChoice = route?.alternatives?.length > 1 && route.suggested !== route.shortest;
+    if (choiceBtn) {
+      choiceBtn.style.display = hasChoice ? "inline-flex" : "none";
+      choiceBtn.textContent = route?.selection === "shortest" ? "Voir le suggéré" : "Voir le plus court";
+    }
+    if (choiceLabel) choiceLabel.textContent = hasChoice
+      ? (route.selection === "shortest" ? " · Le plus court" : " · Suggéré, estimation horaire")
+      : "";
   });
 
   // #navSub était déclaré dans le HTML mais jamais rempli : le guidage

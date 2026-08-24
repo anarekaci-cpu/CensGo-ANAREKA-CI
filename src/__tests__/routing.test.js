@@ -343,14 +343,16 @@ describe("calculateRoute — OpenRouteService (Priorité 1 roadmap)", () => {
     vi.useRealTimers();
   });
 
-  it("interroge le profil ORS exact du mode demandé (pas toujours 'foot'), coordonnées dans l'URL (cache-safe)", async () => {
+  it("interroge le profil ORS exact du mode demandé avec POST et les alternatives", async () => {
     globalThis.fetch.mockResolvedValue({ ok: true, json: async () => orsResponse() });
 
     await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
     const [url, opts] = globalThis.fetch.mock.calls[0];
     expect(url).toContain("/v2/directions/driving-car/geojson");
-    expect(url).toContain("start=-3.97,5.36");
-    expect(url).toContain("end=-3.99,5.4");
+    expect(opts.method).toBe("POST");
+    const body = JSON.parse(opts.body);
+    expect(body.coordinates).toEqual([[-3.97, 5.36], [-3.99, 5.4]]);
+    expect(body.alternative_routes).toEqual({ target_count: 3, share_factor: 0.6 });
     expect(opts.headers.Authorization).toBe("test-ors-key");
   });
 
@@ -383,6 +385,23 @@ describe("calculateRoute — OpenRouteService (Priorité 1 roadmap)", () => {
     globalThis.fetch.mockClear();
     const foot = await calculateRoute(5.36, -3.97, 5.40, -3.99, "foot");
     expect(foot.duration).toBe(600);
+  });
+
+  it("sélectionne le plus rapide ajusté et expose le plus court séparément", async () => {
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({
+      features: [
+        orsResponse({ distance: 3000, duration: 500 }).features[0],
+        orsResponse({ distance: 5000, duration: 300 }).features[0],
+        orsResponse({ distance: 4200, duration: 250 }).features[0]
+      ]
+    }) });
+    vi.setSystemTime(new Date("2024-06-10T08:00:00"));
+    const route = await calculateRoute(5.36, -3.97, 5.40, -3.99, "car");
+    expect(route.provider).toBe("ors");
+    expect(route.shortest.distance).toBe(3000);
+    expect(route.suggested.distance).toBe(4200);
+    expect(route.alternatives).toHaveLength(3);
+    expect(route.selection).toBe("suggested");
   });
 
   it("retombe sur OSRM si ORS répond en erreur HTTP", async () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getRushHourFactor, isRushHour, getHeuristicCarSpeedMps } from "../modules/traffic/trafficHeuristic.js";
+import { getTrafficFactor } from "../modules/routing/trafficHeuristic.js";
 
 describe("trafficHeuristic", () => {
   it("détecte l'heure de pointe du matin (7h-9h)", () => {
@@ -27,5 +28,15 @@ describe("trafficHeuristic", () => {
 
     expect(offPeakSpeed).toBe(base);
     expect(rushHourSpeed).toBeLessThan(offPeakSpeed);
+  });
+
+  it("n'affecte ni piéton ni vélo", () => {
+    const rush = new Date("2024-06-10T08:00:00");
+    expect(getTrafficFactor(rush, "foot")).toBe(1);
+    expect(getTrafficFactor(rush, "bike")).toBe(1);
+  });
+
+  it("reste neutre le weekend", () => {
+    expect(getTrafficFactor(new Date("2024-06-15T08:00:00"), "car")).toBe(1);
   });
 });
