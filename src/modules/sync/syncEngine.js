@@ -335,5 +335,12 @@ export async function retryFailedSyncs() {
 export async function dismissConflict(pointId) {
   await dismissSyncConflict(pointId);
   store.set("sync.conflicts", await getSyncConflicts());
+  const pending = await getPendingSyncs();
+  if (pending.some(item => item.pointId === pointId)) {
+    // triggerSync() conserve sa garde isSyncing : si une synchronisation est
+    // déjà en cours, ce déclenchement est simplement ignoré plutôt que de
+    // traiter deux fois la même file.
+    await triggerSync();
+  }
 }
 
