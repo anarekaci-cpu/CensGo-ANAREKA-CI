@@ -90,6 +90,25 @@ Ces contrôles réduisent l'abus mais ne remplacent pas un quota persistant par
 utilisateur : celui-ci doit être ajouté côté Supabase avant un usage IA à grande
 échelle.
 
+Après chaque modification de `supabase/functions/ai-agent/index.ts`, redéployer
+explicitement la fonction et vérifier son statut dans le dashboard :
+
+```bash
+supabase functions deploy ai-agent
+```
+
+Ne jamais placer `GEMINI_API_KEY` dans une variable `VITE_*` ni dans le bundle
+navigateur.
+
+### Journal d'audit
+
+Les scripts SQL créent la table `audit_events` et le trigger serveur des
+mutations `census_points`. Après déploiement, vérifier que RLS est activé, que
+seul un administrateur peut lire les événements et qu'un utilisateur
+`authenticated` ne peut pas insérer directement dans cette table. Les
+événements ne contiennent volontairement pas de nom, téléphone, adresse ou
+coordonnées précises.
+
 1. **Exécuter `supabase/reset_rls.sql`** dans le SQL Editor Supabase
    (idempotent : crée les tables manquantes, remplace les policies, ne
    supprime aucune donnée).
