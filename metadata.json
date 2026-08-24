@@ -1,5 +1,5 @@
 {
-  "name": "Recensement ANAREKA-CI",
+  "name": "CensGo — Recensement ANAREKA-CI",
   "description": "Application PWA de recensement terrain ANAREKA-CI — restaurateurs et kiosques d'attiéké, Côte d'Ivoire",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

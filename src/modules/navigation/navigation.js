@@ -607,7 +607,8 @@ export async function markArrivedVisited() {
   await updatePointVisit(
     destination.id,
     true,
-    destination.status
+    destination.status,
+    store.get("geo.position")
   );
 
   const pid = normalizePointId(destination.id);

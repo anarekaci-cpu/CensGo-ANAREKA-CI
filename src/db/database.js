@@ -86,7 +86,18 @@ export async function getAllPoints() {
   return [...byId.values()];
 }
 
-export async function updatePointVisit(pointId, visited, status) {
+/**
+ * @param {string} pointId
+ * @param {boolean} visited
+ * @param {string} status
+ * @param {{lat:number, lng:number}|null} [position] Position GPS live au
+ *   moment de l'action (store.get("geo.position")) — capturée ICI plutôt
+ *   qu'au moment de la synchro (potentiellement bien plus tard, agent
+ *   parti ailleurs) : voir assert_visit_geofence() (schema.sql) qui valide la
+ *   distance côté serveur à partir de CES coordonnées soumises, jamais
+ *   requise quand visited=false (aucun contrôle anti-fraude au décochage).
+ */
+export async function updatePointVisit(pointId, visited, status, position) {
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return null;
 
@@ -110,7 +121,12 @@ export async function updatePointVisit(pointId, visited, status) {
   await db.syncQueue.add({
     pointId,
     action: "update_visit",
-    payload: { visited, status },
+    payload: {
+      visited,
+      status,
+      lat: visited && position ? position.lat : null,
+      lon: visited && position ? position.lng : null
+    },
     baseUpdatedAt,
     createdAt: new Date().toISOString(),
     attempts: 0,
@@ -131,9 +147,21 @@ export async function upsertPoint(pointData) {
   let updated;
   let pendingSyncedFlag = false;
   if (point) {
+    // BUG corrigé (audit) : syncedAt n'était PAS remis à null ici (seule la
+    // branche "nouveau point" ci-dessous le faisait) — une édition locale
+    // d'un point déjà synchronisé gardait donc son ANCIEN syncedAt truthy.
+    // savePoints() (protection contre l'écrasement serveur) exclut les
+    // points non synchronisés via `unsynced = localPoints.filter(p =>
+    // !p.syncedAt)` : avec un syncedAt encore truthy, cette édition n'était
+    // PAS protégée — un rechargement complet concurrent (boot de l'app,
+    // triggerSync() et loadCensusData() tournent en parallèle sans
+    // s'attendre, voir main.js) pouvait écraser silencieusement l'édition
+    // locale par l'ancienne version serveur avant que la file de sync n'ait
+    // eu le temps de la pousser.
     updated = {
       ...point,
       ...pointData,
+      syncedAt: null,
       updatedAt: now
     };
     await db.points.put(updated);

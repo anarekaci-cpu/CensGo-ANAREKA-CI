@@ -30,12 +30,17 @@ let loadedFeatures = [];
 // O(N) sur tout le store à un O(1), y compris pendant les pans de carte où
 // renderVisibleMarkers s'exécute en boucle.
 let pointIndex = new Map();
+// Référence du tableau "points" déjà indexé — permet de détecter à moindre
+// coût (comparaison de référence, pas un O(N)) qu'un store.set("points", …)
+// a eu lieu sans que l'abonnement ci-dessous ait encore tourné.
+let indexedPointsRef = null;
 
 function rebuildPointIndex() {
   const all = store.get("points") || [];
   const idx = new Map();
   for (const p of all) idx.set(normalizePointId(p.id), p);
   pointIndex = idx;
+  indexedPointsRef = all;
 }
 
 store.subscribe("points", () => rebuildPointIndex());
@@ -43,17 +48,26 @@ rebuildPointIndex();
 
 /**
  * Retrouve un point par son id — O(1), id normalisé via normalizePointId().
+ *
+ * BUG corrigé (audit) : store.set() diffère sa notification à un
+ * requestAnimationFrame (core/store.js) — un appelant qui relit juste après
+ * un store.set("points", …) DANS LE MÊME TICK SYNCHRONE (ex: toggleVisit()
+ * -> refreshMarker()) voyait alors un pointIndex pas encore reconstruit :
+ * l'id était bien trouvé (donc aucun fallback ne se déclenchait) mais
+ * l'objet renvoyé était l'ANCIENNE référence, avec un champ (ex: visited)
+ * pas encore à jour — l'icône du marqueur affichait l'état précédent
+ * pendant une frame. La comparaison de référence ci-dessous rattrape
+ * l'index à la demande avant toute lecture, sans repasser par un O(N).
+ *
  * Ne retourne JAMAIS silencieusement null sans trace : un marqueur dont le
  * point a disparu du store signale un désalignement (données rechargées,
  * filtre, course de sync) qu'il faut pouvoir diagnostiquer.
  */
 function getPointById(pointId) {
+  if (store.get("points") !== indexedPointsRef) rebuildPointIndex();
   const key = normalizePointId(pointId);
-  let point = pointIndex.get(key);
+  const point = pointIndex.get(key);
   if (!point) {
-    // Fallback sur le store (cas: set() entre le rAF batch et la notification)
-    const found = (store.get("points") || []).find(p => normalizePointId(p.id) === key);
-    if (found) return found;
     log.warn("MARKER", `Point introuvable pour l'id "${key}" — marqueur/store désalignés.`);
     return null;
   }
@@ -284,7 +298,7 @@ async function toggleVisit(point) {
   // Décocher reste toujours possible ; seul le passage à visited=true est
   // soumis au contrôle de proximité GPS (voir core/geofence.js).
   if (newVisited && !canMarkVisited(point.lat, point.lon)) return;
-  await updatePointVisit(point.id, newVisited, point.status);
+  await updatePointVisit(point.id, newVisited, point.status, store.get("geo.position"));
 
   const pid = normalizePointId(point.id);
   const points = (store.get("points") || []).map(p =>

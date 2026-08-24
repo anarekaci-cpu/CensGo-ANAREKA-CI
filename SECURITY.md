@@ -1,4 +1,4 @@
-# 🔐 Guide de Sécurité — Recensement ANAREKA-CI
+# 🔐 Guide de Sécurité — CensGo-ANAREKA-CI
 
 ## 🚨 Incident connu : clé Supabase exposée dans l'historique Git
 
@@ -53,6 +53,31 @@ anonyme (le rôle `anon` n'a aucun accès), mais un agent peut lire des fiches
 hors de sa zone. Si le besoin de cloisonnement par zone devient réel,
 appliquer la restriction décrite ci-dessus.
 
+### Anti-fraude "marquer visité" — fonction `assert_visit_geofence()`
+
+Le contrôle de proximité GPS (empêcher un agent de cocher "visité" sans être
+sur place) existait initialement uniquement en JS côté client
+(`src/core/geofence.js`) — contournable par un appel direct à l'API Supabase
+hors de l'application. `assert_visit_geofence()` (dans `reset_rls.sql` /
+`schema.sql`) applique désormais ce contrôle côté serveur, à partir des
+coordonnées GPS soumises par l'app au moment de l'action (capturées côté
+client, aucun GPS serveur n'existe) ; appelée par `syncEngine.js` avant
+chaque synchronisation d'un passage à `visited=true`. Les admins en sont
+exemptés.
+
+### Fonction Edge `ai-agent` — authentification du token
+
+`supabase/functions/ai-agent/index.ts` ne vérifiait que la PRÉSENCE d'un
+header `Authorization`, jamais qu'il appartienne à un compte réel et
+approuvé — la clé `anon` publique (déjà dans le bundle client) suffisait à
+passer ce test. N'importe qui pouvait donc appeler cette fonction (y
+compris `vision_ocr`, coûteux) sans être inscrit ni validé, consommant le
+quota `GEMINI_API_KEY` payant sans limite. La fonction valide maintenant la
+session (`auth.getUser()`) et l'approbation du compte (`user_roles`) avant
+d'appeler Gemini. **Redéploiement requis** : `supabase functions deploy
+ai-agent` (ce correctif ne prend effet qu'après redéploiement manuel — il
+ne peut pas être appliqué depuis ce dépôt seul).
+
 ## ⚠️ Actions requises avant production
 
 1. **Exécuter `supabase/reset_rls.sql`** dans le SQL Editor Supabase
@@ -62,8 +87,12 @@ appliquer la restriction décrite ci-dessus.
    mettre à jour `.env` (jamais commité), révoquer l'ancienne.
 3. **Restreindre les domaines** (Authentication → URL Configuration) :
    - Site URL : `https://anarekaci-cpu.github.io`
-   - Redirect URLs : `https://anarekaci-cpu.github.io/Recensement-ANAREKA-CI/`
-4. Activer la 2FA sur les comptes superviseurs/admins.
+   - Redirect URLs : `https://anarekaci-cpu.github.io/CensGo-ANAREKA-CI/`
+4. **Redéployer la fonction Edge `ai-agent`** : `supabase functions deploy
+   ai-agent` — sans ça, le correctif d'authentification ci-dessus ne prend
+   pas effet en production (le code de ce dépôt seul ne suffit pas, une
+   fonction Edge doit être explicitement redéployée sur le projet Supabase).
+5. Activer la 2FA sur les comptes superviseurs/admins.
 
 ---
 
@@ -78,6 +107,8 @@ appliquer la restriction décrite ci-dessus.
 | Pas de secret serveur / service_role dans le client | ✅ (anon only) |
 | Échappement HTML systématique des données affichées | ✅ escapeHtml |
 | Validation des coordonnées GPS côté client | ✅ isValidLatLng |
+| Anti-fraude "marquer visité" appliqué côté serveur | ✅ assert_visit_geofence() |
+| Fonction Edge `ai-agent` : authentification vérifiée | ✅ (à redéployer, voir ci-dessus) |
 | Audit log des modifications | ⚠️ À ajouter |
 | Rate limiting sur l'API | ⚠️ Configurable côté Supabase |
 

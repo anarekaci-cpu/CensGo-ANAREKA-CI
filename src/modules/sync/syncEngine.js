@@ -135,6 +135,27 @@ async function handleConflict(item) {
 
 async function syncOne(supabase, item) {
   if (item.action === "update_visit") {
+    // Contrôle serveur anti-fraude (audit sécu) : le contrôle de proximité
+    // GPS (canMarkVisited(), core/geofence.js) n'existait qu'en JS côté
+    // client — un appel direct à l'API (hors app) pouvait le contourner
+    // totalement. assert_visit_geofence() (schema.sql) valide à partir des
+    // coordonnées capturées par l'app au moment de l'action (voir
+    // database.js: updatePointVisit()) et lève une exception si trop loin ;
+    // ne fait rien de plus (ni update ni lecture) — la logique de mise à
+    // jour conditionnelle ci-dessous, avec sa détection de conflit, reste
+    // inchangée. Uniquement au passage à visited=true : décocher n'a jamais
+    // été soumis au contrôle anti-fraude (voir toggleVisit()).
+    if (item.payload.visited) {
+      const { error: geofenceError } = await withTimeout((signal) =>
+        supabase.rpc("assert_visit_geofence", {
+          p_point_id: item.pointId,
+          p_lat: item.payload.lat,
+          p_lon: item.payload.lon
+        }).abortSignal(signal)
+      );
+      if (geofenceError) throw geofenceError;
+    }
+
     let query = supabase
       .from(CONFIG.TABLE_NAME)
       .update({
@@ -249,18 +270,30 @@ export async function triggerSync() {
   // les retries manuels pouvaient lancer des syncs CONCURRENTES sur la même
   // file — double envoi, compteurs incohérents. Une seule sync à la fois ;
   // les appels concurrents attendent simplement le prochain tick.
+  //
+  // BUG corrigé (audit) : `isSyncing = true` était posé APRÈS le premier
+  // `await` (getPendingSyncs()) — la garde était donc "vérifier puis agir"
+  // avec un point de suspension entre les deux, la fenêtre classique d'une
+  // race condition. Deux appels quasi simultanés (ex: le déclenchement de
+  // boot ET le "visibilitychange" au premier plan, tous deux vrais à
+  // l'ouverture de l'app en ligne) passaient TOUS LES DEUX le test avant que
+  // l'un ou l'autre ne pose le flag, et traitaient alors la même file en
+  // parallèle — pour un "update_visit", la seconde exécution retrouvait un
+  // `updated_at` déjà changé par la première et déclenchait un FAUX conflit
+  // de sync (handleConflict), signalé à tort à l'agent. Poser le flag ICI,
+  // avant tout `await`, ferme la fenêtre.
   if (isSyncing) return;
   if (!store.get("user")) return; // pas d'envoi anonyme : RLS refuserait tout
-
-  const pending = await getPendingSyncs();
-  store.set("sync.pendingPointIds", [...new Set(pending.map(p => p.pointId))]);
-  if (pending.length === 0) return;
-
   isSyncing = true;
-  store.set("sync.status", "syncing");
-  store.set("sync.pendingCount", pending.length);
 
   try {
+    const pending = await getPendingSyncs();
+    store.set("sync.pendingPointIds", [...new Set(pending.map(p => p.pointId))]);
+    if (pending.length === 0) return;
+
+    store.set("sync.status", "syncing");
+    store.set("sync.pendingCount", pending.length);
+
     const supabase = getSupabaseClient();
     const deduped = dedupSyncQueue(pending);
     await syncWithConcurrency(deduped, supabase);

@@ -338,3 +338,51 @@ CREATE POLICY "Admin can manage target zones"
       AND user_roles.role = 'admin'
     )
   );
+
+-- =============================================================
+-- 3. Anti-fraude "marquer visité" — application côté SERVEUR (audit sécu)
+-- Voir schema.sql pour le commentaire complet. Fonction de VALIDATION SEULE
+-- (aucun UPDATE) : syncEngine.js l'appelle juste avant sa mise à jour
+-- conditionnelle existante (baseUpdatedAt, détection de conflit) plutôt que
+-- de la remplacer — préserve cette détection au lieu de la perdre derrière
+-- un UPDATE inconditionnel côté serveur.
+-- =============================================================
+CREATE OR REPLACE FUNCTION assert_visit_geofence(p_point_id TEXT, p_lat DOUBLE PRECISION, p_lon DOUBLE PRECISION)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  target_lat DOUBLE PRECISION;
+  target_lon DOUBLE PRECISION;
+  dist_m DOUBLE PRECISION;
+  max_radius_m CONSTANT DOUBLE PRECISION := 500;
+BEGIN
+  IF is_admin_user() THEN
+    RETURN;
+  END IF;
+
+  SELECT lat, lon INTO target_lat, target_lon
+  FROM census_points WHERE point_id = p_point_id;
+
+  IF NOT FOUND OR target_lat IS NULL OR target_lon IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_lat IS NULL OR p_lon IS NULL THEN
+    RAISE EXCEPTION 'Position GPS requise pour marquer ce point visité.';
+  END IF;
+
+  dist_m := 6371000 * acos(
+    LEAST(1.0, GREATEST(-1.0,
+      cos(radians(p_lat)) * cos(radians(target_lat)) * cos(radians(target_lon) - radians(p_lon))
+      + sin(radians(p_lat)) * sin(radians(target_lat))
+    ))
+  );
+  IF dist_m > max_radius_m THEN
+    RAISE EXCEPTION 'Trop loin du point (% m, max % m autorisés)', round(dist_m::numeric, 0), max_radius_m;
+  END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;

@@ -1,4 +1,4 @@
-# Project: Recensement ANAREKA-CI
+# Project: CensGo — Recensement ANAREKA-CI
 
 ## Overview
 PWA de recensement pour ANAREKA-CI (Cote d'Ivoire). Vanilla JS + Vite + MapLibre GL + Supercluster + Supabase + Dexie.js (IndexedDB). Offline-first architecture.

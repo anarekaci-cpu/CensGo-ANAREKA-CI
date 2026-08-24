@@ -1,4 +1,4 @@
-# 📍 Recensement ANAREKA-CI
+# 📍 CensGo — Recensement ANAREKA-CI
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![PWA](https://img.shields.io/badge/PWA-Ready-blueviolet)](https://web.dev/progressive-web-apps/)
@@ -21,8 +21,11 @@
 | 🎯 **Tournée optimisée** | Plus proche voisin plafonné à 150 arrêts — jamais de blocage du thread principal |
 | 🔍 **Filtres locaux** | Bloc, statut, visités, recherche — filtrage 100 % local, sans requête réseau |
 | 📊 **Analyse intégrée** | Statistiques calculées en un seul passage O(N) : couverture, quartiers, statuts, activités |
-| 📄 **Export CSV** | Export des données pour analyse et reporting |
+| 📄 **Export CSV** | Export des données pour analyse et reporting (admin uniquement) |
 | 🔐 **Authentification** | Supabase Auth + rôles (agent / admin) via table `user_roles` |
+| ✅ **Inscription en libre-service** | Un agent crée son propre compte, en attente de validation admin (rôle `NULL` = accès bloqué par RLS) |
+| 👥 **Gestion des comptes (admin)** | Panneau intégré : approuver/promouvoir/rétrograder un agent, statistiques par agent |
+| 🛰️ **Anti-fraude géofence** | Impossible de marquer un point « visité » à distance — contrôle de proximité GPS appliqué **côté serveur** |
 
 ---
 
@@ -37,8 +40,8 @@
 
 ```bash
 # 1. Cloner le repository
-git clone https://github.com/anarekaci-cpu/Recensement-ANAREKA-CI.git
-cd Recensement-ANAREKA-CI
+git clone https://github.com/anarekaci-cpu/CensGo-ANAREKA-CI.git
+cd CensGo-ANAREKA-CI
 
 # 2. Installer les dépendances
 npm install

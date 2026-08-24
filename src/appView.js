@@ -30,6 +30,17 @@ const PHOTO_GEOTAG_WARNING_M = 500;
 
 let emptyStateEl = null;
 let agentTrackingActive = false;
+// BUG corrigé (audit) : initApp() est rappelée à chaque reconnexion dans la
+// même session (logout -> login sans recharger la page, appShell.js remet
+// _appMounted à false). document.addEventListener() et store.subscribe()
+// SURVIVENT au remontage (document et le store sont des singletons module,
+// contrairement aux éléments du container dont l'innerHTML est reconstruit
+// à chaque montage) — sans garde, chaque reconnexion ajoutait un handler
+// "clic extérieur" ET dupliquait tous les abonnements de bindStoreListeners()
+// (un de plus par login, jamais nettoyé), déclenchant les mêmes mises à jour
+// DOM N fois pour N connexions. Plausible sur une tablette de terrain
+// partagée entre plusieurs agents qui se (dé)connectent à tour de rôle.
+let appEventsInitialized = false;
 
 function removeEmptyState() {
   if (emptyStateEl) {
@@ -371,7 +382,11 @@ async function initApp() {
   // s'affichent — SANS attendre la réponse Supabase qui mettra à jour
   // l'affichage en arrière-plan quand elle arrivera.
   bindEvents();
-  bindStoreListeners();
+  // store.subscribe() survit aux remontages (le store est un singleton
+  // module) — voir la déclaration d'appEventsInitialized. Rebinder ici à
+  // chaque reconnexion dupliquerait indéfiniment les abonnements.
+  if (!appEventsInitialized) bindStoreListeners();
+  appEventsInitialized = true;
 
   const points = await loadCensusData();
 
@@ -382,7 +397,13 @@ async function initApp() {
   // Zones cibles : requête réseau non bloquante — le panneau se remplit
   // dès réception via l'abonnement "targetZones".
   loadTargetZones().then(zones => store.set("targetZones", zones))
-    .catch(() => { /* table absente / hors-ligne : zones simplement vides */ });
+    .catch((err) => {
+      // Échec attendu (table absente / hors-ligne) : le panneau reste
+      // simplement vide, pas d'erreur UI. Mais un échec INATTENDU (policy
+      // RLS cassée, etc.) ne doit pas disparaître sans trace — voir le
+      // correctif équivalent pour refreshAdminRole() ci-dessous.
+      console.warn("Zones cibles : chargement échoué —", err?.message || err);
+    });
 
   const loading = document.getElementById("loading");
   if (loading) loading.style.display = "none";
@@ -398,7 +419,6 @@ async function initApp() {
   }
 
   document.getElementById("tourBtn").disabled = false;
-  document.getElementById("nearestBtn").disabled = false;
 
   // Rôle admin : requête réseau NON bloquante (elle ne doit pas retarder
   // d'un aller-retour HTTP l'interface déjà affichée).
@@ -496,8 +516,16 @@ async function refreshAdminRole() {
 
     renderAgentBadge();
     refreshEmptyStateContent();
-  } catch {
-    // Table user_roles pas encore créée ou pas d'accès — mode agent
+  } catch (err) {
+    // BUG corrigé (audit) : ce catch avalait TOUT le contenu du bloc try
+    // sans trace — pas seulement le cas "table user_roles pas encore créée"
+    // pour lequel il est commenté, mais aussi une éventuelle erreur JS
+    // (TypeError sur une manipulation DOM ci-dessus, etc.), exactement le
+    // type de bug silencieux que le correctif error/data plus haut visait
+    // déjà à éliminer pour la requête Supabase elle-même. Le comportement
+    // (repli sur le mode agent, pas d'exception qui remonte) est inchangé —
+    // seule la trace console est ajoutée.
+    console.error("[ROLE] refreshAdminRole() a échoué — repli sur le mode agent:", err);
   }
 }
 
@@ -533,6 +561,16 @@ function bindEvents() {
       agentTrackingActive = false;
       const trackingBtn = document.getElementById("agentTrackingBtn");
       if (trackingBtn) trackingBtn.textContent = "📍 Suivi Agents Terrain";
+      // BUG corrigé (audit) : emptyStateEl référençait encore le noeud DOM de
+      // CETTE session après déconnexion (jamais remis à null hors du cas
+      // "des points arrivent"). appShell.js remplace container.innerHTML au
+      // prochain montage — le noeud référencé devient orphelin, mais
+      // createEmptyStateIfNeeded() (voir plus bas) refuse de recréer l'état
+      // vide tant que cette référence reste "truthy" : un agent qui voyait
+      // la carte vide (compte en attente / 0 point) puis se déconnectait
+      // perdait ce message pour toute la session suivante — carte
+      // silencieusement blanche, sans indication du pourquoi.
+      emptyStateEl = null;
       logout();
     }
   };
@@ -560,15 +598,19 @@ function bindEvents() {
     closeControls();
   });
 
-  document.addEventListener("click", (e) => {
-    const controls = document.getElementById("controls");
-    const toggleBtn = document.getElementById("menuToggleBtn");
-    if (controls && controls.classList.contains("open")) {
-      if (!controls.contains(e.target) && !toggleBtn.contains(e.target)) {
-        closeControls();
+  // Sur document (survit aux remontages, contrairement aux éléments du
+  // container) : gardé par appEventsInitialized, voir sa déclaration.
+  if (!appEventsInitialized) {
+    document.addEventListener("click", (e) => {
+      const controls = document.getElementById("controls");
+      const toggleBtn = document.getElementById("menuToggleBtn");
+      if (controls && controls.classList.contains("open")) {
+        if (!controls.contains(e.target) && !toggleBtn.contains(e.target)) {
+          closeControls();
+        }
       }
-    }
-  });
+    });
+  }
 
   ["filterBlock", "filterStatus", "filterVisited"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => applyFilters());
@@ -1386,13 +1428,37 @@ function populateBlockFilter(points) {
   }
 }
 
-function updateStats() {
-  // Source unique : computeStats() (core/analytics.js), un seul passage O(N)
-  // partagé avec le panneau de couverture via le cache ci-dessous.
+// Cache du dernier calcul computeStats() : updateStats() et
+// renderQuartierCoverage() sont appelées l'une après l'autre depuis les
+// mêmes points d'entrée (chargement initial, abonnement "points"/
+// "targetZones") mais SÉPARÉMENT depuis d'autres (renderQuartierCoverage
+// seule après ajout/suppression de zone) — donc pas un simple "calculer une
+// fois par tick". BUG corrigé (audit) : un cache existait déjà en intention
+// (commentaire d'origine) mais n'était jamais relu, seulement réécrit —
+// renderQuartierCoverage() refaisait TOUJOURS son propre computeStats().
+// getStats() ci-dessous compare les RÉFÉRENCES points/targetZones du store
+// (jamais mutées en place ailleurs dans le fichier, toujours remplacées via
+// store.set() avec un nouveau tableau) pour ne recalculer que si l'un des
+// deux a réellement changé depuis le dernier appel, peu importe lequel des
+// deux appelants a déclenché ce dernier calcul.
+let lastComputedStats = null;
+let lastStatsPointsRef = null;
+let lastStatsZonesRef = null;
+
+function getStats() {
   const points = store.get("points");
-  const targetZones = store.get("targetZones") || [];
+  const targetZones = store.get("targetZones");
+  if (lastComputedStats && points === lastStatsPointsRef && targetZones === lastStatsZonesRef) {
+    return lastComputedStats;
+  }
   lastComputedStats = computeStats(points, targetZones);
-  const { visited, total, coveragePct } = lastComputedStats;
+  lastStatsPointsRef = points;
+  lastStatsZonesRef = targetZones;
+  return lastComputedStats;
+}
+
+function updateStats() {
+  const { visited, total, coveragePct } = getStats();
   const el = document.getElementById("statsHeader");
   if (el) {
     el.innerHTML = `
@@ -1404,17 +1470,12 @@ function updateStats() {
   }
 }
 
-// Cache du dernier calcul computeStats() : renderQuartierCoverage est appelée
-// séparément (targetZones asynchrone) et ne doit PAS refaire un passage O(N).
-let lastComputedStats = null;
-
 function renderQuartierCoverage() {
   const container = document.getElementById("quartierCoverageList");
   if (!container) return;
 
   const targetZones = store.get("targetZones") || [];
-  const stats = computeStats(store.get("points"), targetZones);
-  lastComputedStats = stats;
+  const stats = getStats();
   const rows = stats.byQuartier;
   // computeStats ne connaît pas les ids de zones : map nom -> id pour le
   // bouton de suppression des zones cibles.

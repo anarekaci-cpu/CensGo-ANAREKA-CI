@@ -478,3 +478,75 @@ CREATE POLICY "Authenticated can read target zones"
 -- la policy "Users can read own role" plus haut couvre déjà ce cas
 -- (USING (user_id = auth.uid()), sans condition de rôle), aucun changement
 -- nécessaire ici.
+
+-- =============================================================
+-- 6. Anti-fraude "marquer visité" — application côté SERVEUR (audit sécu)
+--
+-- Le contrôle de proximité GPS (canMarkVisited(), src/core/geofence.js)
+-- n'existait qu'en JS côté client : un agent pouvait appeler directement
+-- `.update({visited:true})` sur son propre point (déjà autorisé par la
+-- policy "Authenticated update own or admin" ci-dessus, ownership légitime)
+-- depuis n'importe où, en contournant totalement le contrôle de distance —
+-- ce n'était PAS une élévation de privilège (RLS empêche toujours de
+-- modifier un point qui n'est pas le sien), mais cela vidait de son sens la
+-- protection anti-fraude documentée.
+--
+-- assert_visit_geofence() ci-dessous valide SEULEMENT la distance côté
+-- serveur, à partir des coordonnées SOUMISES par le client au moment précis
+-- de l'action — et non relues depuis un GPS serveur, qui n'existe pas. Ce
+-- choix est délibéré et compatible offline-first : ces coordonnées sont
+-- capturées par l'app au moment où l'agent appuie sur "Visité" (position
+-- GPS live à cet instant), pas au moment où la file de sync pousse la
+-- mutation plus tard (l'agent peut avoir bougé entretemps).
+--
+-- Délibérément une fonction de VALIDATION SEULE (ne fait aucun UPDATE) :
+-- syncEngine.js l'appelle juste avant sa mise à jour conditionnelle
+-- existante (basée sur baseUpdatedAt, détection de conflit concurrent entre
+-- agents — voir syncOne()) plutôt que de la remplacer par un UPDATE
+-- inconditionnel qui aurait perdu cette détection de conflit. Elle lève une
+-- exception (RAISE EXCEPTION) si le contrôle échoue ; ne fait rien sinon.
+CREATE OR REPLACE FUNCTION assert_visit_geofence(p_point_id TEXT, p_lat DOUBLE PRECISION, p_lon DOUBLE PRECISION)
+RETURNS VOID
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  target_lat DOUBLE PRECISION;
+  target_lon DOUBLE PRECISION;
+  dist_m DOUBLE PRECISION;
+  max_radius_m CONSTANT DOUBLE PRECISION := 500;
+BEGIN
+  IF is_admin_user() THEN
+    RETURN;
+  END IF;
+
+  SELECT lat, lon INTO target_lat, target_lon
+  FROM census_points WHERE point_id = p_point_id;
+
+  -- Point introuvable ou sans coordonnées connues : rien à vérifier contre.
+  IF NOT FOUND OR target_lat IS NULL OR target_lon IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- p_lat/p_lon NULL ne dispense PAS du contrôle (sinon un appelant
+  -- malveillant contournerait la vérification en omettant simplement les
+  -- coordonnées).
+  IF p_lat IS NULL OR p_lon IS NULL THEN
+    RAISE EXCEPTION 'Position GPS requise pour marquer ce point visité.';
+  END IF;
+
+  -- Haversine en SQL pur (pas d'extension PostGIS requise pour une simple
+  -- vérification de rayon).
+  dist_m := 6371000 * acos(
+    LEAST(1.0, GREATEST(-1.0,
+      cos(radians(p_lat)) * cos(radians(target_lat)) * cos(radians(target_lon) - radians(p_lon))
+      + sin(radians(p_lat)) * sin(radians(target_lat))
+    ))
+  );
+  IF dist_m > max_radius_m THEN
+    RAISE EXCEPTION 'Trop loin du point (% m, max % m autorisés)', round(dist_m::numeric, 0), max_radius_m;
+  END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION assert_visit_geofence(TEXT, DOUBLE PRECISION, DOUBLE PRECISION) TO authenticated;

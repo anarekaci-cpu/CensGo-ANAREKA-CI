@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "npm:@google/genai@^2.14.0";
+import { createClient } from "npm:@supabase/supabase-js@^2.45.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,50 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // BUG corrigé (audit sécurité) : cette fonction vérifiait seulement la
+    // PRÉSENCE d'un header Authorization, jamais qu'il appartienne à un
+    // utilisateur réel et approuvé. La clé anon publique (déjà présente
+    // dans le bundle client, voir SECURITY.md) constitue en soi un
+    // "Authorization" valide pour ce test — n'importe qui pouvait donc
+    // appeler cette fonction (y compris vision_ocr, coûteux) sans jamais
+    // s'être inscrit ni avoir été validé, consommant le quota GEMINI_API_KEY
+    // payant de l'association sans aucune limite. On valide maintenant que
+    // le token correspond à une session réelle (auth.getUser()) ET à un
+    // compte approuvé (user_roles.role IN ('agent','admin')) — même modèle
+    // que is_approved_user() côté Postgres (schema.sql).
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return new Response(
+        JSON.stringify({ error: "Configuration serveur incomplète (SUPABASE_URL/SUPABASE_ANON_KEY)." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const authedClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: { user }, error: authUserError } = await authedClient.auth.getUser();
+    if (authUserError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Session invalide ou expirée." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { data: roleRow } = await authedClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!roleRow || (roleRow.role !== "agent" && roleRow.role !== "admin")) {
+      return new Response(
+        JSON.stringify({ error: "Compte non approuvé — accès refusé." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

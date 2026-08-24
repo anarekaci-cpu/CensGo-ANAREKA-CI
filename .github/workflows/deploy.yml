@@ -45,8 +45,12 @@ jobs:
           VITE_MAP_CENTER_LNG: ${{ vars.VITE_MAP_CENTER_LNG }}
           VITE_MAP_ZOOM: ${{ vars.VITE_MAP_ZOOM }}
           VITE_ARRIVAL_RADIUS_M: ${{ vars.VITE_ARRIVAL_RADIUS_M }}
+          VITE_VISIT_GEOFENCE_RADIUS_M: ${{ vars.VITE_VISIT_GEOFENCE_RADIUS_M }}
           VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
           VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+          VITE_APP_ENV: ${{ vars.VITE_APP_ENV }}
+          VITE_ENABLE_OFFLINE: ${{ vars.VITE_ENABLE_OFFLINE }}
+          VITE_ENABLE_TOUR_OPTIMIZATION: ${{ vars.VITE_ENABLE_TOUR_OPTIMIZATION }}
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3

@@ -1,6 +1,6 @@
 # 🤝 Guide de Contribution
 
-Merci de votre intérêt pour améliorer Recensement ANAREKA-CI !
+Merci de votre intérêt pour améliorer CensGo — Recensement ANAREKA-CI !
 
 ## 🌿 Branches
 
