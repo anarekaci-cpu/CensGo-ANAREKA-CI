@@ -5,6 +5,8 @@ class Store {
       user: null,
       points: [],
       targetZones: [],
+      cities: [],
+      tourSessions: [],
       filters: {
         block: "all",
         status: "all",

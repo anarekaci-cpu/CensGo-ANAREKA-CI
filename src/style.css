@@ -167,6 +167,11 @@ button { -webkit-user-select: none; user-select: none; }
 }
 .login-links a:hover { color: var(--text-primary); text-decoration: underline; }
 #loginError { color: #e74c3c; font-size: 13px; margin-top: 12px; min-height: 18px; }
+.invite-badge {
+  background: #eafaf0; border: 1px solid #a7e8bf; color: #1a3d2b;
+  font-size: 12.5px; line-height: 1.4; border-radius: 10px;
+  padding: 10px 12px; margin: 4px 0 14px; text-align: left;
+}
 
 /* --- Écran d'accueil (avant connexion) --- */
 @keyframes welcomeIn {
@@ -1217,6 +1222,68 @@ input:checked + .slider:before { transform: translateX(24px); }
 .agent-action-btn.agent-approve:hover, .agent-action-btn.agent-promote:hover { opacity: 0.9; color: white; }
 .agent-action-btn.agent-revoke { color: #dc2626; border-color: #fecaca; }
 .agent-action-btn.agent-revoke:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
+
+/* --- Villes (admin uniquement) --- */
+.agents-cities-section {
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+.agents-cities-section h4 { margin: 0 0 4px; font-size: 14px; color: var(--text-primary); }
+.cities-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.cities-list-empty { font-size: 12.5px; color: var(--text-muted); padding: 4px 0; }
+.city-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #f9fbf9; border: 1px solid #e0ebe0; border-radius: var(--radius-md);
+  padding: 8px 12px; font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+}
+.remove-city-btn {
+  border: none; background: none; color: #94a3b8; cursor: pointer;
+  font-size: 13px; padding: 0 2px;
+}
+.remove-city-btn:hover { color: #dc2626; }
+.remove-city-btn:disabled { opacity: 0.5; cursor: default; }
+.add-city-row { display: flex; gap: 8px; }
+.add-city-row input {
+  flex: 1; font-size: 13px; padding: 8px 10px;
+  border: 1px solid #cbd5e1; border-radius: 8px;
+}
+
+/* --- Liens d'invitation (admin uniquement) --- */
+.invites-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.invite-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: #f9fbf9; border: 1px solid #e0ebe0; border-radius: var(--radius-md);
+  padding: 10px 12px; flex-wrap: wrap;
+}
+.invite-row.invite-exhausted, .invite-row.invite-revoked { opacity: 0.6; }
+.invite-row-label { font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.invite-status-tag {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+  padding: 2px 6px; border-radius: 999px; margin-left: 6px; background: #eafaf0; color: #1a3d2b;
+}
+.invite-row.invite-exhausted .invite-status-tag, .invite-row.invite-revoked .invite-status-tag {
+  background: #fef2f2; color: #dc2626;
+}
+.invite-row-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.invite-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.new-invite-form { display: flex; flex-direction: column; gap: 8px; }
+.new-invite-form > input {
+  font-size: 13px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px;
+}
+.new-invite-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.new-invite-row label { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.new-invite-row input {
+  font-size: 13px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 8px;
+}
+
+/* --- Rapport de fiches par agent (paie) --- */
+.agent-report-table { margin-top: 12px; overflow-x: auto; }
+.agent-report-html-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.agent-report-html-table th, .agent-report-html-table td {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid #e0ebe0; white-space: nowrap;
+}
+.agent-report-html-table th { color: var(--text-muted); font-weight: 700; }
+.agent-report-export-row { display: flex; gap: 8px; margin-top: 10px; }
 
 /* Skeleton loading */
 .skeleton {

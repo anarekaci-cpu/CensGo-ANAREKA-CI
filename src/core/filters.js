@@ -10,6 +10,7 @@ export const DEFAULT_FILTERS = Object.freeze({
   block: "all",
   status: "all",
   visited: "all",
+  city: "all",
   search: ""
 });
 
@@ -35,10 +36,11 @@ export function passesFilters(point, filters) {
   if (f.status && f.status !== "all" && point.status !== f.status) return false;
   if (f.visited === "yes" && !point.visited) return false;
   if (f.visited === "no" && point.visited) return false;
+  if (f.city && f.city !== "all" && (point.city || "") !== f.city) return false;
 
   if (f.search) {
     const q = foldAccents(String(f.search).toLowerCase());
-    const hay = foldAccents(`${point.name || ""} ${point.quartier || ""} ${point.address || ""} ${point.tel || ""} ${point.produits || ""} ${point.id || ""} ${point.order ?? ""}`.toLowerCase());
+    const hay = foldAccents(`${point.name || ""} ${point.city || ""} ${point.quartier || ""} ${point.address || ""} ${point.tel || ""} ${point.produits || ""} ${point.id || ""} ${point.order ?? ""}`.toLowerCase());
     if (!hay.includes(q)) return false;
   }
   return true;
@@ -55,6 +57,7 @@ export function filterPoints(points, filters) {
     (!f.block || f.block === "all") &&
     (!f.status || f.status === "all") &&
     (!f.visited || f.visited === "all") &&
+    (!f.city || f.city === "all") &&
     !f.search;
   if (inactive) return list;
   return list.filter(p => passesFilters(p, f));

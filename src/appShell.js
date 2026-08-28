@@ -1,6 +1,12 @@
 import { store } from "./core/store.js";
-import { login, register } from "./modules/auth/auth.js";
+import { login, register, hasPendingInvite } from "./modules/auth/auth.js";
 import { escapeHtml } from "./core/utils.js";
+
+function inviteBadgeHTML() {
+  return hasPendingInvite()
+    ? `<div class="invite-badge">🎟️ Invitation détectée — votre compte sera activé automatiquement, sans attendre la validation d'un administrateur.</div>`
+    : "";
+}
 
 function describeLoginError(e) {
   const msg = e?.message || "";
@@ -129,6 +135,7 @@ export class App {
           <div class="login-badge">🗺️</div>
           <h1>CensGo</h1>
           <p>Connexion agent de terrain — ANAREKA-CI</p>
+          ${inviteBadgeHTML()}
           <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
           <input type="password" id="loginPassword" placeholder="Mot de passe" autocomplete="current-password">
           <button id="loginBtn">
@@ -185,6 +192,7 @@ export class App {
           <div class="login-badge">🗺️</div>
           <h1>Créer un compte</h1>
           <p>Inscription agent de terrain — ANAREKA-CI</p>
+          ${inviteBadgeHTML()}
           <div class="signup-name-row">
             <input type="text" id="signupFirstName" placeholder="Prénom" autocomplete="given-name">
             <input type="text" id="signupLastName" placeholder="Nom" autocomplete="family-name">

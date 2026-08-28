@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { passesFilters, filterPoints, DEFAULT_FILTERS } from "../core/filters.js";
 
-const P = (id, { block = 1, status = "VERT (Joignable)", visited = false, name = "", quartier = "", address = "", tel = "", produits = "" } = {}) =>
-  ({ id, block, status, visited, name, quartier, address, tel, produits });
+const P = (id, { block = 1, status = "VERT (Joignable)", visited = false, name = "", city = "", quartier = "", address = "", tel = "", produits = "" } = {}) =>
+  ({ id, block, status, visited, name, city, quartier, address, tel, produits });
 
 describe("passesFilters", () => {
   it("filtres par défaut -> tout passe", () => {
@@ -29,12 +29,21 @@ describe("passesFilters", () => {
     expect(passesFilters(P("b", { visited: false }), no)).toBe(true);
   });
 
-  it("recherche sur nom, quartier, tel", () => {
+  it("filtre par ville", () => {
+    const f = { ...DEFAULT_FILTERS, city: "Cocody" };
+    expect(passesFilters(P("a", { city: "Cocody" }), f)).toBe(true);
+    expect(passesFilters(P("b", { city: "Bingerville" }), f)).toBe(false);
+    // Liste fermée gérée par l'admin -> comparaison stricte, pas de recherche floue.
+    expect(passesFilters(P("c", { city: "cocody" }), f)).toBe(false);
+  });
+
+  it("recherche sur nom, ville, quartier, tel", () => {
     const f = { ...DEFAULT_FILTERS, search: "aya" };
     expect(passesFilters(P("a", { name: "Chez Aya" }), f)).toBe(true);
     expect(passesFilters(P("b", { quartier: "Ayamé" }), f)).toBe(true);
     expect(passesFilters(P("c", { tel: "0708091011" }), { ...DEFAULT_FILTERS, search: "0708" })).toBe(true);
     expect(passesFilters(P("d", { name: "Kouadio" }), f)).toBe(false);
+    expect(passesFilters(P("e", { city: "Grand-Bassam" }), { ...DEFAULT_FILTERS, search: "bassam" })).toBe(true);
   });
 
   it("recherche insensible aux accents (clavier sans accents courant sur le terrain)", () => {

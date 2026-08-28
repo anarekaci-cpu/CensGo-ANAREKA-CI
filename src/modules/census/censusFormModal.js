@@ -18,7 +18,7 @@ const FUZZY_DUPLICATE_RADIUS_M = 150;
 const FUZZY_NAME_THRESHOLD = 0.78;
 const CENSUS_DRAFT_KEY = "censgo.census-form-draft";
 const CENSUS_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe", "visited", "quartier", "address", "produits", "lat", "lon"];
+const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe", "visited", "city", "quartier", "address", "produits", "lat", "lon"];
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -110,9 +110,16 @@ export function initCensusFormModal() {
             </label>
           </div>
 
+          <!-- Ville : liste fermée gérée par l'admin (voir core/cities.js) -->
+          <div class="form-group">
+            <label for="cf_city">Ville <span class="req">*</span></label>
+            <select id="cf_city" required></select>
+            <div id="cf_city_err" class="input-hint">Liste gérée par l'administrateur — contactez-le si votre ville manque.</div>
+          </div>
+
           <!-- Quartier avec Chips Tactiles (générées depuis les quartiers déjà recensés) -->
           <div class="form-group">
-            <label for="cf_quartier">Ville / Quartier</label>
+            <label for="cf_quartier">Quartier</label>
             <input type="text" id="cf_quartier" placeholder="Ex: Cocody, Yopougon..." autocomplete="off" />
             <div class="chips-row" id="cf_quartier_chips"></div>
           </div>
@@ -181,6 +188,8 @@ export function openCensusForm(point = null) {
   const map = getMap();
   const fallbackCenter = map ? map.getCenter() : { lat: CONFIG.MAP_CENTER[0], lng: CONFIG.MAP_CENTER[1] };
 
+  populateCityOptions();
+
   if (point) {
     title.textContent = `Édition Fiche #${point.order || point.id}`;
     sub.textContent = `${point.quartier || 'Zone non renseignée'} — ${point.etablissement || point.activityType || 'ANAREKA-CI'}`;
@@ -191,6 +200,7 @@ export function openCensusForm(point = null) {
     document.getElementById("cf_activity").value = point.activityType || "";
     document.getElementById("cf_sexe").value = point.sexe || "Homme";
     document.getElementById("cf_visited").checked = !!point.visited;
+    document.getElementById("cf_city").value = point.city || "";
     document.getElementById("cf_quartier").value = point.quartier || "";
     document.getElementById("cf_address").value = point.address || "";
     document.getElementById("cf_produits").value = point.produits || "";
@@ -229,6 +239,29 @@ export function openCensusForm(point = null) {
   modal.style.display = "flex";
   validateFormRealtime();
   checkProximity();
+}
+
+// Peuple le select "Ville" depuis la liste fermée gérée par l'admin (voir
+// core/cities.js) — jamais de texte libre côté agent, pour éviter les
+// variantes d'orthographe qui fragmenteraient les statistiques par ville.
+// Conserve la sélection précédente si toujours valide (agent qui enchaîne
+// plusieurs fiches dans la même ville) ; sinon pré-sélectionne automatiquement
+// s'il n'existe qu'une seule ville configurée (cas mono-ville actuel).
+function populateCityOptions() {
+  const select = document.getElementById("cf_city");
+  if (!select) return;
+  const cities = store.get("cities") || [];
+  const previousValue = select.value;
+  const placeholder = cities.length
+    ? `<option value="">Choisir une ville…</option>`
+    : `<option value="">Aucune ville configurée — contactez l'admin</option>`;
+  select.innerHTML = placeholder + cities.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("");
+
+  if (previousValue && cities.some(c => c.name === previousValue)) {
+    select.value = previousValue;
+  } else if (cities.length === 1) {
+    select.value = cities[0].name;
+  }
 }
 
 // Génère les chips de quartier à partir des quartiers déjà recensés (les plus
@@ -390,6 +423,7 @@ function bindFormEvents() {
     validateFormRealtime();
     debouncedCheckProximity();
   });
+  document.getElementById("cf_city")?.addEventListener("change", validateFormRealtime);
   document.getElementById("cf_quartier")?.addEventListener("input", validateFormRealtime);
 
   // Segmented Sexe click
@@ -489,7 +523,7 @@ function bindFormEvents() {
   document.getElementById("censusForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!validateFormRealtime()) {
-      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom, Téléphone et Type d'activité).");
+      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom, Téléphone, Ville et Type d'activité).");
       return;
     }
 
@@ -539,6 +573,7 @@ function bindFormEvents() {
       status: existingPoint ? existingPoint.status : "NON DEFINI",
       sexe: document.getElementById("cf_sexe").value,
       visited: document.getElementById("cf_visited").checked,
+      city: document.getElementById("cf_city").value,
       quartier: document.getElementById("cf_quartier").value.trim(),
       address: document.getElementById("cf_address").value.trim(),
       produits: document.getElementById("cf_produits").value.trim(),
@@ -700,15 +735,20 @@ function validateFormRealtime() {
   const nameVal = document.getElementById("cf_name")?.value.trim() || "";
   const telVal = (document.getElementById("cf_tel")?.value || "").replace(/\D/g, "");
   const activityVal = document.getElementById("cf_activity")?.value || "";
+  const cityVal = document.getElementById("cf_city")?.value || "";
 
   const nameBadge = document.getElementById("cf_name_val");
   const nameErr = document.getElementById("cf_name_err");
   const telBadge = document.getElementById("cf_tel_val");
   const telErr = document.getElementById("cf_tel_err");
+  const cityErr = document.getElementById("cf_city_err");
 
   const isNameValid = nameVal.length >= 2;
   const isTelValid = telVal.length === 10;
   const isActivityValid = activityVal.length > 0;
+  const isCityValid = cityVal.length > 0;
+
+  if (cityErr) cityErr.style.color = isCityValid ? "#16a34a" : "#dc2626";
 
   if (nameBadge) {
     if (isNameValid) {
@@ -742,7 +782,7 @@ function validateFormRealtime() {
   const valIcon = document.getElementById("censusValStatusIcon");
   const valText = document.getElementById("censusValStatusText");
 
-  if (isNameValid && isTelValid && isActivityValid) {
+  if (isNameValid && isTelValid && isActivityValid && isCityValid) {
     if (valBar) valBar.className = "census-val-bar val-success";
     if (valIcon) valIcon.textContent = "✅";
     if (valText) valText.textContent = "Fiche à 100% valide — Prête à être enregistrée !";
@@ -750,7 +790,7 @@ function validateFormRealtime() {
   } else {
     if (valBar) valBar.className = "census-val-bar val-warning";
     if (valIcon) valIcon.textContent = "⚠️";
-    if (valText) valText.textContent = "Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres) et le Type d'activité.";
+    if (valText) valText.textContent = "Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres), la Ville et le Type d'activité.";
     return false;
   }
 }

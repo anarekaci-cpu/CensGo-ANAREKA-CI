@@ -12,6 +12,9 @@ import { initCensusFormModal, openCensusForm } from "./modules/census/censusForm
 import { retryFailedSyncs, dismissConflict } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
+import { loadCities, addCity, removeCity } from "./core/cities.js";
+import { listInvites, createInvite, revokeInvite, buildInviteUrl } from "./core/invites.js";
+import { loadTourSessions } from "./core/tourSessions.js";
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml, normalizePointId } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
@@ -26,6 +29,7 @@ import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
 import { auditExportQuality } from "./core/exportQuality.js";
 import { getPendingSyncs } from "./db/database.js";
 import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
+import { buildAgentReportHtml, computeAgentPeriodPoints, computeAgentPeriodDistance } from "./modules/report/agentReport.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo envoyée à l'Agent Vision est
@@ -132,7 +136,10 @@ export async function mountAuthenticatedApp(container) {
             </div>
           </div>
           <div class="row2">
+            <label>Ville <select id="filterCity"><option value="all">Toutes</option></select></label>
             <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
+          </div>
+          <div class="row2">
             <label>Statut
               <select id="filterStatus">
                 <option value="all">Tous</option>
@@ -143,8 +150,6 @@ export async function mountAuthenticatedApp(container) {
                 <option value="NON DEFINI">Non défini</option>
               </select>
             </label>
-          </div>
-          <div class="row2">
             <label>Visite
               <select id="filterVisited">
                 <option value="all">Tous</option>
@@ -152,8 +157,8 @@ export async function mountAuthenticatedApp(container) {
                 <option value="yes">Déjà visités</option>
               </select>
             </label>
-            <label>Recherche <input type="text" id="searchBox" placeholder="Nom, quartier, tel..."></label>
           </div>
+          <label>Recherche <input type="text" id="searchBox" placeholder="Nom, ville, quartier, tel..."></label>
           <div id="searchResultCount" style="font-size:12px; color:#64748b; margin:-4px 0 8px; min-height:16px;"></div>
           <div class="action-row">
             <button id="locateBtn" class="btn-locate">📍 Me localiser</button>
@@ -346,6 +351,60 @@ export async function mountAuthenticatedApp(container) {
             <div class="ai-content-body">
               <div id="agentsSummary" class="agents-summary"></div>
               <div id="agentsList" class="agents-list"></div>
+
+              <div class="agents-cities-section">
+                <h4>🏙️ Villes du recensement</h4>
+                <p class="input-hint">Liste fermée : seul un admin peut ajouter/retirer une ville. Elle alimente le champ "Ville" du formulaire de recensement pour tous les agents.</p>
+                <div id="citiesList" class="cities-list"></div>
+                <div class="add-city-row">
+                  <input type="text" id="newCityInput" placeholder="Ex: Cocody" autocomplete="off" />
+                  <button id="addCityBtn" class="btn-secondary" type="button">Ajouter</button>
+                </div>
+              </div>
+
+              <div class="agents-cities-section">
+                <h4>🎟️ Liens d'invitation</h4>
+                <p class="input-hint">Un agent qui s'inscrit via ce lien est approuvé automatiquement — pratique pour recruter plusieurs agents d'un coup sans validation manuelle. Toujours limité au rôle "agent" (jamais admin).</p>
+                <div id="invitesList" class="invites-list"></div>
+                <div class="new-invite-form">
+                  <input type="text" id="newInviteLabel" placeholder="Étiquette (ex: Recrutement Cocody)" autocomplete="off" />
+                  <div class="new-invite-row">
+                    <label>Usages max <input type="number" id="newInviteMaxUses" value="20" min="1" style="width:70px;" /></label>
+                    <label>Expire (jours) <input type="number" id="newInviteExpiresDays" value="30" min="1" style="width:70px;" /></label>
+                    <button id="createInviteBtn" class="btn-secondary" type="button">Générer un lien</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="agentReportModal" class="ai-modal" role="dialog" aria-modal="true" aria-label="Fiches recensées par agent" style="display:none;">
+          <div class="ai-modal-backdrop" id="agentReportModalBackdrop"></div>
+          <div class="ai-modal-card">
+            <div class="ai-modal-header">
+              <div class="ai-modal-title">
+                <span class="ai-badge-icon">📋</span>
+                <div>
+                  <h3 id="agentReportTitle">Fiches recensées</h3>
+                  <p>Pour le calcul de la paie — période au choix</p>
+                </div>
+              </div>
+              <button id="agentReportCloseBtn" class="ai-close-btn" aria-label="Fermer">✕</button>
+            </div>
+            <div class="ai-content-body">
+              <div class="segmented-control" id="agentReportPeriodGroup" role="group" aria-label="Période">
+                <button type="button" class="segment-btn" data-period="day">Aujourd'hui</button>
+                <button type="button" class="segment-btn" data-period="week">Cette semaine</button>
+                <button type="button" class="segment-btn" data-period="month">Ce mois</button>
+                <button type="button" class="segment-btn active" data-period="all">Tout</button>
+              </div>
+              <div id="agentReportSummary" class="agents-summary"></div>
+              <div id="agentReportTable" class="agent-report-table"></div>
+              <div class="agent-report-export-row">
+                <button id="agentReportExportBtn" type="button" class="btn-secondary">⬇️ CSV</button>
+                <button id="agentReportPdfBtn" type="button" class="btn-secondary">🖨️ PDF</button>
+              </div>
             </div>
           </div>
         </div>
@@ -472,6 +531,22 @@ async function initApp() {
       // RLS cassée, etc.) ne doit pas disparaître sans trace — voir le
       // correctif équivalent pour refreshAdminRole() ci-dessous.
       console.warn("Zones cibles : chargement échoué —", err?.message || err);
+    });
+
+  // Villes : liste fermée gérée par l'admin (voir supabase/add_cities.sql) —
+  // alimente le select "Ville" du formulaire de recensement dès réception.
+  loadCities().then(cities => {
+    store.set("cities", cities);
+    populateCityFilter(cities);
+  }).catch((err) => {
+    console.warn("Villes : chargement échoué —", err?.message || err);
+  });
+
+  // Historique des tournées (kilomètres parcourus, rapport de paie) —
+  // non bloquant, seulement consulté à l'ouverture du rapport agent.
+  loadTourSessions().then(sessions => store.set("tourSessions", sessions))
+    .catch((err) => {
+      console.warn("Historique des tournées : chargement échoué —", err?.message || err);
     });
 
   const loading = document.getElementById("loading");
@@ -694,7 +769,7 @@ function bindEvents() {
     });
   }
 
-  ["filterBlock", "filterStatus", "filterVisited"].forEach(id => {
+  ["filterCity", "filterBlock", "filterStatus", "filterVisited"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => applyFilters());
   });
   document.getElementById("searchBox")?.addEventListener("input", debounce(() => applyFilters(), 250));
@@ -1180,6 +1255,12 @@ function renderAgentRow(row, currentUserId, stats) {
     : "";
 
   const actions = [];
+  // Rapport de fiches recensées — utile pour calculer la paie d'un agent sur
+  // une période. Visible dès qu'un compte a un rôle attribué (agent ou
+  // admin) ; un compte en attente n'a par définition encore rien recensé.
+  if (row.role) {
+    actions.push(`<button class="agent-action-btn agent-report-btn" data-user-id="${escapeHtml(row.user_id)}" data-user-name="${name}">📋 Fiches</button>`);
+  }
   if (!isSelf) {
     if (!row.role) {
       actions.push(`<button class="agent-action-btn agent-approve" data-user-id="${escapeHtml(row.user_id)}" data-role="agent">✅ Approuver (agent)</button>`);
@@ -1227,6 +1308,97 @@ function computeAgentStats() {
   return stats;
 }
 
+// --- Rapport de fiches par agent (calcul de paie) ---
+// Période au choix de l'admin (jour/semaine/mois/tout), voir #agentReportModal.
+// "createdAt" (jamais réécrit par une édition ultérieure, voir upsertPoint())
+// est la seule date pertinente ici : on paie l'agent pour les fiches qu'il a
+// RECENSÉES pendant la période, pas pour celles qu'il a simplement modifiées.
+let agentReportUserId = null;
+let agentReportUserName = "";
+let agentReportPeriod = "all";
+
+function renderAgentReport() {
+  const table = document.getElementById("agentReportTable");
+  const summary = document.getElementById("agentReportSummary");
+  const title = document.getElementById("agentReportTitle");
+  if (!table || !agentReportUserId) return;
+  if (title) title.textContent = `Fiches recensées — ${agentReportUserName}`;
+
+  const matched = computeAgentPeriodPoints(store.get("points"), agentReportUserId, agentReportPeriod)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const visited = matched.filter(p => p.visited).length;
+  const distanceKm = computeAgentPeriodDistance(store.get("tourSessions"), agentReportUserId, agentReportPeriod);
+
+  if (summary) {
+    summary.innerHTML = `<span>📋 ${matched.length} fiche${matched.length > 1 ? "s" : ""}</span><span>✅ ${visited} visitée${visited > 1 ? "s" : ""}</span>` +
+      (distanceKm > 0 ? `<span>🚶 ${distanceKm.toFixed(1)} km parcourus</span>` : "");
+  }
+
+  if (matched.length === 0) {
+    table.innerHTML = `<div class="agents-list-loading">Aucune fiche sur cette période.</div>`;
+    return;
+  }
+
+  table.innerHTML = `
+    <table class="agent-report-html-table">
+      <thead><tr><th>Date</th><th>Nom</th><th>Ville</th><th>Quartier</th><th>Statut</th><th>Visité</th></tr></thead>
+      <tbody>
+        ${matched.map(p => `
+          <tr>
+            <td>${p.createdAt ? new Date(p.createdAt).toLocaleDateString("fr-FR") : "—"}</td>
+            <td>${escapeHtml(p.name || "—")}</td>
+            <td>${escapeHtml(p.city || "—")}</td>
+            <td>${escapeHtml(p.quartier || "—")}</td>
+            <td>${escapeHtml(p.status || "—")}</td>
+            <td>${p.visited ? "✅" : "—"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function exportAgentReportCSV() {
+  if (!agentReportUserId) return;
+  const matched = computeAgentPeriodPoints(store.get("points"), agentReportUserId, agentReportPeriod);
+  if (matched.length === 0) {
+    toastWarning("Aucune fiche à exporter sur cette période.");
+    return;
+  }
+  const header = ["date_creation", "id", "name", "etablissement", "city", "quartier", "tel", "status", "visite"];
+  const rows = matched.map(p => [
+    p.createdAt || "", p.id, p.name, p.etablissement, p.city, p.quartier, p.tel, p.status, p.visited ? "oui" : "non"
+  ]);
+  const csv = [header, ...rows]
+    .map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const periodSlug = { day: "jour", week: "semaine", month: "mois", all: "tout" }[agentReportPeriod] || "tout";
+  a.download = `fiches_${agentReportUserName.replace(/[^a-z0-9]+/gi, "_")}_${periodSlug}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAgentReportPdf() {
+  if (!agentReportUserId) return;
+  const matched = computeAgentPeriodPoints(store.get("points"), agentReportUserId, agentReportPeriod)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  if (matched.length === 0) {
+    toastWarning("Aucune fiche à imprimer sur cette période.");
+    return;
+  }
+  const distanceKm = computeAgentPeriodDistance(store.get("tourSessions"), agentReportUserId, agentReportPeriod);
+  const html = buildAgentReportHtml(matched, { agentName: agentReportUserName, period: agentReportPeriod, distanceKm });
+  try {
+    openTourReportPrintWindow(html);
+  } catch (err) {
+    toastError(err.message || "Impossible d'ouvrir la fenêtre d'impression.");
+  }
+}
+
 async function refreshAgentsList() {
   const list = document.getElementById("agentsList");
   const summary = document.getElementById("agentsSummary");
@@ -1260,11 +1432,84 @@ async function refreshAgentsList() {
   }
 }
 
+// Panneau admin "Villes" — même gate que le reste du modal agentsModal
+// (accessible seulement via manageAgentsBtn, lui-même caché aux non-admins,
+// voir refreshAdminRole()) ; la seule autorité réelle reste la policy RLS
+// "Admin can manage cities" (supabase/add_cities.sql) — ce check est un
+// second verrou UX, pas une protection en soi.
+function renderCitiesList() {
+  const container = document.getElementById("citiesList");
+  if (!container) return;
+  const cities = store.get("cities") || [];
+  if (!store.get("ui.isAdmin")) {
+    container.innerHTML = `<div class="cities-list-empty">Réservé aux administrateurs.</div>`;
+    return;
+  }
+  if (cities.length === 0) {
+    container.innerHTML = `<div class="cities-list-empty">Aucune ville configurée pour le moment.</div>`;
+    return;
+  }
+  container.innerHTML = cities.map(c => `
+    <div class="city-row">
+      <span>${escapeHtml(c.name)}</span>
+      <button type="button" class="remove-city-btn" data-city-id="${escapeHtml(c.id)}" title="Retirer cette ville" aria-label="Retirer cette ville">✕</button>
+    </div>
+  `).join("");
+}
+
+function formatInviteExpiry(iso) {
+  if (!iso) return "sans expiration";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "sans expiration";
+  const expired = d.getTime() < Date.now();
+  return `${expired ? "expiré le" : "expire le"} ${d.toLocaleDateString("fr-FR")}`;
+}
+
+async function renderInvitesList() {
+  const container = document.getElementById("invitesList");
+  if (!container) return;
+  if (!store.get("ui.isAdmin")) {
+    container.innerHTML = `<div class="cities-list-empty">Réservé aux administrateurs.</div>`;
+    return;
+  }
+  container.innerHTML = `<div class="agents-list-loading">Chargement…</div>`;
+  try {
+    const invites = await listInvites();
+    if (invites.length === 0) {
+      container.innerHTML = `<div class="cities-list-empty">Aucun lien d'invitation généré pour le moment.</div>`;
+      return;
+    }
+    container.innerHTML = invites.map(inv => {
+      const usesLabel = inv.max_uses != null ? `${inv.uses}/${inv.max_uses} usages` : `${inv.uses} usage${inv.uses > 1 ? "s" : ""} (illimité)`;
+      const expired = inv.expires_at && new Date(inv.expires_at).getTime() < Date.now();
+      const exhausted = inv.max_uses != null && inv.uses >= inv.max_uses;
+      const statusClass = inv.revoked ? "invite-revoked" : (expired || exhausted) ? "invite-exhausted" : "invite-active";
+      const statusLabel = inv.revoked ? "Révoqué" : expired ? "Expiré" : exhausted ? "Épuisé" : "Actif";
+      return `
+        <div class="invite-row ${statusClass}">
+          <div class="invite-row-info">
+            <div class="invite-row-label">${escapeHtml(inv.label || "Sans étiquette")} <span class="invite-status-tag">${statusLabel}</span></div>
+            <div class="invite-row-meta">${usesLabel} · ${formatInviteExpiry(inv.expires_at)}</div>
+          </div>
+          <div class="invite-row-actions">
+            ${!inv.revoked ? `<button type="button" class="agent-action-btn invite-copy-btn" data-token="${escapeHtml(inv.token)}">🔗 Copier le lien</button>` : ""}
+            ${!inv.revoked ? `<button type="button" class="agent-action-btn agent-revoke invite-revoke-btn" data-invite-id="${escapeHtml(inv.id)}">⛔ Révoquer</button>` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    container.innerHTML = `<div class="agents-list-loading">❌ ${escapeHtml(err.message || "Échec du chargement des invitations.")}</div>`;
+  }
+}
+
 function bindAgentsModalEvents() {
   const openModal = async () => {
     document.getElementById("agentsModal").style.display = "block";
     closeControls();
     await refreshAgentsList();
+    renderCitiesList();
+    renderInvitesList();
   };
   const closeModal = () => {
     document.getElementById("agentsModal").style.display = "none";
@@ -1275,6 +1520,11 @@ function bindAgentsModalEvents() {
   document.getElementById("agentsModalBackdrop")?.addEventListener("click", closeModal);
 
   document.getElementById("agentsList")?.addEventListener("click", async (e) => {
+    // Le bouton "📋 Fiches" partage la classe .agent-action-btn pour son style
+    // mais n'a pas de data-role — il est géré séparément ci-dessous, jamais
+    // par ce handler (qui appellerait sinon setUserRole(userId, null) et
+    // révoquerait l'agent au lieu d'ouvrir son rapport).
+    if (e.target.closest(".agent-report-btn")) return;
     const btn = e.target.closest(".agent-action-btn");
     if (!btn) return;
     const userId = btn.dataset.userId;
@@ -1288,6 +1538,129 @@ function bindAgentsModalEvents() {
     } catch (err) {
       toastError(err.message || "Échec de la mise à jour du compte.");
       btn.disabled = false;
+    }
+  });
+
+  document.getElementById("agentsList")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".agent-report-btn");
+    if (!btn) return;
+    agentReportUserId = btn.dataset.userId;
+    agentReportUserName = btn.dataset.userName || "Agent";
+    agentReportPeriod = "all";
+    document.querySelectorAll("#agentReportPeriodGroup .segment-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.period === "all");
+      b.setAttribute("aria-pressed", b.dataset.period === "all" ? "true" : "false");
+    });
+    document.getElementById("agentReportModal").style.display = "block";
+    renderAgentReport();
+  });
+
+  const closeReportModal = () => { document.getElementById("agentReportModal").style.display = "none"; };
+  document.getElementById("agentReportCloseBtn")?.addEventListener("click", closeReportModal);
+  document.getElementById("agentReportModalBackdrop")?.addEventListener("click", closeReportModal);
+
+  document.querySelectorAll("#agentReportPeriodGroup .segment-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#agentReportPeriodGroup .segment-btn").forEach(b => {
+        b.classList.remove("active");
+        b.setAttribute("aria-pressed", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
+      agentReportPeriod = btn.dataset.period;
+      renderAgentReport();
+    });
+  });
+
+  document.getElementById("agentReportExportBtn")?.addEventListener("click", exportAgentReportCSV);
+  document.getElementById("agentReportPdfBtn")?.addEventListener("click", exportAgentReportPdf);
+
+  document.getElementById("addCityBtn")?.addEventListener("click", async () => {
+    if (!store.get("ui.isAdmin")) return;
+    const input = document.getElementById("newCityInput");
+    const name = input?.value.trim();
+    if (!name) return;
+    try {
+      const city = await addCity(name);
+      store.set("cities", [...(store.get("cities") || []), city].sort((a, b) => a.name.localeCompare(b.name)));
+      renderCitiesList();
+      input.value = "";
+      toastSuccess(`"${name}" ajoutée à la liste des villes.`);
+    } catch (err) {
+      toastError(err.message || "Impossible d'ajouter cette ville.");
+    }
+  });
+  document.getElementById("newCityInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("addCityBtn")?.click();
+  });
+
+  document.getElementById("citiesList")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".remove-city-btn");
+    if (!btn || !store.get("ui.isAdmin")) return;
+    const cityId = btn.dataset.cityId;
+    btn.disabled = true;
+    try {
+      await removeCity(cityId);
+      store.set("cities", (store.get("cities") || []).filter(c => c.id !== cityId));
+      renderCitiesList();
+      toastInfo("Ville retirée.");
+    } catch (err) {
+      toastError(err.message || "Impossible de retirer cette ville.");
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("createInviteBtn")?.addEventListener("click", async (e) => {
+    if (!store.get("ui.isAdmin")) return;
+    const btn = e.currentTarget;
+    const label = document.getElementById("newInviteLabel")?.value || "";
+    const maxUsesRaw = document.getElementById("newInviteMaxUses")?.value;
+    const expiresRaw = document.getElementById("newInviteExpiresDays")?.value;
+    const maxUses = maxUsesRaw ? Number(maxUsesRaw) : null;
+    const expiresInDays = expiresRaw ? Number(expiresRaw) : null;
+    btn.disabled = true;
+    try {
+      const invite = await createInvite({ label, maxUses, expiresInDays });
+      await renderInvitesList();
+      document.getElementById("newInviteLabel").value = "";
+      const url = buildInviteUrl(invite.token);
+      try {
+        await navigator.clipboard.writeText(url);
+        toastSuccess("Lien d'invitation généré et copié dans le presse-papiers.");
+      } catch {
+        toastSuccess(`Lien d'invitation généré : ${url}`);
+      }
+    } catch (err) {
+      toastError(err.message || "Impossible de générer un lien d'invitation.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("invitesList")?.addEventListener("click", async (e) => {
+    if (!store.get("ui.isAdmin")) return;
+    const copyBtn = e.target.closest(".invite-copy-btn");
+    if (copyBtn) {
+      const url = buildInviteUrl(copyBtn.dataset.token);
+      try {
+        await navigator.clipboard.writeText(url);
+        toastSuccess("Lien copié dans le presse-papiers.");
+      } catch {
+        toastInfo(url);
+      }
+      return;
+    }
+    const revokeBtn = e.target.closest(".invite-revoke-btn");
+    if (revokeBtn) {
+      revokeBtn.disabled = true;
+      try {
+        await revokeInvite(revokeBtn.dataset.inviteId);
+        await renderInvitesList();
+        toastInfo("Invitation révoquée.");
+      } catch (err) {
+        toastError(err.message || "Impossible de révoquer cette invitation.");
+        revokeBtn.disabled = false;
+      }
     }
   });
 }
@@ -1309,6 +1682,14 @@ function bindStoreListeners() {
   // Les zones cibles arrivent en asynchrone (loadTargetZones non bloquant).
   store.subscribe("targetZones", () => {
     renderQuartierCoverage();
+  });
+
+  // Les villes arrivent en asynchrone (loadCities non bloquant) — si le
+  // panneau admin est déjà ouvert au moment de la réception, il se peuple ;
+  // le filtre "Ville" aussi (ajout/suppression par l'admin).
+  store.subscribe("cities", (cities) => {
+    renderCitiesList();
+    populateCityFilter(cities);
   });
 
   const renderSyncStatus = () => {
@@ -1565,6 +1946,7 @@ function updateSearchResultCount(search, filteredCount) {
 
 function applyFilters() {
   const filters = {
+    city: document.getElementById("filterCity").value,
     block: document.getElementById("filterBlock").value,
     status: document.getElementById("filterStatus").value,
     visited: document.getElementById("filterVisited").value,
@@ -1586,7 +1968,7 @@ function applyFilters() {
  * Supabase) ne réinitialise PAS visuellement le filtre choisi par l'agent.
  */
 function applyFiltersFromStore() {
-  const filters = store.get("filters") || { block: "all", status: "all", visited: "all", search: "" };
+  const filters = store.get("filters") || { city: "all", block: "all", status: "all", visited: "all", search: "" };
   const filtered = filterPoints(store.get("points"), filters);
   updateSearchResultCount(filters.search, filtered.length);
   renderMarkers(filtered);
@@ -1611,6 +1993,24 @@ function populateBlockFilter(points) {
     select.appendChild(opt);
   });
   // Restaurer la sélection si elle existe toujours
+  if ([...select.options].some(o => o.value === current)) {
+    select.value = current;
+  }
+}
+
+// Source = liste admin (store.cities), pas les valeurs déjà vues sur les
+// points : une ville tout juste ajoutée par l'admin doit apparaître dans le
+// filtre même avant qu'aucun point n'y soit encore recensé.
+function populateCityFilter(cities) {
+  const select = document.getElementById("filterCity");
+  if (!select) return;
+  const names = (cities || []).map(c => c.name).sort();
+  const signature = names.join(",");
+  if (select.dataset.signature === signature) return;
+  select.dataset.signature = signature;
+  const current = select.value;
+  select.innerHTML = `<option value="all">Toutes</option>` +
+    names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
   if ([...select.options].some(o => o.value === current)) {
     select.value = current;
   }
@@ -1726,9 +2126,9 @@ async function exportCSV() {
   if (quality.incompleteCount || quality.pendingCount || quality.duplicateCount) {
     toastWarning(`Export autorisé avec avertissement : ${quality.incompleteCount} incomplet(s), ${quality.pendingCount} en attente, ${quality.duplicateCount} doublon(s) potentiel(s).`);
   }
-  const header = ["id", "block", "name", "etablissement", "activityType", "tel", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
+  const header = ["id", "block", "name", "etablissement", "activityType", "tel", "city", "quartier", "address", "produits", "sexe", "status", "visite", "lat", "lon"];
   const rows = points.map(p => [
-    p.id, p.block, p.name, p.etablissement, p.activityType, p.tel, p.quartier, p.address,
+    p.id, p.block, p.name, p.etablissement, p.activityType, p.tel, p.city, p.quartier, p.address,
     p.produits, p.sexe, p.status, p.visited ? "oui" : "non", p.lat, p.lon
   ]);
   const csv = [header, ...rows]

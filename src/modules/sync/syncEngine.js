@@ -227,6 +227,7 @@ async function syncOne(supabase, item) {
           tel: p.tel,
           etablissement: p.etablissement,
           activity_type: p.activityType,
+          city: p.city,
           quartier: p.quartier,
           address: p.address,
           produits: p.produits,
@@ -238,6 +239,25 @@ async function syncOne(supabase, item) {
           created_by: user?.id || null,
           updated_at: new Date().toISOString()
         }, { onConflict: "point_id" })
+        .abortSignal(signal)
+    );
+    if (error) throw error;
+  } else if (item.action === "log_tour") {
+    // Append-only (voir supabase/add_tour_sessions.sql) : jamais de conflit
+    // de version possible, un simple insert suffit — pas de baseUpdatedAt.
+    const user = store.get("user");
+    if (!user) throw new Error("Session absente — tournée non journalisée");
+    const p = item.payload;
+    const { error } = await withTimeout((signal) =>
+      supabase
+        .from("tour_sessions")
+        .insert({
+          user_id: user.id,
+          distance_km: p.distanceKm,
+          stop_count: p.stopCount,
+          started_at: p.startedAt,
+          ended_at: p.endedAt
+        })
         .abortSignal(signal)
     );
     if (error) throw error;

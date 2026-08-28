@@ -203,6 +203,7 @@ export async function upsertPoint(pointData) {
       tel: "",
       etablissement: "",
       activityType: "",
+      city: "",
       quartier: "",
       address: "",
       produits: "",
@@ -215,6 +216,12 @@ export async function upsertPoint(pointData) {
       id: newId,
       localId: maxLocalId + 1,
       syncedAt: null,
+      // createdAt posé ICI (pas seulement récupéré du serveur après sync) :
+      // un rapport agent filtré par jour/semaine/mois (voir renderAgentPointsReport
+      // dans appView.js) doit fonctionner même hors-ligne, avant tout aller-retour
+      // Supabase — sinon un point créé le matin sans réseau n'apparaîtrait dans
+      // aucune période tant que la synchro n'a pas eu lieu.
+      createdAt: now,
       updatedAt: now
     };
     await db.points.add(updated);
@@ -231,6 +238,26 @@ export async function upsertPoint(pointData) {
   });
 
   return { ...updated, pendingSync: pendingSyncedFlag };
+}
+
+/**
+ * Journalise une tournée optimisée terminée (approximation des kilomètres
+ * parcourus par agent, voir supabase/add_tour_sessions.sql et
+ * modules/report/agentReport.js). Passe par la même file `syncQueue` que les
+ * points — même garanties offline-first (retry, dead-letter) — mais sans
+ * `pointId` : markPointSynced(null, ...) ci-dessous ne trouve simplement
+ * aucun point et ne fait rien, sans erreur (comportement Dexie voulu).
+ */
+export async function logTourSession({ distanceKm, stopCount, startedAt, endedAt }) {
+  await db.syncQueue.add({
+    pointId: null,
+    action: "log_tour",
+    payload: { distanceKm, stopCount, startedAt, endedAt },
+    baseUpdatedAt: null,
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+    status: "pending"
+  });
 }
 
 export async function markPointSynced(pointId, completedQueueId = null) {

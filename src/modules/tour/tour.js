@@ -5,6 +5,7 @@ import { normalizePointId } from "../../core/utils.js";
 import { lazyImport } from "../../core/lazyImport.js";
 import { calculateRoute } from "../routing/routing.js";
 import { log } from "../../core/debug.js";
+import { logTourSession } from "../../db/database.js";
 
 // Nombre d'étapes à venir dont l'itinéraire OSRM est préchargé — voir
 // prefetchUpcomingLegs(). Volontairement borné : précharger toute la
@@ -17,6 +18,13 @@ let tourPoints = [];
 let currentIndex = 0;
 let pointsUnsub = null;
 let openPopupTimer = null;
+// Garde anti-double-log : stopTour() est appelée DEUX FOIS par arrêt naturel
+// de tournée — une fois par l'appelant (bouton "Terminer" ou pointsUnsub
+// quand filtered.length===0), une seconde fois par le subscriber
+// "tour.active" ci-dessous (stopTour() y met lui-même active à false). Sans
+// cette garde, la session serait journalisée deux fois dans tour_sessions
+// (voir logTourSession() plus bas) à chaque tournée terminée.
+let tourLogged = true;
 
 export function initTour() {
   store.subscribe("tour.active", (active) => {
@@ -29,6 +37,7 @@ export { generateOptimizedTour };
 export function startTour(tour) {
   tourPoints = tour;
   currentIndex = 0;
+  tourLogged = false;
   store.set("tour.active", true);
   store.set("tour.points", tour);
   store.set("tour.currentIndex", 0);
@@ -133,6 +142,23 @@ export function goToPoint(index) {
 }
 
 export function stopTour() {
+  // Distance approximative de la tournée (somme des distanceFromPrev posés
+  // par generateOptimizedTour()/tourPlanner.js) — journalisée AVANT de vider
+  // l'état, pour le rapport de paie par agent (voir
+  // modules/report/agentReport.js). Approximation assumée avec
+  // l'utilisateur : ne compte que les déplacements faits via "Tournée
+  // optimisée", pas tout déplacement terrain (pas de vrai suivi GPS
+  // historique dans ce projet).
+  const originalPoints = store.get("tour.originalPoints") || [];
+  const startedAt = store.get("tour.startedAt");
+  const distanceKm = originalPoints.reduce((sum, p) => sum + (p.distanceFromPrev || 0), 0);
+  const endedAt = new Date().toISOString();
+  if (!tourLogged && startedAt && originalPoints.length > 0 && distanceKm > 0) {
+    tourLogged = true;
+    logTourSession({ distanceKm, stopCount: originalPoints.length, startedAt, endedAt })
+      .catch(err => log.warn("TOUR", "Journalisation de la tournée échouée :", err?.message || err));
+  }
+
   tourPoints = [];
   currentIndex = 0;
   if (pointsUnsub) {
@@ -149,5 +175,5 @@ export function stopTour() {
   // "tour.originalPoints"/"tour.startedAt" restent volontairement en place
   // (pas remis à []/null) — le rapport PDF de LA DERNIÈRE tournée doit
   // rester générable après sa fin, jusqu'au prochain startTour().
-  store.set("tour.endedAt", new Date().toISOString());
+  store.set("tour.endedAt", endedAt);
 }
