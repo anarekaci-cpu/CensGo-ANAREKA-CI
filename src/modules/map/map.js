@@ -7,30 +7,21 @@ import { destinationPoint } from "../../core/geo.js";
 import { store } from "../../core/store.js";
 import { calculateRoutePadding } from "../../core/routeView.js";
 
-const basemapStyle = {
-  version: 8,
-  sources: {
-    carto: {
-      type: "raster",
-      // CARTO Voyager au lieu de tile.openstreetmap.org : le serveur public
-      // OSM applique une politique anti-usage-app (rate-limiting / blocage
-      // des PWAs) et ses réponses d'erreur n'ont pas d'en-tête CORS, d'où
-      // les tempêtes de "TypeError: Failed to fetch". CARTO est conçu pour
-      // la production, sert des en-têtes CORS corrects et autorise l'usage
-      // applicatif avec attribution. Tuiles servies jusqu'au zoom 20.
-      tiles: [
-        "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-      ],
-      tileSize: 256,
-      maxzoom: 20,
-      attribution:
-        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://carto.com/attributions\">CARTO</a>"
-    }
-  },
-  layers: [{ id: "carto", type: "raster", source: "carto" }]
-};
+// CARTO Voyager au lieu de tile.openstreetmap.org : le serveur public OSM
+// applique une politique anti-usage-app (rate-limiting / blocage des PWAs)
+// et ses réponses d'erreur n'ont pas d'en-tête CORS, d'où les tempêtes de
+// "TypeError: Failed to fetch".
+//
+// BUG CORRIGÉ (audit terrain, capture d'écran à l'appui) : l'ancien style
+// pointait vers {a,b,c}.basemaps.cartocdn.com/rastertiles/voyager/... — ce
+// CDN de tuiles RASTER "legacy" a depuis été fermé par CARTO et renvoie
+// désormais une image "API KEY REQUIRED" sur CHAQUE tuile (carte
+// entièrement illisible en production). Le style GL VECTEUR ci-dessous
+// (basemaps.cartocdn.com/gl/voyager-gl-style/...) reste gratuit et sans clé
+// à ce jour — vérifié manuellement avant ce correctif. MapLibre GL (déjà
+// une dépendance du projet) le consomme nativement via une simple URL de
+// style, sans configuration de tuiles/sources manuelle.
+const BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
 
 let mapInstance = null;
 let clusterInstance = null;
@@ -45,7 +36,7 @@ export function initMap(containerId = "map") {
 
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: basemapStyle,
+    style: BASEMAP_STYLE_URL,
     center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
     zoom: CONFIG.MAP_ZOOM,
     maxZoom: CONFIG.MAP_MAX_ZOOM,
@@ -59,8 +50,15 @@ export function initMap(containerId = "map") {
     new maplibregl.NavigationControl({ showCompass: false }),
     "bottom-right"
   );
+  // customAttribution explicite : ne pas dépendre de ce que le style GL
+  // distant choisit (ou non) de déclarer sur sa source — l'obligation
+  // d'attribution OSM/CARTO ne doit pas dépendre d'un tiers.
   mapInstance.addControl(
-    new maplibregl.AttributionControl({ compact: true }),
+    new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution:
+        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://carto.com/attributions\">CARTO</a>"
+    }),
     "bottom-right"
   );
   // Échelle de distance : repère visuel direct ("cette barre = 100 m") pour
