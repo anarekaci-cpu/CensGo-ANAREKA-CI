@@ -106,10 +106,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 850,
     rollupOptions: {
       output: {
-        manualChunks: {
-          maplibregl: ["maplibre-gl", "supercluster"],
-          supabase: ["@supabase/supabase-js"],
-          dexie: ["dexie"]
+        manualChunks(id) {
+          if (id.includes("maplibre-gl") || id.includes("supercluster")) return "maplibregl";
+          if (id.includes("@supabase/supabase-js")) return "supabase";
+          if (id.includes("/dexie/") || id.includes("\\dexie\\")) return "dexie";
         }
       }
     }
