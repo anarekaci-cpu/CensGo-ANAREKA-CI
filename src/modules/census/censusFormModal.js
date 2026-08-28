@@ -1,12 +1,13 @@
 import { store } from "../../core/store.js";
 import { CONFIG } from "../../core/config.js";
-import { upsertPoint, findNearbyPoints } from "../../db/database.js";
+import { upsertPoint } from "../../db/database.js";
 import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
 import { canMarkVisited } from "../../core/geofence.js";
-import { normalizePointId, escapeHtml, stringSimilarity } from "../../core/utils.js";
+import { normalizePointId, escapeHtml } from "../../core/utils.js";
+import { findProximityMatches } from "./proximityMatch.js";
 
 // Doublon "flou" : nom très proche (typo/variante d'orthographe) OU
 // téléphone identique, dans un rayon plus large que le doublon "strict"
@@ -18,10 +19,6 @@ const FUZZY_NAME_THRESHOLD = 0.78;
 const CENSUS_DRAFT_KEY = "censgo.census-form-draft";
 const CENSUS_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe", "visited", "quartier", "address", "produits", "lat", "lon"];
-
-function normalizeTelDigits(tel) {
-  return String(tel || "").replace(/\D/g, "");
-}
 
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
@@ -295,27 +292,22 @@ async function checkProximity() {
     return;
   }
 
-  const nearby = await findNearbyPoints(lat, lon, 25, currentId);
-
-  // Doublon flou : même nom (à une variante d'orthographe près) ou même
-  // téléphone, dans un rayon plus large — capte les cas où le GPS a dérivé
-  // ou où l'agent ressaisit une fiche déjà créée sous un nom légèrement
-  // différent. Exclut les points déjà signalés par le contrôle strict
-  // ci-dessus pour ne pas doubler le même avertissement.
+  // Un seul passage sur les points déjà en mémoire (store, source de vérité
+  // partagée avec la carte/stats) au lieu de deux requêtes IndexedDB
+  // séquentielles (findNearbyPoints strict puis flou) — même détection de
+  // doublons, sans aller-retour DB à chaque frappe.
   const name = document.getElementById("cf_name")?.value.trim() || "";
-  const tel = normalizeTelDigits(document.getElementById("cf_tel")?.value);
-  const strictIds = new Set(nearby.map(p => normalizePointId(p.id)));
-  let fuzzyMatches = [];
-
-  if (name || tel) {
-    const wide = await findNearbyPoints(lat, lon, FUZZY_DUPLICATE_RADIUS_M, currentId);
-    fuzzyMatches = wide.filter(p => {
-      if (strictIds.has(normalizePointId(p.id))) return false;
-      const telMatch = tel.length >= 8 && normalizeTelDigits(p.tel) === tel;
-      const nameMatch = name.length >= 3 && stringSimilarity(name, p.name) >= FUZZY_NAME_THRESHOLD;
-      return telMatch || nameMatch;
-    });
-  }
+  const tel = document.getElementById("cf_tel")?.value || "";
+  const { strict: nearby, fuzzy: fuzzyMatches } = findProximityMatches(store.get("points") || [], {
+    lat,
+    lon,
+    name,
+    tel,
+    excludeId: currentId,
+    strictRadiusM: 25,
+    fuzzyRadiusM: FUZZY_DUPLICATE_RADIUS_M,
+    fuzzyNameThreshold: FUZZY_NAME_THRESHOLD
+  });
 
   if (nearby.length === 0 && fuzzyMatches.length === 0) {
     warningEl.style.display = "none";
