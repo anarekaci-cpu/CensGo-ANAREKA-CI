@@ -45,10 +45,14 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // Tuiles du fond de carte : CARTO (principal) + OSM (transition).
-            // Nouveau cache "map-tiles" : départ propre, l'ancien cache
-            // "osm-tiles" peut contenir des entrées de la période cassée.
-            urlPattern: /^https:\/\/([abcd]\.)?basemaps\.cartocdn\.com\/.*/,
+            // Fond de carte CARTO : style GL (basemaps.cartocdn.com), tuiles
+            // vecteur (tiles-{a,b,c,d}.basemaps.cartocdn.com/vectortiles/...),
+            // sprite et glyphes (tiles.basemaps.cartocdn.com). BUG CORRIGÉ :
+            // l'ancien motif ([abcd]\.)? ne couvrait QUE l'ancien CDN raster
+            // (mort depuis, voir map.js) — il ratait tiles.* et tiles-a/b/c/d.*
+            // utilisés par le nouveau style vecteur, qui ne bénéficiaient donc
+            // d'AUCUN cache offline (même pas opportuniste en navigant).
+            urlPattern: /^https:\/\/([a-z0-9-]+\.)?basemaps\.cartocdn\.com\/.*/i,
             handler: "CacheFirst",
             options: {
               cacheName: "map-tiles",
