@@ -16,6 +16,7 @@ import { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } from "./cor
 import { escapeHtml } from "./core/utils.js";
 import { initTheme } from "./core/theme.js";
 import { initPwa } from "./core/pwa.js";
+import { requestPersistentStorage } from "./core/storagePersistence.js";
 
 // Avant tout rendu (y compris le boot-screen) : évite un flash de thème
 // clair si l'agent a explicitement choisi le sombre lors d'une session
@@ -57,6 +58,10 @@ async function bootstrap() {
 
     await db.open();
     console.log("📦 IndexedDB prête");
+
+    // Best-effort, non-bloquant : ne retarde jamais le démarrage de l'app
+    // pour une protection de stockage secondaire (voir storagePersistence.js).
+    requestPersistentStorage();
 
     // Mode diagnostic (localStorage.DIAG=1) : session factice + données de
     // test pour reproduire le flux complet sans identifiants. Inertre sinon.

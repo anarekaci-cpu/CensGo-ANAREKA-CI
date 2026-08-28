@@ -19,6 +19,7 @@ import { toastInfo, toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
 import { flyToPoint, enableCameraFollow } from "../map/map.js";
 import { isRushHour } from "../traffic/trafficHeuristic.js";
+import { enableNavigationWakeLock, disableNavigationWakeLock } from "../../core/wakeLock.js";
 
 // Mode voiture uniquement (voir trafficHeuristic.js) : signale à l'agent que
 // la durée affichée intègre déjà un ralentissement heure de pointe estimé,
@@ -101,8 +102,11 @@ export function initNavigation() {
     store.subscribe("navigation.active", (active) => {
       if (active) {
         enableCameraFollow();
+        enableNavigationWakeLock();
         scheduleStartNavigation();
       } else {
+        disableNavigationWakeLock();
+
         if (pendingNavFrame) {
           cancelAnimationFrame(pendingNavFrame);
           pendingNavFrame = null;
