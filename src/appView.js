@@ -148,20 +148,20 @@ export async function mountAuthenticatedApp(container) {
 
       <div id="controls">
         <div id="controlsInner">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #f0f0f0;">
-            <span style="font-weight:700; font-size:14px; color:#1a3d2b; display:flex; align-items:center; gap:6px;">⚡ Options & Filtres</span>
-            <button id="closeControlsBtn" aria-label="Fermer les filtres" style="background:#f5f5f5; border:none; width:44px; height:44px; border-radius:50%; font-size:14px; cursor:pointer; color:#666; display:flex; align-items:center; justify-content:center;">✕</button>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border);">
+            <span style="font-weight:700; font-size:14px; color:var(--green-dark); display:flex; align-items:center; gap:6px;">⚡ Options & Filtres</span>
+            <button id="closeControlsBtn" aria-label="Fermer les filtres" style="background:var(--bg-surface); border:none; width:44px; height:44px; border-radius:50%; font-size:14px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center;">✕</button>
           </div>
           <div class="action-row" style="margin-bottom:10px; display:grid; grid-template-columns: 1fr 1.2fr; gap:8px;">
             <button id="addCensusBtnControl" class="btn-add-control">➕ Nouvel Établissement</button>
             <button id="aiModalBtnControl" class="btn-ai-control">🤖 Agents IA Copilot</button>
           </div>
-          <div id="quartierCoveragePanel" style="margin:0 0 12px; padding:10px; background:#f8fafc; border-radius:10px; border:1px solid #e2e8f0;">
-            <div style="font-weight:700; font-size:12px; color:#1a3d2b; margin-bottom:6px;">📊 Couverture par quartier — priorité aux moins avancés</div>
+          <div id="quartierCoveragePanel" style="margin:0 0 12px; padding:10px; background:var(--bg-surface); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-weight:700; font-size:12px; color:var(--green-dark); margin-bottom:6px;">📊 Couverture par quartier — priorité aux moins avancés</div>
             <div id="quartierCoverageList" style="max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;"></div>
             <div style="display:flex; gap:6px; margin-top:8px;">
-              <input type="text" id="newZoneInput" placeholder="Ajouter une zone à couvrir (ville, quartier...)" style="flex:1; font-size:12px; padding:6px 8px; border:1px solid #cbd5e1; border-radius:8px;" />
-              <button type="button" id="addZoneBtn" style="font-size:12px; padding:6px 10px; border:none; border-radius:8px; background:#1a3d2b; color:white; cursor:pointer; white-space:nowrap;">➕ Ajouter</button>
+              <input type="text" id="newZoneInput" placeholder="Ajouter une zone à couvrir (ville, quartier...)" style="flex:1; font-size:12px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:var(--bg-card); color:var(--text-primary);" />
+              <button type="button" id="addZoneBtn" style="font-size:12px; padding:6px 10px; border:none; border-radius:8px; background:var(--green-dark); color:var(--bg-card); cursor:pointer; white-space:nowrap;">➕ Ajouter</button>
             </div>
           </div>
           <div class="row2">
@@ -2542,21 +2542,27 @@ function renderQuartierCoverage() {
   const zoneIdByName = new Map(targetZones.map(z => [z.name, z.id]));
 
   if (rows.length === 0) {
-    container.innerHTML = `<div style="font-size:12px; color:#94a3b8;">Aucune zone définie pour l'instant — ajoutez-en une ci-dessous.</div>`;
+    container.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">Aucune zone définie pour l'instant — ajoutez-en une ci-dessous.</div>`;
     return;
   }
 
+  // BUG CORRIGÉ : le nom du quartier n'avait AUCUNE couleur explicite — il
+  // héritait donc de body { color: var(--text-primary) }, qui devient blanc
+  // cassé en thème sombre. Sur le fond hardcodé clair de ce panneau
+  // (--bg-surface), le résultat était un texte invisible (blanc sur quasi
+  // blanc) : seuls le compteur et la barre de progression (déjà colorés en
+  // dur) restaient visibles, laissant chaque ligne sans nom lisible.
   container.innerHTML = rows.map(r => {
-    const color = r.total === 0 ? "#94a3b8" : r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
+    const color = r.total === 0 ? "var(--text-muted)" : r.pct < 40 ? "#e74c3c" : r.pct < 75 ? "#f1c40f" : "#2ecc71";
     const zoneId = zoneIdByName.get(r.quartier);
     const removeBtn = zoneId
-      ? `<button type="button" class="remove-zone-btn" data-zone-id="${escapeHtml(zoneId)}" title="Retirer cette zone cible" aria-label="Retirer cette zone cible" style="border:none; background:none; color:#94a3b8; cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
+      ? `<button type="button" class="remove-zone-btn" data-zone-id="${escapeHtml(zoneId)}" title="Retirer cette zone cible" aria-label="Retirer cette zone cible" style="border:none; background:none; color:var(--text-muted); cursor:pointer; font-size:13px; padding:0 2px;">✕</button>`
       : "";
     return `
       <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
-        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(r.quartier)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.quartier)}</span>
-        <span style="color:#64748b; min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
-        <div style="width:44px; height:7px; border-radius:4px; background:#e2e8f0; overflow:hidden; flex-shrink:0;">
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary);" title="${escapeHtml(r.quartier)}">${r.total === 0 ? "🎯 " : ""}${escapeHtml(r.quartier)}</span>
+        <span style="color:var(--text-secondary); min-width:44px; text-align:right;">${r.visited}/${r.total}</span>
+        <div style="width:44px; height:7px; border-radius:4px; background:var(--border); overflow:hidden; flex-shrink:0;">
           <div style="height:100%; width:${r.pct}%; background:${color}; border-radius:4px; transition:width 0.4s ease;"></div>
         </div>
         ${removeBtn}
