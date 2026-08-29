@@ -272,6 +272,54 @@ describe("findNearestByRoad", () => {
   });
 });
 
+describe("findNearestByRoad — priorité ORS quand une clé est configurée", () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = CONFIG.ORS_API_KEY;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn();
+    CONFIG.ORS_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    CONFIG.ORS_API_KEY = originalKey;
+  });
+
+  it("interroge le Matrix API ORS plutôt qu'OSRM quand une clé est présente", async () => {
+    globalThis.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ distances: [[500, 200]] })
+    });
+
+    const result = await findNearestByRoad(5.36, -3.97, [
+      { lat: 5.37, lon: -3.98 },
+      { lat: 5.38, lon: -3.99 }
+    ]);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [url, options] = globalThis.fetch.mock.calls[0];
+    expect(url).toContain("/v2/matrix/foot-walking");
+    expect(options.headers.Authorization).toBe("test-key");
+    const body = JSON.parse(options.body);
+    expect(body.sources).toEqual([0]);
+    expect(body.destinations).toEqual([1, 2]);
+    expect(result).toEqual({ index: 1, distanceM: 200 });
+  });
+
+  it("retombe sur OSRM si l'appel ORS échoue (jamais d'erreur remontée)", async () => {
+    globalThis.fetch
+      .mockRejectedValueOnce(new Error("quota dépassé")) // ORS
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ code: "Ok", distances: [[300]] }) }); // OSRM
+
+    const result = await findNearestByRoad(5.36, -3.97, [{ lat: 5.37, lon: -3.98 }]);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch.mock.calls[1][0]).toContain("/table/v1/foot/");
+    expect(result).toEqual({ index: 0, distanceM: 300 });
+  });
+});
+
 describe("isValidNavMode / NAV_MODES", () => {
   it("expose les trois modes attendus", () => {
     expect(Object.keys(NAV_MODES).sort()).toEqual(["bike", "car", "foot"]);

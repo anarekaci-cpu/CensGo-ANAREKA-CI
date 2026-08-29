@@ -183,9 +183,83 @@ async function calculateRouteViaORS(fromLat, fromLng, toLat, toLng, mode) {
  *   (offline, timeout) — l'appelant doit alors retomber sur le tri à vol
  *   d'oiseau plutôt que d'échouer complètement (résilience offline-first).
  */
-export async function findNearestByRoad(fromLat, fromLng, candidates) {
-  if (!candidates.length) return null;
+function logNearestCandidates(provider, candidates, distances, bestIndex, bestDistance) {
+  // Diagnostic terrain (toujours affiché, pas seulement en DEBUG=1) :
+  // un agent qui signale "ce n'est pas le point le plus proche" doit
+  // pouvoir ouvrir la console et voir EXACTEMENT quels candidats ont été
+  // comparés et pourquoi — sans ça, chaque signalement demande de
+  // deviner (voir l'incident du 2026-08-29 : un point à 20 km choisi
+  // alors que des dizaines d'autres semblaient plus proches sur la carte).
+  log.traceAlways("GPS",
+    `findNearestByRoad (${provider}) : ${candidates.length} candidat(s) comparés`,
+    candidates.map((c, i) => ({
+      id: c.id, name: c.name,
+      distanceRouteeM: typeof distances[i] === "number" ? Math.round(distances[i]) : "inatteignable"
+    })),
+    bestIndex >= 0 ? `-> retenu : ${candidates[bestIndex].id} (${Math.round(bestDistance)} m)` : "-> aucun candidat atteignable"
+  );
+}
 
+function bestFromDistances(distances) {
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  distances.forEach((d, i) => {
+    // null possible : destination inatteignable par la route depuis la
+    // source (île sans pont piéton connu du graphe, etc.) — ignorée
+    // plutôt que de faire planter la comparaison.
+    if (typeof d === "number" && d < bestDistance) {
+      bestDistance = d;
+      bestIndex = i;
+    }
+  });
+  return { bestIndex, bestDistance };
+}
+
+/**
+ * Variante OpenRouteService (Matrix API) de findNearestByRoad() ci-dessous —
+ * même principe qu'OSRM /table, mais un vrai graphe piéton par profil
+ * (foot-walking) plutôt que le profil unique du serveur OSRM configuré (voir
+ * commentaire NAV_MODES). Lève en cas d'échec (clé absente, quota, réseau) :
+ * à l'appelant de retomber sur OSRM.
+ */
+async function findNearestByRoadViaORS(fromLat, fromLng, candidates) {
+  const url = `${CONFIG.ORS_URL}/v2/matrix/${ORS_PROFILES.foot}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: CONFIG.ORS_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        locations: [[fromLng, fromLat], ...candidates.map(p => [p.lon, p.lat])],
+        sources: [0],
+        // destinations 1..N (jamais 0, la source elle-même) : distances[0]
+        // a alors exactement candidates.length entrées, dans l'ordre de
+        // `candidates` — même convention que la variante OSRM ci-dessous.
+        destinations: candidates.map((_, i) => i + 1),
+        metrics: ["distance"]
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const distances = data.distances?.[0];
+    if (!Array.isArray(distances) || distances.length !== candidates.length) {
+      throw new Error("Réponse ORS matrix invalide");
+    }
+
+    const { bestIndex, bestDistance } = bestFromDistances(distances);
+    logNearestCandidates("ORS", candidates, distances, bestIndex, bestDistance);
+    if (bestIndex === -1) return null;
+    return { index: bestIndex, distanceM: bestDistance };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function findNearestByRoadViaOSRM(fromLat, fromLng, candidates) {
   // Seul profil réel exposé par le serveur configuré — voir NAV_MODES.
   const profile = NAV_MODES.foot.profile;
   const coords = [
@@ -213,40 +287,35 @@ export async function findNearestByRoad(fromLat, fromLng, candidates) {
       throw new Error(`Réponse OSRM table invalide (code=${data.code})`);
     }
 
-    let bestIndex = -1;
-    let bestDistance = Infinity;
-    distances.forEach((d, i) => {
-      // null possible : destination inatteignable par la route depuis la
-      // source (île sans pont piéton connu du graphe, etc.) — ignorée
-      // plutôt que de faire planter la comparaison.
-      if (typeof d === "number" && d < bestDistance) {
-        bestDistance = d;
-        bestIndex = i;
-      }
-    });
-
-    // Diagnostic terrain (toujours affiché, pas seulement en DEBUG=1) :
-    // un agent qui signale "ce n'est pas le point le plus proche" doit
-    // pouvoir ouvrir la console et voir EXACTEMENT quels candidats ont été
-    // comparés et pourquoi — sans ça, chaque signalement demande de
-    // deviner (voir l'incident du 2026-08-29 : un point à 20 km choisi
-    // alors que des dizaines d'autres semblaient plus proches sur la carte).
-    log.traceAlways("GPS",
-      `findNearestByRoad : ${candidates.length} candidat(s) comparés`,
-      candidates.map((c, i) => ({
-        id: c.id, name: c.name,
-        distanceRouteeM: typeof distances[i] === "number" ? Math.round(distances[i]) : "inatteignable"
-      })),
-      bestIndex >= 0 ? `-> retenu : ${candidates[bestIndex].id} (${Math.round(bestDistance)} m)` : "-> aucun candidat atteignable"
-    );
-
+    const { bestIndex, bestDistance } = bestFromDistances(distances);
+    logNearestCandidates("OSRM", candidates, distances, bestIndex, bestDistance);
     if (bestIndex === -1) return null;
     return { index: bestIndex, distanceM: bestDistance };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function findNearestByRoad(fromLat, fromLng, candidates) {
+  if (!candidates.length) return null;
+
+  // Même bascule que calculateRoute() : ORS d'abord si une clé est
+  // configurée (vrai graphe piéton), repli sur OSRM sinon ou en cas
+  // d'échec (quota, réseau, clé invalide) — jamais d'erreur remontée à
+  // l'agent pour ce seul motif, voir l'appelant (findNearestUnvisited).
+  if (CONFIG.ORS_API_KEY) {
+    try {
+      return await findNearestByRoadViaORS(fromLat, fromLng, candidates);
+    } catch (err) {
+      log.warn("ROUTE", "findNearestByRoad() ORS échoué, repli sur OSRM:", err?.message || err);
+    }
+  }
+
+  try {
+    return await findNearestByRoadViaOSRM(fromLat, fromLng, candidates);
   } catch (err) {
     log.warn("ROUTE", "findNearestByRoad() échoué, repli sur le vol d'oiseau:", err?.message || err);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
