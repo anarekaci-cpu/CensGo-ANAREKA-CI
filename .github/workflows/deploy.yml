@@ -52,6 +52,7 @@ jobs:
           VITE_MAP_ZOOM: ${{ vars.VITE_MAP_ZOOM }}
           VITE_ARRIVAL_RADIUS_M: ${{ vars.VITE_ARRIVAL_RADIUS_M }}
           VITE_VISIT_GEOFENCE_RADIUS_M: ${{ vars.VITE_VISIT_GEOFENCE_RADIUS_M }}
+          VITE_NEAREST_SEARCH_RADIUS_KM: ${{ vars.VITE_NEAREST_SEARCH_RADIUS_KM }}
           VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
           VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
           VITE_APP_ENV: ${{ vars.VITE_APP_ENV }}

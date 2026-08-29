@@ -11,6 +11,7 @@ export const DEFAULT_FILTERS = Object.freeze({
   status: "all",
   visited: "all",
   city: "all",
+  quartier: "all",
   search: ""
 });
 
@@ -37,6 +38,7 @@ export function passesFilters(point, filters) {
   if (f.visited === "yes" && !point.visited) return false;
   if (f.visited === "no" && point.visited) return false;
   if (f.city && f.city !== "all" && (point.city || "") !== f.city) return false;
+  if (f.quartier && f.quartier !== "all" && (point.quartier || "") !== f.quartier) return false;
 
   if (f.search) {
     const q = foldAccents(String(f.search).toLowerCase());
@@ -58,6 +60,7 @@ export function filterPoints(points, filters) {
     (!f.status || f.status === "all") &&
     (!f.visited || f.visited === "all") &&
     (!f.city || f.city === "all") &&
+    (!f.quartier || f.quartier === "all") &&
     !f.search;
   if (inactive) return list;
   return list.filter(p => passesFilters(p, f));

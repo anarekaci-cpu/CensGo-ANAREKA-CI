@@ -37,6 +37,18 @@ describe("passesFilters", () => {
     expect(passesFilters(P("c", { city: "cocody" }), f)).toBe(false);
   });
 
+  it("filtre par quartier", () => {
+    const f = { ...DEFAULT_FILTERS, quartier: "Adjamé" };
+    expect(passesFilters(P("a", { quartier: "Adjamé" }), f)).toBe(true);
+    expect(passesFilters(P("b", { quartier: "Cocody" }), f)).toBe(false);
+  });
+
+  it("filtre ville ET quartier combinés (ET logique, une zone précise)", () => {
+    const f = { ...DEFAULT_FILTERS, city: "Bingerville", quartier: "Abatta" };
+    expect(passesFilters(P("a", { city: "Bingerville", quartier: "Abatta" }), f)).toBe(true);
+    expect(passesFilters(P("b", { city: "Bingerville", quartier: "Centre" }), f)).toBe(false);
+  });
+
   it("recherche sur nom, ville, quartier, tel", () => {
     const f = { ...DEFAULT_FILTERS, search: "aya" };
     expect(passesFilters(P("a", { name: "Chez Aya" }), f)).toBe(true);

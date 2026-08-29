@@ -67,6 +67,15 @@ export const CONFIG = {
   // visites réelles à tort.
   VISIT_GEOFENCE_RADIUS_M: Number(import.meta.env.VITE_VISIT_GEOFENCE_RADIUS_M) || 500,
 
+  // Rayon (en km) au-delà duquel "Point le plus proche" est considéré hors
+  // de portée réaliste à pied/vélo pour un agent (voir geolocation.js:
+  // findNearestUnvisited()). Le recensement peut couvrir plusieurs villes
+  // séparées par une lagune (Abidjan) : un point "techniquement le plus
+  // proche" mais à 10+ km par la route réelle n'est pas exploitable sur le
+  // terrain — l'app doit le signaler explicitement plutôt que le présenter
+  // comme s'il était à proximité immédiate.
+  NEAREST_SEARCH_RADIUS_KM: Number(import.meta.env.VITE_NEAREST_SEARCH_RADIUS_KM) || 3,
+
   // Couleurs par statut (utilisées par les marqueurs, popups, légende)
   STATUS_COLORS: {
     'VERT (Joignable)': '#2ecc71',

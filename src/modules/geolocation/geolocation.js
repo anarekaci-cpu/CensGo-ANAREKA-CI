@@ -1,4 +1,5 @@
 import { store } from "../../core/store.js";
+import { CONFIG } from "../../core/config.js";
 import { getMap, flyToPoint, showUserLocation } from "../map/map.js";
 import { reportPosition } from "./agentTracking.js";
 import { haversineKm } from "../../core/geo.js";
@@ -10,6 +11,7 @@ import { shouldAcceptGpsFix, smoothGpsPosition } from "../../core/positionSmooth
 let position = null;
 let displayPosition = null;
 let hasAutoCentered = false;
+let hasCheckedZoneProximity = false;
 let watchId = null;
 
 export function initGeolocation() {
@@ -50,6 +52,18 @@ export function initGeolocation() {
       if (!hasAutoCentered) {
         hasAutoCentered = true;
         flyToPoint(position.lat, position.lng, 15);
+      }
+
+      // Demandé (agent terrain, lagune d'Abidjan) : prévenir explicitement
+      // si l'agent démarre à plus de NEAREST_SEARCH_RADIUS_KM de TOUT point
+      // de recensement — pas seulement quand il clique "Point le plus
+      // proche" (voir appView.js:nearestBtn, même seuil). Un seul avis par
+      // session (pas à chaque fix GPS) ; reporté tant que "points" n'a pas
+      // encore chargé (sinon "aucun point" serait interprété à tort comme
+      // "zone injoignable" avant même que les données n'arrivent).
+      if (!hasCheckedZoneProximity && (store.get("points") || []).length > 0) {
+        hasCheckedZoneProximity = true;
+        checkZoneProximityOnce();
       }
     },
     (err) => {
@@ -145,11 +159,18 @@ const ROAD_DISTANCE_CANDIDATE_COUNT_WIDE = 40;
  * pur seulement si toutes les tentatives échouent (hors-ligne, timeout,
  * aucun point du tout atteignable) — jamais de blocage total de la
  * fonctionnalité.
+ *
+ * @param {object[]} [candidatePoints] - si fourni, restreint la recherche à
+ * cet ensemble (voir appView.js: nearestBtn, qui y passe les points
+ * respectant les filtres actifs — ville/quartier/bloc/statut/recherche —
+ * pour permettre à un agent de dire "le plus proche DANS cette zone" plutôt
+ * que sur l'ensemble du recensement). Par défaut (absent), tous les points
+ * chargés (store "points"), comme avant.
  */
-export async function findNearestUnvisited() {
+export async function findNearestUnvisited(candidatePoints) {
   if (!position) return null;
 
-  const points = store.get("points").filter(p => !p.visited);
+  const points = (candidatePoints || store.get("points")).filter(p => !p.visited);
   if (points.length === 0) return null;
 
   const byStraightLine = points
@@ -167,12 +188,26 @@ export async function findNearestUnvisited() {
     byStraightLine.slice(0, 5).map(c => ({ id: c.point.id, name: c.point.name, distanceKm: c.distance.toFixed(2) }))
   );
 
+  // Signalé par un agent terrain (audit) : "le plus proche" pouvait être à
+  // 10+ km de route réelle (recensement réparti sur plusieurs villes/zones
+  // séparées par la lagune à Abidjan) — présenté sans nuance, ça ressemble à
+  // un point "juste à côté" et rend l'app inutilisable à pied/vélo depuis
+  // cette position. On annote maintenant le résultat (withinRadius) au lieu
+  // de le cacher : le point reste utile (ex: prévoir un déplacement en
+  // véhicule), mais l'appelant (voir appView.js: nearestBtn) doit avertir
+  // clairement plutôt que suggérer une proximité immédiate inexistante.
+  const withRadiusFlag = (point, distanceKm) => ({
+    point,
+    distance: distanceKm,
+    withinRadius: distanceKm <= CONFIG.NEAREST_SEARCH_RADIUS_KM
+  });
+
   for (const count of [ROAD_DISTANCE_CANDIDATE_COUNT, ROAD_DISTANCE_CANDIDATE_COUNT_WIDE]) {
     const candidates = byStraightLine.slice(0, count);
     try {
       const best = await findNearestByRoad(position.lat, position.lng, candidates.map(c => c.point));
       if (best) {
-        return { point: candidates[best.index].point, distance: best.distanceM / 1000 };
+        return withRadiusFlag(candidates[best.index].point, best.distanceM / 1000);
       }
     } catch (err) {
       log.warn("GPS", "findNearestByRoad() indisponible, repli sur le vol d'oiseau:", err?.message || err);
@@ -184,5 +219,29 @@ export async function findNearestUnvisited() {
   // atteignable par la route connue d'OSRM — le plus proche à vol d'oiseau
   // reste préférable à rien, mais ce cas doit désormais être rarissime.
   log.traceAlways("GPS", "findNearestUnvisited : repli sur le plus proche à vol d'oiseau (aucun candidat routé disponible)");
-  return byStraightLine[0] || null;
+  if (!byStraightLine[0]) return null;
+  return withRadiusFlag(byStraightLine[0].point, byStraightLine[0].distance);
+}
+
+/**
+ * Alerte proactive "zone de recensement trop loin" — une seule fois par
+ * session, sur TOUS les points (pas les filtres actifs, contrairement à
+ * l'appel filtré de appView.js:nearestBtn) : si l'agent démarre à plus de
+ * NEAREST_SEARCH_RADIUS_KM du point non-visité le plus proche PAR LA ROUTE,
+ * ça vaut la peine de le dire avant même qu'il ne cherche à recenser quoi
+ * que ce soit, plutôt que de le laisser découvrir le problème plus tard.
+ */
+async function checkZoneProximityOnce() {
+  try {
+    const res = await findNearestUnvisited();
+    if (res && !res.withinRadius) {
+      const zone = res.point.quartier || res.point.city || "une autre zone";
+      toastWarning(
+        `Vous êtes trop loin de la zone de recensement (${res.distance.toFixed(1)} km du point le plus proche). ` +
+        `Déplacez-vous vers ${zone} ou utilisez le filtre ville/quartier pour explorer une autre zone.`
+      );
+    }
+  } catch (err) {
+    log.warn("GPS", "checkZoneProximityOnce() échoué:", err?.message || err);
+  }
 }

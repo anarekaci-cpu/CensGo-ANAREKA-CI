@@ -1,4 +1,5 @@
 import { store } from "./core/store.js";
+import { CONFIG } from "./core/config.js";
 import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap } from "./modules/map/map.js";
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
@@ -138,9 +139,10 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="row2">
             <label>Ville <select id="filterCity"><option value="all">Toutes</option></select></label>
-            <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
+            <label>Quartier <select id="filterQuartier"><option value="all">Tous</option></select></label>
           </div>
           <div class="row2">
+            <label>Bloc <select id="filterBlock"><option value="all">Tous</option></select></label>
             <label>Statut
               <select id="filterStatus">
                 <option value="all">Tous</option>
@@ -151,6 +153,8 @@ export async function mountAuthenticatedApp(container) {
                 <option value="NON DEFINI">Non défini</option>
               </select>
             </label>
+          </div>
+          <div class="row2">
             <label>Visite
               <select id="filterVisited">
                 <option value="all">Tous</option>
@@ -158,8 +162,8 @@ export async function mountAuthenticatedApp(container) {
                 <option value="yes">Déjà visités</option>
               </select>
             </label>
+            <label>Recherche <input type="text" id="searchBox" placeholder="Nom, ville, quartier, tel..."></label>
           </div>
-          <label>Recherche <input type="text" id="searchBox" placeholder="Nom, ville, quartier, tel..."></label>
           <div id="searchResultCount" style="font-size:12px; color:#64748b; margin:-4px 0 8px; min-height:16px;"></div>
           <div class="action-row">
             <button id="locateBtn" class="btn-locate">📍 Me localiser</button>
@@ -520,6 +524,7 @@ async function initApp() {
   const points = await loadCensusData();
 
   populateBlockFilter(points);
+  populateQuartierFilter(points);
   updateStats();
   renderQuartierCoverage();
 
@@ -770,7 +775,7 @@ function bindEvents() {
     });
   }
 
-  ["filterCity", "filterBlock", "filterStatus", "filterVisited"].forEach(id => {
+  ["filterCity", "filterQuartier", "filterBlock", "filterStatus", "filterVisited"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => applyFilters());
   });
   document.getElementById("searchBox")?.addEventListener("input", debounce(() => applyFilters(), 250));
@@ -781,10 +786,33 @@ function bindEvents() {
   };
 
   document.getElementById("nearestBtn").onclick = async () => {
-    const res = await findNearestUnvisited();
+    // Respecte les filtres actifs (ville/quartier notamment, voir
+    // populateQuartierFilter) : un agent qui a sélectionné "Bingerville"
+    // veut "le plus proche DANS Bingerville", pas sur tout le recensement —
+    // sans ça, un filtre actif était silencieusement ignoré par ce bouton
+    // alors qu'il s'appliquait déjà partout ailleurs (carte, stats, export).
+    const filters = store.get("filters");
+    const scoped = filterPoints(store.get("points"), filters);
+    const zoneActive = (filters?.city && filters.city !== "all") || (filters?.quartier && filters.quartier !== "all");
+    const res = await findNearestUnvisited(zoneActive ? scoped : undefined);
     if (res) {
       flyToPoint(res.point.lat, res.point.lon, 17);
       openPopup(res.point.id);
+      // Signalé par un agent terrain : présenter un point à 10+ km comme
+      // "le plus proche" sans nuance laisse croire à une proximité
+      // immédiate — le recensement peut couvrir plusieurs zones séparées
+      // par la lagune à Abidjan. Le point reste affiché (utile pour
+      // planifier un déplacement en véhicule), mais avec un avertissement
+      // explicite au lieu d'un silence trompeur (voir CONFIG.NEAREST_SEARCH_RADIUS_KM).
+      if (!res.withinRadius) {
+        const zone = res.point.quartier || res.point.city || "zone non renseignée";
+        toastWarning(
+          `Aucun point de recensement à proximité immédiate (rayon ${CONFIG.NEAREST_SEARCH_RADIUS_KM} km). ` +
+          `Le plus proche se trouve à ${res.distance.toFixed(1)} km (${zone}) — trajet long, envisagez le mode Véhicule.`
+        );
+      }
+    } else if (zoneActive) {
+      toastInfo("Aucun point non-visité dans la zone filtrée. Essayez d'élargir le filtre ville/quartier.");
     } else {
       toastInfo("Aucun point non-visité trouvé.");
     }
@@ -1690,6 +1718,7 @@ function bindStoreListeners() {
     updateStats();
     renderQuartierCoverage();
     populateBlockFilter(points);
+    populateQuartierFilter(points);
     updateCoverageHeatmap(points);
     if (points && points.length > 0) {
       removeEmptyState();
@@ -2003,6 +2032,7 @@ function updateSearchResultCount(search, filteredCount) {
 function applyFilters() {
   const filters = {
     city: document.getElementById("filterCity").value,
+    quartier: document.getElementById("filterQuartier").value,
     block: document.getElementById("filterBlock").value,
     status: document.getElementById("filterStatus").value,
     visited: document.getElementById("filterVisited").value,
@@ -2024,7 +2054,7 @@ function applyFilters() {
  * Supabase) ne réinitialise PAS visuellement le filtre choisi par l'agent.
  */
 function applyFiltersFromStore() {
-  const filters = store.get("filters") || { city: "all", block: "all", status: "all", visited: "all", search: "" };
+  const filters = store.get("filters") || { city: "all", quartier: "all", block: "all", status: "all", visited: "all", search: "" };
   const filtered = filterPoints(store.get("points"), filters);
   updateSearchResultCount(filters.search, filtered.length);
   renderMarkers(filtered);
@@ -2049,6 +2079,25 @@ function populateBlockFilter(points) {
     select.appendChild(opt);
   });
   // Restaurer la sélection si elle existe toujours
+  if ([...select.options].some(o => o.value === current)) {
+    select.value = current;
+  }
+}
+
+// Contrairement à "ville" (liste fermée gérée par l'admin, voir
+// populateCityFilter), "quartier" reste un texte libre saisi par l'agent
+// (censusFormModal.js) — la liste du filtre est donc dérivée des valeurs
+// RÉELLEMENT présentes sur les points chargés, pas d'une table admin.
+function populateQuartierFilter(points) {
+  const select = document.getElementById("filterQuartier");
+  if (!select) return;
+  const quartiers = [...new Set(points.map(p => (p.quartier || "").trim()).filter(Boolean))].sort();
+  const signature = quartiers.join(",");
+  if (select.dataset.signature === signature) return;
+  select.dataset.signature = signature;
+  const current = select.value;
+  select.innerHTML = `<option value="all">Tous</option>` +
+    quartiers.map(q => `<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join("");
   if ([...select.options].some(o => o.value === current)) {
     select.value = current;
   }
