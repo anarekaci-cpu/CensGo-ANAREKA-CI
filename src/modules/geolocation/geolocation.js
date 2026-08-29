@@ -156,6 +156,17 @@ export async function findNearestUnvisited() {
     .map(pt => ({ point: pt, distance: haversineKm(position.lat, position.lng, pt.lat, pt.lon) }))
     .sort((a, b) => a.distance - b.distance);
 
+  // Diagnostic terrain (toujours affiché) : voir le commentaire équivalent
+  // dans findNearestByRoad() (routing.js) — sans ce point d'entrée du
+  // classement à vol d'oiseau, impossible de savoir si un signalement
+  // "mauvais point le plus proche" vient d'un mauvais pré-filtrage ici ou
+  // d'un choix erroné une fois les distances routées connues.
+  log.traceAlways("GPS",
+    `findNearestUnvisited : position=(${position.lat.toFixed(5)},${position.lng.toFixed(5)}), ${points.length} point(s) non visité(s) au total`,
+    "top 5 à vol d'oiseau :",
+    byStraightLine.slice(0, 5).map(c => ({ id: c.point.id, name: c.point.name, distanceKm: c.distance.toFixed(2) }))
+  );
+
   for (const count of [ROAD_DISTANCE_CANDIDATE_COUNT, ROAD_DISTANCE_CANDIDATE_COUNT_WIDE]) {
     const candidates = byStraightLine.slice(0, count);
     try {
@@ -172,5 +183,6 @@ export async function findNearestUnvisited() {
   // Repli : hors-ligne, timeout, ou aucun candidat (même parmi les 40)
   // atteignable par la route connue d'OSRM — le plus proche à vol d'oiseau
   // reste préférable à rien, mais ce cas doit désormais être rarissime.
+  log.traceAlways("GPS", "findNearestUnvisited : repli sur le plus proche à vol d'oiseau (aucun candidat routé disponible)");
   return byStraightLine[0] || null;
 }

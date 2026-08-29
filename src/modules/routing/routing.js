@@ -225,6 +225,21 @@ export async function findNearestByRoad(fromLat, fromLng, candidates) {
       }
     });
 
+    // Diagnostic terrain (toujours affiché, pas seulement en DEBUG=1) :
+    // un agent qui signale "ce n'est pas le point le plus proche" doit
+    // pouvoir ouvrir la console et voir EXACTEMENT quels candidats ont été
+    // comparés et pourquoi — sans ça, chaque signalement demande de
+    // deviner (voir l'incident du 2026-08-29 : un point à 20 km choisi
+    // alors que des dizaines d'autres semblaient plus proches sur la carte).
+    log.traceAlways("GPS",
+      `findNearestByRoad : ${candidates.length} candidat(s) comparés`,
+      candidates.map((c, i) => ({
+        id: c.id, name: c.name,
+        distanceRouteeM: typeof distances[i] === "number" ? Math.round(distances[i]) : "inatteignable"
+      })),
+      bestIndex >= 0 ? `-> retenu : ${candidates[bestIndex].id} (${Math.round(bestDistance)} m)` : "-> aucun candidat atteignable"
+    );
+
     if (bestIndex === -1) return null;
     return { index: bestIndex, distanceM: bestDistance };
   } catch (err) {
