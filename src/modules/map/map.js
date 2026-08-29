@@ -302,13 +302,27 @@ export function showUserLocation(lat, lng, accuracy) {
   if (!userLocationMarker) {
     const el = document.createElement("div");
     el.className = "user-location-dot";
-    el.innerHTML = '<div class="user-location-pulse"></div><div class="user-location-core"></div>';
+    el.innerHTML = '<div class="user-location-beam"></div><div class="user-location-pulse"></div><div class="user-location-core"></div>';
     userLocationMarker = new maplibregl.Marker({ element: el, anchor: "center" });
   }
   userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
+
+  // Cône de direction (voir style.css .user-location-beam) : coords.heading
+  // vaut null tant que le GPS n'a pas de cap fiable (agent immobile) — dans
+  // ce cas on masque le cône plutôt que de le figer à 0°/nord, ce qui
+  // suggérerait à tort une direction connue.
+  const heading = store.get("geo.position")?.heading;
+  const markerEl = userLocationMarker.getElement();
+  const beam = markerEl.querySelector(".user-location-beam");
+  if (Number.isFinite(heading) && beam) {
+    markerEl.classList.add("has-heading");
+    beam.style.transform = `translate(-50%, -50%) rotate(${heading}deg)`;
+  } else {
+    markerEl.classList.remove("has-heading");
+  }
+
   updateAccuracyCircle(lat, lng, accuracy);
   if (cameraFollowEnabled && store.get("navigation.active")) {
-    const heading = store.get("geo.position")?.heading;
     const mapHeight = mapInstance.getContainer().getBoundingClientRect().height;
     mapInstance.easeTo({
       center: [lng, lat],

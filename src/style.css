@@ -20,6 +20,10 @@
   --glass-bg: rgba(26, 61, 43, 0.92);
   --glass-sheet: rgba(22, 40, 30, 0.88);
   --glass-sheet-light: rgba(255, 255, 255, 0.94);
+  /* Version translucide de --bg-card, pour les panneaux "verre" qui posent
+     déjà un backdrop-filter mais gardaient un fond 100% opaque (le flou
+     n'avait donc aucun effet visible — voir #controls). */
+  --bg-card-glass: rgba(255, 255, 255, 0.82);
   --shadow-sm: 0 2px 6px rgba(0,0,0,0.04);
   --shadow-md: 0 8px 24px rgba(0,0,0,0.1);
   --shadow-lg: 0 16px 40px rgba(0,0,0,0.18);
@@ -53,6 +57,7 @@
     --glass-bg: rgba(11, 19, 30, 0.94);
     --glass-sheet: rgba(16, 28, 42, 0.92);
     --glass-sheet-light: rgba(21, 34, 50, 0.94);
+    --bg-card-glass: rgba(21, 34, 50, 0.82);
     --shadow-sm: 0 2px 6px rgba(0,0,0,0.3);
     --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
     --shadow-lg: 0 16px 40px rgba(0,0,0,0.5);
@@ -77,6 +82,7 @@
   --glass-bg: rgba(11, 19, 30, 0.94);
   --glass-sheet: rgba(16, 28, 42, 0.92);
   --glass-sheet-light: rgba(21, 34, 50, 0.94);
+  --bg-card-glass: rgba(21, 34, 50, 0.82);
   --shadow-sm: 0 2px 6px rgba(0,0,0,0.3);
   --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
   --shadow-lg: 0 16px 40px rgba(0,0,0,0.5);
@@ -288,15 +294,31 @@ button { -webkit-user-select: none; user-select: none; }
 }
 
 /* --- Model 1: Afro-Modern Header --- */
+/* Bandeau "verre" (demande explicite) : le fond opaque en dégradé plein a
+   été remplacé par --glass-bg (déjà défini, ~92-94% opaque des deux côtés
+   clair/sombre — volontairement pas trop transparent, voir le repli
+   @supports plus bas et la note sur la lisibilité du "Liquid Glass"
+   d'Apple) + flou pour laisser deviner la carte derrière plutôt qu'un bloc
+   plein. Reste teinté vert foncé dans les deux thèmes (barre de marque,
+   pas suiveuse du thème — comportement déjà existant avant ce correctif). */
 header, .app-header {
   display: flex; flex-direction: column;
   gap: 8px;
   padding: 10px 14px 8px;
-  background: linear-gradient(180deg, #0d2818 0%, #163e2a 70%, #1a452f 100%);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
   color: white;
   flex-shrink: 0; z-index: 500;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* Repli navigateur sans support de backdrop-filter (anciens WebView Android
+   notamment — terrain de cette app) : fond plein comme avant plutôt qu'un
+   bandeau à moitié transparent SANS le flou qui le rendrait illisible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  header, .app-header { background: linear-gradient(180deg, #0d2818 0%, #163e2a 70%, #1a452f 100%); }
+  #controls { background: var(--bg-card); }
 }
 
 .header-top {
@@ -440,7 +462,7 @@ header, .app-header {
 
 #controls {
   position: absolute; top: 154px; left: 12px; right: 12px;
-  background: var(--bg-card); z-index: 400;
+  background: var(--bg-card-glass); z-index: 400;
   transform: translateY(-150%); opacity: 0;
   transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
   box-shadow: var(--shadow-lg);
@@ -1013,6 +1035,23 @@ header, .app-header {
   margin-bottom: var(--safe-bottom);
 }
 .legend.legend-hidden { opacity: 0; pointer-events: none; }
+
+/* Mode immersif pendant la navigation active (voir appView.js, abonnement
+   "navigation.active") : masque le chrome (recherche, stats, pilule de
+   zone, légende, barre d'onglets) pour ne laisser que la carte et le
+   panneau de guidage — l'agent garde quand même #navStopBtn et le bouton
+   ✕ de #routeBanner (jamais masqués) pour arrêter la navigation à tout
+   moment sans avoir à faire réapparaître le chrome. */
+.app-header, .bottom-nav-bar {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+body.nav-immersive .app-header {
+  opacity: 0; transform: translateY(-12px); pointer-events: none;
+}
+body.nav-immersive .legend { opacity: 0; pointer-events: none; }
+body.nav-immersive .bottom-nav-bar {
+  opacity: 0; transform: translateY(12px); pointer-events: none;
+}
 .legend .dot {
   display: inline-block; width: 10px; height: 10px;
   border-radius: 50%; margin-right: 7px;
@@ -1168,17 +1207,54 @@ header, .app-header {
   animation: userLocationPulse 2s ease-out infinite;
   will-change: transform;
 }
-.user-location-arrow {
-  position: absolute; top: 50%; left: 50%; width: 22px; height: 22px;
-  transform: translate(-50%, -50%) rotate(0deg);
-  display: flex; align-items: flex-start; justify-content: center;
-  color: #2563eb; font-size: 13px; line-height: 1;
-  transform-origin: center center;
-  transition: transform 0.2s linear;
+/* Cône de direction façon Google/Apple Maps — remplace l'ancienne
+   ".user-location-arrow" (classe stylée mais jamais posée dans le DOM par
+   map.js : du CSS mort). N'apparaît que quand un cap GPS fiable existe
+   (coords.heading non nul — l'agent est en mouvement), sinon un cône figé
+   à 0° suggérerait à tort une direction connue alors qu'il n'y en a pas. */
+.user-location-beam {
+  position: absolute; top: 50%; left: 50%; width: 54px; height: 54px;
+  transform: translate(-50%, -50%) rotate(0deg); transform-origin: center center;
+  background: conic-gradient(from -32deg at 50% 50%,
+    rgba(37, 99, 235, 0.4) 0deg, rgba(37, 99, 235, 0.4) 64deg,
+    transparent 64deg, transparent 360deg);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.2s linear;
 }
+.user-location-dot.has-heading .user-location-beam { opacity: 1; }
 @keyframes userLocationPulse {
   0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0.8; }
   100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
+}
+
+/* Marqueur de suivi des agents (vue admin, voir agentTracking.js) — même
+   langage visuel que le marqueur "vous êtes ici" (halo qui pulse + pastille)
+   plutôt qu'un simple rond plat avec un emoji : le halo ne pulse QUE si
+   l'agent est actif (is-stale coupe l'animation), un repère visuel
+   immédiat sans devoir ouvrir le popup pour lire "Inactif depuis...". */
+.agent-marker-dot {
+  width: 34px; height: 34px; position: relative; cursor: pointer;
+}
+.agent-marker-halo {
+  position: absolute; top: 50%; left: 50%; width: 32px; height: 32px;
+  transform: translate(-50%, -50%);
+  background: rgba(52, 152, 219, 0.35); border-radius: 50%;
+  animation: agentMarkerPulse 2.2s ease-out infinite;
+  will-change: transform;
+}
+.agent-marker-dot.is-stale .agent-marker-halo { animation: none; opacity: 0; }
+.agent-marker-core {
+  position: absolute; top: 50%; left: 50%; width: 32px; height: 32px;
+  transform: translate(-50%, -50%);
+  background: #3498db; border: 3px solid white; border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+}
+.agent-marker-dot.is-stale .agent-marker-core { background: #95a5a6; }
+@keyframes agentMarkerPulse {
+  0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; }
 }
 
 /* Boussole terrain — capteur d'orientation + radar des points proches

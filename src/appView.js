@@ -2118,6 +2118,12 @@ function bindStoreListeners() {
   renderGeoStatus();
 
   store.subscribe("navigation.active", (active) => {
+    // Mode immersif (demande explicite) : pendant le guidage, tout le chrome
+    // non essentiel disparaît pour ne laisser que la carte + le panneau de
+    // navigation — voir style.css (.app-header/.legend/.bottom-nav-bar sous
+    // body.nav-immersive). #navStopBtn (dans #navPanel, jamais masqué) et le
+    // ✕ de #routeBanner restent l'unique façon de sortir de la navigation.
+    document.body.classList.toggle("nav-immersive", active);
     const banner = document.getElementById("routeBanner");
     if (banner) banner.style.display = active ? "flex" : "none";
     // #fabAdd occupe la même bande verticale (bottom:84) que #navPanel une

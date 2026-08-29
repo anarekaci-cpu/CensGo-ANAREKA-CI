@@ -75,17 +75,17 @@ export function renderAgentMarkers(agents) {
     const ageMinutes = Math.round((now - agentTime) / 60000);
     const isStale = ageMinutes > 10;
 
+    // Halo + pastille (même langage visuel que le marqueur "vous êtes ici"
+    // de l'agent lui-même, voir style.css .user-location-*) plutôt qu'un
+    // simple rond plat avec un emoji : donne un vrai repère de fraîcheur
+    // (le halo pulse seulement si l'agent est actif) au lieu de se fier au
+    // seul texte du popup pour distinguer actif/inactif.
     const el = document.createElement("div");
-    el.style.cssText = `
-      width:32px; height:32px; border-radius:50%;
-      background:${isStale ? "#95a5a6" : "#3498db"};
-      border:3px solid white;
-      box-shadow:0 2px 8px rgba(0,0,0,0.3);
-      display:flex; align-items:center; justify-content:center;
-      font-size:16px; color:white; font-weight:700;
-      cursor:pointer;
+    el.className = `agent-marker-dot${isStale ? " is-stale" : ""}`;
+    el.innerHTML = `
+      <div class="agent-marker-halo"></div>
+      <div class="agent-marker-core">👤</div>
     `;
-    el.textContent = "👤";
 
     const marker = new maplibregl.Marker({ element: el, anchor: "center" })
       .setLngLat([agent.lon, agent.lat])
