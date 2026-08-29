@@ -8,6 +8,7 @@ import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation, chooseRouteAlternative } from "./modules/navigation/navigation.js";
+import { initHazards } from "./modules/hazards/hazards.js";
 import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocation } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
@@ -674,6 +675,7 @@ async function initApp() {
   observeHeaderHeight();
   initMap("map");
   initNavigation();
+  initHazards();
   initCensusFormModal();
 
   // CHARGEMENT PROGRESSIF (#26) : les listeners store sont câblés AVANT le

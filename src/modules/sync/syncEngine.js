@@ -1,12 +1,13 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs } from "../../db/database.js";
+import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards } from "../../db/database.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
 let isUploadingPhotos = false;
 let isSheetsSyncing = false;
+let isHazardSyncing = false;
 const MAX_CONCURRENT = 3;
 const DEAD_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 // Timeout par opération : sans lui, une requête suspendue (réseau mobile)
@@ -16,6 +17,9 @@ const OP_TIMEOUT_MS = 15000;
 
 export async function initSyncEngine() {
   store.set("sync.conflicts", await getSyncConflicts());
+  // Cache local d'abord (fonctionne hors-ligne dès l'ouverture) — pullHazards()
+  // rafraîchira depuis le serveur juste après si une connexion est disponible.
+  store.set("hazards", await getActiveHazards());
 
   window.addEventListener("online", () => {
     isOnline = true;
@@ -23,6 +27,8 @@ export async function initSyncEngine() {
     retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
     triggerPhotoUpload();
     triggerSheetsSync();
+    triggerHazardSync();
+    pullHazards();
   });
 
   window.addEventListener("offline", () => {
@@ -31,7 +37,7 @@ export async function initSyncEngine() {
   });
 
   setInterval(() => {
-    if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); }
+    if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); triggerHazardSync(); pullHazards(); }
   }, CONFIG.SYNC_INTERVAL_MS);
 
   setInterval(() => {
@@ -41,6 +47,8 @@ export async function initSyncEngine() {
         .catch(err => console.error("Dead photo retry failed:", err));
       retryDeadSheetsSyncs().then(count => { if (count > 0) triggerSheetsSync(); })
         .catch(err => console.error("Dead sheets sync retry failed:", err));
+      retryDeadHazardSyncs().then(count => { if (count > 0) triggerHazardSync(); })
+        .catch(err => console.error("Dead hazard sync retry failed:", err));
     }
   }, DEAD_RETRY_INTERVAL_MS);
 
@@ -63,6 +71,8 @@ export async function initSyncEngine() {
         triggerSync();
         triggerPhotoUpload();
         triggerSheetsSync();
+        triggerHazardSync();
+        pullHazards();
       }
     });
   }
@@ -76,7 +86,7 @@ export async function initSyncEngine() {
   // dégradé — alors que rien à l'écran n'en dépendait. La sync continue de
   // se dérouler normalement en arrière-plan et met à jour sync.status/
   // sync.pendingCount comme avant.
-  if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); }
+  if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); triggerHazardSync(); pullHazards(); }
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -506,6 +516,103 @@ export async function triggerSheetsSync() {
     console.error("Sheets sync engine error:", err);
   } finally {
     isSheetsSyncing = false;
+  }
+}
+
+/**
+ * Envoie un signalement/une résolution de danger en attente. Flux SÉPARÉ de
+ * syncOne() (même raison que sendOneSheetsSync() ci-dessus) : les dangers
+ * n'ont aucun rapport avec les fiches de recensement.
+ */
+async function sendOneHazardSync(supabase, item, userId) {
+  if (item.action === "create") {
+    const h = item.payload;
+    const { error } = await withTimeout((signal) =>
+      supabase.from("hazard_markers").insert({
+        id: h.id,
+        created_by: userId,
+        hazard_type: h.hazardType,
+        note: h.note,
+        lat: h.lat,
+        lon: h.lon
+      }).abortSignal(signal)
+    );
+    if (error) throw error;
+  } else if (item.action === "resolve") {
+    const { error } = await withTimeout((signal) =>
+      supabase.from("hazard_markers").update({
+        resolved_at: item.payload.resolvedAt,
+        resolved_by: userId
+      }).eq("id", item.hazardId).abortSignal(signal)
+    );
+    if (error) throw error;
+  }
+}
+
+export async function triggerHazardSync() {
+  if (isHazardSyncing) return;
+  const userId = store.get("user")?.id;
+  if (!userId) return;
+  isHazardSyncing = true;
+
+  try {
+    const pending = await getPendingHazardSyncs();
+    if (pending.length > 0) {
+      const supabase = getSupabaseClient();
+      for (const item of pending) {
+        try {
+          await sendOneHazardSync(supabase, item, userId);
+          await markHazardSyncDone(item.id, item.hazardId);
+        } catch (err) {
+          console.error(`Hazard sync failed for ${item.hazardId}:`, err);
+          await markHazardSyncFailed(item.id, err?.message || "Échec de l'envoi du signalement", CONFIG.MAX_RETRY_ATTEMPTS);
+        }
+      }
+    }
+    store.set("sync.deadHazardCount", (await getDeadHazardSyncs()).length);
+  } catch (err) {
+    console.error("Hazard sync engine error:", err);
+  } finally {
+    isHazardSyncing = false;
+  }
+}
+
+/**
+ * Recharge la liste complète des dangers partagés (petit volume attendu —
+ * pas besoin de la logique delta/pagination de dataLoader.js, voir
+ * saveHazards() pour la préservation des signalements pas encore envoyés).
+ */
+export async function pullHazards() {
+  if (!store.get("user")) return;
+
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await withTimeout((signal) =>
+      supabase.from("hazard_markers")
+        .select("id, hazard_type, note, lat, lon, created_at, resolved_at")
+        .order("created_at", { ascending: false })
+        .limit(200)
+        .abortSignal(signal)
+    );
+    if (error) throw error;
+
+    const hazards = (data || []).map(row => ({
+      id: row.id,
+      hazardType: row.hazard_type,
+      note: row.note,
+      lat: row.lat,
+      lon: row.lon,
+      createdAt: row.created_at,
+      resolvedAt: row.resolved_at
+    }));
+
+    await saveHazards(hazards);
+    // Relit l'état local APRÈS fusion (voir saveHazards()) plutôt que
+    // republier tel quel le lot serveur : un signalement créé hors-ligne et
+    // pas encore envoyé doit rester visible sur la carte jusqu'à confirmation.
+    store.set("hazards", await getActiveHazards());
+  } catch (err) {
+    console.error("Hazard pull failed:", err?.message || err);
   }
 }
 

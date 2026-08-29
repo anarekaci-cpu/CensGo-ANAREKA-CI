@@ -862,6 +862,15 @@ header, .app-header {
 }
 .popup-details summary::-webkit-details-marker { display: none; }
 .popup-details[open] summary { color: #1a3d2b; margin-bottom: 4px; }
+
+/* Popup danger (modules/hazards/hazards.js) : couleurs fixes comme le reste
+   des popups MapLibre (voir commentaire plus haut — fond toujours blanc). */
+.hazard-resolve-btn {
+  width: 100%; margin-top: 10px; padding: 10px; min-height: 40px;
+  border: none; border-radius: 10px; font-size: 13px; font-weight: 700;
+  background: #16a34a; color: white; cursor: pointer;
+}
+.hazard-resolve-btn:hover { background: #15803d; }
 .btn-row { display: flex; gap: 8px; margin-top: 12px; }
 .go-btn, .visit-btn {
   flex: 1; padding: 11px; min-height: 44px; border: none; border-radius: 10px;

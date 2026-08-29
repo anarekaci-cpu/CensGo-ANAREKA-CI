@@ -4,6 +4,7 @@ class Store {
     this.state = {
       user: null,
       points: [],
+      hazards: [],
       targetZones: [],
       cities: [],
       tourSessions: [],

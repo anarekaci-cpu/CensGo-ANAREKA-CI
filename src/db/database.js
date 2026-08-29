@@ -42,6 +42,16 @@ db.version(4).stores({
   sheetsQueue: "++id, pointId, status"
 });
 
+// Version 5 : signalement de dangers terrain partagés entre TOUS les agents
+// (voir supabase/add_hazard_markers.sql) — table séparée de "points"
+// (entité distincte, pas de fiche de recensement) et "hazardQueue" séparée
+// de "syncQueue" (même raison que "sheetsQueue" ci-dessus : un échec de
+// signalement de danger ne doit jamais retarder la sync des points).
+db.version(5).stores({
+  hazards: "id, resolvedAt",
+  hazardQueue: "++id, hazardId, action, status"
+});
+
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
@@ -382,6 +392,95 @@ export async function getDeadSheetsSyncs() {
 export async function retryDeadSheetsSyncs() {
   const dead = await getDeadSheetsSyncs();
   await Promise.all(dead.map(item => db.sheetsQueue.update(item.id, { status: "pending", attempts: 0, error: null })));
+  return dead.length;
+}
+
+/**
+ * Signale un danger terrain (route bloquée, inondation...) — voir
+ * supabase/add_hazard_markers.sql. L'id est généré côté client (comme les
+ * points créés offline) : la fiche reste utilisable et affichable
+ * immédiatement, avant même sa synchronisation.
+ *
+ * @param {{hazardType:string, note?:string, lat:number, lon:number}} input
+ */
+export async function addHazard({ hazardType, note, lat, lon }) {
+  const hazard = {
+    id: crypto.randomUUID(),
+    hazardType,
+    note: note?.trim() || null,
+    lat,
+    lon,
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    // Marque une entrée créée localement et pas encore confirmée par le
+    // serveur — voir saveHazards() : une actualisation ne doit JAMAIS faire
+    // disparaître un signalement pas encore synchronisé (même bug déjà
+    // corrigé une fois pour les points, voir savePoints()).
+    pendingSync: true
+  };
+  await db.hazards.add(hazard);
+  await db.hazardQueue.add({ hazardId: hazard.id, action: "create", payload: hazard, status: "pending", attempts: 0 });
+  return hazard;
+}
+
+/**
+ * Marque un danger résolu (route rouverte, eau retirée...) — pas de
+ * suppression : l'historique reste consultable (cohérent avec
+ * tour_sessions/audit_events, jamais de DELETE sur ces journaux partagés).
+ */
+export async function resolveHazard(hazardId) {
+  const resolvedAt = new Date().toISOString();
+  await db.hazards.update(hazardId, { resolvedAt });
+  await db.hazardQueue.add({ hazardId, action: "resolve", payload: { resolvedAt }, status: "pending", attempts: 0 });
+}
+
+export async function getActiveHazards() {
+  return await db.hazards.filter(h => !h.resolvedAt).toArray();
+}
+
+/**
+ * Remplace le cache local par la liste serveur, SAUF les signalements créés
+ * localement et pas encore synchronisés (voir addHazard()) — jamais de
+ * clear()+bulkAdd() naïf qui effacerait un signalement en attente d'envoi.
+ */
+export async function saveHazards(remoteHazards) {
+  return db.transaction("rw", db.hazards, async () => {
+    const local = await db.hazards.toArray();
+    const remoteIds = new Set(remoteHazards.map(h => h.id));
+    const pendingLocal = local.filter(h => h.pendingSync && !remoteIds.has(h.id));
+    await db.hazards.clear();
+    await db.hazards.bulkAdd([...remoteHazards, ...pendingLocal]);
+  });
+}
+
+export async function getPendingHazardSyncs() {
+  return await db.hazardQueue.where("status").equals("pending").toArray();
+}
+
+export async function markHazardSyncDone(queueId, hazardId) {
+  await db.hazardQueue.delete(queueId);
+  // pendingSync ne doit survivre que jusqu'à la première confirmation
+  // serveur — sinon un saveHazards() ultérieur qui omettrait ce danger
+  // (filtre serveur, erreur transitoire) le referait passer pour "pas
+  // encore envoyé" indéfiniment.
+  if (hazardId) await db.hazards.update(hazardId, { pendingSync: false });
+}
+
+export async function markHazardSyncFailed(queueId, errorMsg, maxAttempts = 3) {
+  const item = await db.hazardQueue.get(queueId);
+  const attempts = (item?.attempts || 0) + 1;
+  const dead = attempts >= maxAttempts;
+  await db.hazardQueue.update(queueId, { status: dead ? "dead" : "pending", error: errorMsg, attempts });
+  return { dead, attempts };
+}
+
+export async function getDeadHazardSyncs() {
+  return await db.hazardQueue.where("status").equals("dead").toArray();
+}
+
+export async function retryDeadHazardSyncs() {
+  const dead = await getDeadHazardSyncs();
+  await Promise.all(dead.map(item => db.hazardQueue.update(item.id, { status: "pending", attempts: 0, error: null })));
   return dead.length;
 }
 
