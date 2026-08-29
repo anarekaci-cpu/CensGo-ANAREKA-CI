@@ -8,7 +8,8 @@ import {
   formatDuration,
   formatDistance,
   formatManeuverInstruction,
-  showRouteDestination
+  showRouteDestination,
+  refreshLearnedWalkingSpeed
 } from "../routing/routing.js";
 import { updatePointVisit } from "../../db/database.js";
 import { refreshMarker } from "../census/markers.js";
@@ -97,6 +98,12 @@ let navigationMode = "foot";
 export function initNavigation() {
   navUnsubs.forEach(unsub => unsub());
   navUnsubs = [];
+
+  // Best-effort, en arrière-plan : n'affecte jamais le chemin critique
+  // (appelé une fois ici plutôt que depuis main.js, qui n'importe jamais ce
+  // module statiquement — voir le commentaire en tête de main.js sur le
+  // découpage paresseux de maplibre-gl).
+  refreshLearnedWalkingSpeed(store.get("user")?.id);
 
   navUnsubs.push(
     store.subscribe("navigation.active", (active) => {
@@ -446,7 +453,37 @@ async function startNavigation() {
       "STOP: erreur =",
       err?.message || err
     );
-    toastInfo("Itinéraire alternatif indisponible : estimation locale utilisée.");
+
+    // BUG signalé sur le terrain : un agent EN LIGNE, pour qui ORS et OSRM
+    // ont tous deux échoué à trouver un itinéraire (aucun chemin connu du
+    // graphe entre les deux points — fréquent à Abidjan pour un point de
+    // l'autre côté d'une lagune sans pont piéton cartographié), voyait
+    // s'afficher une ligne droite pointillée traversant l'eau ou des
+    // bâtiments, comme s'il s'agissait d'un vrai tracé routier. Ce n'était
+    // vrai QUE hors-ligne (aucun routeur interrogeable) : dans ce cas précis
+    // l'estimation à vol d'oiseau reste la meilleure information possible.
+    // En ligne, une ligne droite qui ignore le réseau routier induit en
+    // erreur plutôt que d'aider — on l'affiche donc seulement hors-ligne, et
+    // on signale clairement "aucun itinéraire trouvé" le reste du temps.
+    if (!navigator.onLine) {
+      toastInfo("Itinéraire précis indisponible hors-ligne : estimation à vol d'oiseau utilisée.");
+    } else {
+      toastWarning("Aucun itinéraire trouvé entre ces points — vérifiez qu'un chemin existe (pont, route).");
+
+      clearRoute();
+      currentSteps = [];
+      currentStepIndex = 0;
+      currentRouteCoords = null;
+
+      const bearing = bearingDeg(position.lat, position.lng, destination.lat, destination.lon);
+      const direction = cardinalLabel(bearing);
+      store.set(
+        "navigation.instruction",
+        `⚠️ Aucun itinéraire trouvé — cap ${direction} (${Math.round(bearing)}°) à vol d'oiseau`
+      );
+      store.set("navigation.nextInstruction", "");
+      return;
+    }
 
     // Mode offline (#26/README "Mode offline complet") : un échec OSRM
     // (hors-ligne, timeout, coupure réseau terrain) laissait l'agent sans
@@ -495,11 +532,27 @@ function updateNavigationProgress(position) {
 
   if (!destination) return;
 
-  // Fix GPS trop peu fiable (voir MAX_TRUSTED_ACCURACY_M) : on garde
-  // l'affichage précédent plutôt que de réagir à du bruit de
-  // positionnement — un GPS qui se dégrade momentanément (sous couvert,
-  // entre deux immeubles) ne doit pas faire "sauter" la distance restante
-  // ni déclencher un recalcul ou une étape de guidage erronée.
+  // BUG terrain confirmé : maybeReroute() vivait sous la garde
+  // isPositionTrustworthy() ci-dessous, donc un fix imprécis (accuracy
+  // > 100m — bâtiment, canyon urbain entre immeubles) gelait AUSSI le
+  // recalcul d'itinéraire, pas seulement l'affichage fin. Résultat vu sur
+  // le terrain : le marqueur de position (showUserLocation(), jamais
+  // filtré — voir geolocation.js) continuait d'avancer avec chaque fix
+  // brut, pendant que le tracé affiché restait figé sur la dernière
+  // position "fiable" — parfois à des kilomètres de la position réelle
+  // après une longue période de mauvaise précision. maybeReroute() a sa
+  // propre protection contre le bruit (effectiveThreshold plafonne déjà la
+  // tolérance à MAX_TRUSTED_ACCURACY_M, voir plus bas) : un écart qui la
+  // dépasse malgré ce plafond ne peut s'expliquer que par un déplacement
+  // réel, jamais par du seul bruit GPS — il doit donc rester détectable
+  // même pendant une séquence de fixes peu fiables.
+  maybeReroute(position);
+
+  // Fix GPS trop peu fiable (voir MAX_TRUSTED_ACCURACY_M) : le RESTE (bascule
+  // de guidage : distance, avancement pas-à-pas, arrivée) reste sur l'état
+  // précédent plutôt que de réagir à du bruit de positionnement — un GPS qui
+  // se dégrade momentanément ne doit pas faire "sauter" la distance restante
+  // ni déclencher une étape ou une arrivée erronée.
   if (!isPositionTrustworthy(position)) return;
 
   const distance = haversineMeters(
@@ -530,7 +583,6 @@ function updateNavigationProgress(position) {
   );
 
   advanceGuidanceSteps(position);
-  maybeReroute(position);
 }
 
 /**
