@@ -82,11 +82,6 @@ function getAiModule() {
   return aiModulePromise;
 }
 
-function debounce(fn, ms) {
-  let timer;
-  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
-}
-
 export async function mountAuthenticatedApp(container) {
   container.innerHTML = `
     <div id="app-container">
@@ -115,32 +110,10 @@ export async function mountAuthenticatedApp(container) {
           </div>
         </div>
 
-        <div class="header-search-bar">
-          <div class="search-input-wrapper">
-            <span class="search-icon">🔍</span>
-            <input type="text" id="searchBox" placeholder="Rechercher commerçant, quartier, tel..." autocomplete="off" />
-            <button id="clearSearchBtn" class="clear-search-btn" style="display:none;" aria-label="Effacer">✕</button>
-          </div>
-          <button id="quickFilterToggleBtn" class="quick-filter-btn" title="Options et filtres" aria-label="Options et filtres">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="4" y1="21" x2="4" y2="14"></line>
-              <line x1="4" y1="10" x2="4" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12" y2="3"></line>
-              <line x1="20" y1="21" x2="20" y2="16"></line>
-              <line x1="20" y1="12" x2="20" y2="3"></line>
-              <line x1="1" y1="14" x2="7" y2="14"></line>
-              <line x1="9" y1="8" x2="15" y2="8"></line>
-              <line x1="17" y1="16" x2="23" y2="16"></line>
-            </svg>
-          </button>
-        </div>
-
         <div class="header-zone-pill-row">
-          <button id="zoneSelectorPill" class="zone-pill-btn" type="button" title="Sélectionner une zone ou ville">
-            <span class="zone-icon">📍</span>
-            <span id="selectedZoneLabel" class="zone-name">Toutes les zones</span>
-            <span class="zone-caret">▾</span>
+          <button id="zoneSelectorPill" class="zone-pill-btn" type="button" title="Aller au point non-visité le plus proche">
+            <span class="zone-icon">🏃</span>
+            <span id="selectedZoneLabel" class="zone-name">Point le plus proche</span>
           </button>
           <div class="stats" id="statsHeader">Chargement...</div>
           <span id="agentNumberBadge" class="pending-approval-badge" style="display:none;"></span>
@@ -949,7 +922,6 @@ function bindEvents() {
   ["filterCity", "filterQuartier", "filterBlock", "filterStatus", "filterVisited"].forEach(id => {
     document.getElementById(id)?.addEventListener("change", () => applyFilters());
   });
-  document.getElementById("searchBox")?.addEventListener("input", debounce(() => applyFilters(), 250));
 
   document.getElementById("locateBtn").onclick = () => {
     locateAndCenter();
@@ -1207,28 +1179,8 @@ function bindEvents() {
     getMap()?.zoomOut();
   });
 
-  // --- Model 1: Search & Quick Filter Controls ---
-  const searchInput = document.getElementById("searchBox");
-  const clearBtn = document.getElementById("clearSearchBtn");
-  if (searchInput && clearBtn) {
-    searchInput.addEventListener("input", () => {
-      clearBtn.style.display = searchInput.value ? "flex" : "none";
-    });
-    clearBtn.addEventListener("click", () => {
-      searchInput.value = "";
-      clearBtn.style.display = "none";
-      applyFilters();
-    });
-  }
-
-  document.getElementById("quickFilterToggleBtn")?.addEventListener("click", () => {
-    document.getElementById("controls")?.classList.toggle("open");
-  });
-
   document.getElementById("zoneSelectorPill")?.addEventListener("click", () => {
-    const controls = document.getElementById("controls");
-    controls?.classList.add("open");
-    document.getElementById("filterCity")?.focus();
+    document.getElementById("nearestBtn")?.click();
   });
 
   // --- Model 1: Merchant Bottom Sheet Close ---
@@ -2440,7 +2392,9 @@ function applyFilters() {
     block: document.getElementById("filterBlock").value,
     status: document.getElementById("filterStatus").value,
     visited: document.getElementById("filterVisited").value,
-    search: document.getElementById("searchBox").value.trim()
+    // #searchBox retiré du header — le filtre "search" (filterPoints, core/filters.js)
+    // reste pris en charge par cette clé si un futur point d'entrée la réintroduit.
+    search: document.getElementById("searchBox")?.value.trim() || ""
   };
   store.set("filters", filters);
 
