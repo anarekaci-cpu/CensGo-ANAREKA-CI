@@ -22,13 +22,19 @@ import { getEffectiveTheme } from "../../core/theme.js";
 // (tout le reste de l'app — données, sync, formulaires — continue de
 // fonctionner normalement, cache-first comme documenté ailleurs).
 //
-// Variante "positron" (pas "liberty"/"bright") : comparées ensemble en
-// direct dans l'app avec l'utilisateur — liberty/bright colorent les routes
-// par type (jaune/orange, façon carte OSM brute) mais ont été jugées moins
-// présentables ; positron reste sobre/gris, le plus proche esthétiquement de
-// l'ancien rendu CARTO, tout en gardant le même niveau de détail sous-jacent
-// (même source vectorielle OpenMapTiles, seule la palette de couleurs change).
-const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+// Variante "bright" (pas "positron") : remplacé après une demande explicite
+// de faire apparaître plus de lieux (pharmacies, commerces...) et un rendu
+// plus vif. "positron" était délibérément sobre/gris et masquait quasiment
+// toute la couche POI ; "bright" utilise la même source vectorielle
+// OpenMapTiles (même host déjà whitelisté dans la CSP, aucun changement
+// d'infra) mais affiche la couche "poi" complète (pharmacie, alimentation,
+// distributeur, arrêt de bus...) avec ses propres pictos — vérifié en direct
+// : le sprite de ce style contient bien une icône "pharmacy" dédiée, rendue
+// automatiquement partout où OSM référence une pharmacie. "liberty" a été
+// comparé en même temps (POI identiques) : choix de palette quasi
+// équivalent, "bright" retenu car plus chaud/coloré, ce qui répond aussi à
+// la demande d'un rendu plus lumineux.
+const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/bright";
 // Fond sombre : VersaTiles "shadow" plutôt que le style "dark" d'OpenFreeMap
 // (utilisé un temps, puis remplacé — comparaison en direct avec l'utilisateur
 // après une demande explicite de chercher une alternative open-source). Le
