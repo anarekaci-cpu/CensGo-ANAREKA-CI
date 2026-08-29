@@ -126,6 +126,8 @@ function handleMarkerClick(e) {
   // Store popup reference so refreshMarker can update it
   const entry = activeMarkers.get(pointId);
   if (entry) entry.popup = popup;
+
+  store.set("ui.selectedPointId", pointId);
 }
 
 /**
