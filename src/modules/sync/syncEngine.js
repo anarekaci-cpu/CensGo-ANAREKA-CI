@@ -1,11 +1,12 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed } from "../../db/database.js";
+import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs } from "../../db/database.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
 let isUploadingPhotos = false;
+let isSheetsSyncing = false;
 const MAX_CONCURRENT = 3;
 const DEAD_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 // Timeout par opération : sans lui, une requête suspendue (réseau mobile)
@@ -21,6 +22,7 @@ export async function initSyncEngine() {
     store.set("sync.status", "idle");
     retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
     triggerPhotoUpload();
+    triggerSheetsSync();
   });
 
   window.addEventListener("offline", () => {
@@ -29,7 +31,7 @@ export async function initSyncEngine() {
   });
 
   setInterval(() => {
-    if (isOnline) { triggerSync(); triggerPhotoUpload(); }
+    if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); }
   }, CONFIG.SYNC_INTERVAL_MS);
 
   setInterval(() => {
@@ -37,6 +39,8 @@ export async function initSyncEngine() {
       retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
       retryDeadPhotos().then(count => { if (count > 0) triggerPhotoUpload(); })
         .catch(err => console.error("Dead photo retry failed:", err));
+      retryDeadSheetsSyncs().then(count => { if (count > 0) triggerSheetsSync(); })
+        .catch(err => console.error("Dead sheets sync retry failed:", err));
     }
   }, DEAD_RETRY_INTERVAL_MS);
 
@@ -58,6 +62,7 @@ export async function initSyncEngine() {
       if (document.visibilityState === "visible" && isOnline) {
         triggerSync();
         triggerPhotoUpload();
+        triggerSheetsSync();
       }
     });
   }
@@ -71,7 +76,7 @@ export async function initSyncEngine() {
   // dégradé — alors que rien à l'écran n'en dépendait. La sync continue de
   // se dérouler normalement en arrière-plan et met à jour sync.status/
   // sync.pendingCount comme avant.
-  if (isOnline) { triggerSync(); triggerPhotoUpload(); }
+  if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); }
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -267,6 +272,33 @@ async function syncOne(supabase, item) {
     );
     if (error) throw error;
   }
+  // Double envoi Google Sheets (Partie C) : best-effort, ENFILÉ seulement
+  // après acceptation par Supabase (jamais avant — on n'envoie vers Sheets
+  // que ce qui est déjà réellement synchronisé). Toujours la fiche COMPLÈTE
+  // depuis Dexie, jamais le seul payload de cet item : un update_visit ne
+  // porte que {visited,status,lat,lon} — envoyer juste ça écraserait les
+  // autres colonnes de la ligne Sheets existante (values.update remplace
+  // toute la plage A:O, voir sheets-sync/index.ts). "log_tour" n'est pas un
+  // point de recensement, jamais concerné par ce flux.
+  if (CONFIG.ENABLE_SHEETS_SYNC && (item.action === "update_visit" || item.action === "upsert_point")) {
+    try {
+      const fullPoint = await getPointById(item.pointId);
+      if (fullPoint) {
+        await enqueueSheetsSync(item.pointId, {
+          name: fullPoint.name, tel: fullPoint.tel, etablissement: fullPoint.etablissement,
+          activityType: fullPoint.activityType, city: fullPoint.city, quartier: fullPoint.quartier,
+          address: fullPoint.address, produits: fullPoint.produits, sexe: fullPoint.sexe,
+          status: fullPoint.status, visited: fullPoint.visited, lat: fullPoint.lat, lon: fullPoint.lon,
+          updated_at: fullPoint.updatedAt
+        });
+      }
+    } catch (err) {
+      // N'a JAMAIS le droit de faire échouer la sync Supabase déjà acceptée
+      // ci-dessus — voir commentaire de triggerSheetsSync().
+      console.warn("Sheets sync enqueue failed:", err?.message || err);
+    }
+  }
+
   // Idempotence : une opération n'est retirée de la file QUE si le serveur
   // l'a acceptée (pas d'erreur ci-dessus). markSyncDone ne s'exécute jamais
   // après un échec — la donnée locale ET l'entrée pending sont conservées.
@@ -427,6 +459,53 @@ export async function triggerPhotoUpload() {
     console.error("Photo upload engine error:", err);
   } finally {
     isUploadingPhotos = false;
+  }
+}
+
+/**
+ * Flux SÉPARÉ de triggerSync() : le double envoi Google Sheets (Partie C,
+ * supabase/functions/sheets-sync/index.ts) est un canal best-effort en
+ * PLUS de Supabase, jamais un bloqueur — un point reste normalement
+ * considéré synchronisé et utilisable dès que Supabase l'accepte, que
+ * Sheets l'ait reçu ou non (voir syncOne()).
+ */
+async function sendOneSheetsSync(supabase, item) {
+  // functions.invoke() n'expose pas d'AbortSignal non plus (même
+  // limitation que supabase.storage, voir raceTimeout() plus haut) —
+  // même repli "course contre un timer".
+  const { error } = await raceTimeout(
+    supabase.functions.invoke("sheets-sync", { body: { pointId: item.pointId, fields: item.fields } }),
+    OP_TIMEOUT_MS,
+    "Envoi vers Google Sheets trop long — réessai plus tard."
+  );
+  if (error) throw error;
+}
+
+export async function triggerSheetsSync() {
+  if (!CONFIG.ENABLE_SHEETS_SYNC) return; // voir core/config.js
+  if (isSheetsSyncing) return;
+  if (!store.get("user")) return;
+  isSheetsSyncing = true;
+
+  try {
+    const pending = await getPendingSheetsSyncs();
+    if (pending.length > 0) {
+      const supabase = getSupabaseClient();
+      for (const item of pending) {
+        try {
+          await sendOneSheetsSync(supabase, item);
+          await markSheetsSyncDone(item.id);
+        } catch (err) {
+          console.error(`Sheets sync failed for ${item.pointId}:`, err);
+          await markSheetsSyncFailed(item.id, err?.message || "Échec de l'envoi vers Google Sheets", CONFIG.MAX_RETRY_ATTEMPTS);
+        }
+      }
+    }
+    store.set("sync.deadSheetsCount", (await getDeadSheetsSyncs()).length);
+  } catch (err) {
+    console.error("Sheets sync engine error:", err);
+  } finally {
+    isSheetsSyncing = false;
   }
 }
 

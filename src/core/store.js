@@ -50,6 +50,7 @@ class Store {
         pendingCount: 0,
         deadCount: 0,
         deadPhotoCount: 0,
+        deadSheetsCount: 0,
         pendingPointIds: [],
         conflicts: []
       },

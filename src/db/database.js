@@ -33,6 +33,15 @@ db.version(3).stores({
   photos: "++id, pointId, uploadStatus"
 });
 
+// Version 4 : double envoi vers Google Sheets (voir
+// supabase/functions/sheets-sync/index.ts, supabase/add_sheets_sync.sql).
+// File SÉPARÉE de syncQueue : un échec d'envoi Sheets ne doit jamais
+// retarder ni bloquer la synchro Supabase du point (déjà acceptée avant que
+// ce flux ne soit même déclenché, voir syncEngine.js).
+db.version(4).stores({
+  sheetsQueue: "++id, pointId, status"
+});
+
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
@@ -116,6 +125,10 @@ export async function getAllPoints() {
     if (p.id != null) byId.set(p.id, p);
   }
   return [...byId.values()];
+}
+
+export async function getPointById(id) {
+  return await db.points.where("id").equals(id).first();
 }
 
 /**
@@ -324,6 +337,52 @@ export async function markPhotoFailed(photoId, errorMsg, maxAttempts = 3) {
   const dead = attempts >= maxAttempts;
   await db.photos.update(photoId, { uploadStatus: dead ? "dead" : "pending", error: errorMsg, attempts });
   return { dead, attempts };
+}
+
+/**
+ * Enfile (ou met à jour) une demande d'envoi vers Google Sheets — voir
+ * syncEngine.js: syncOne(), supabase/functions/sheets-sync/index.ts. Un
+ * agent qui modifie plusieurs fois le même point avant que la file ne se
+ * vide ne doit PAS accumuler des entrées obsolètes : la dernière version
+ * des champs remplace toujours l'entrée pending existante pour ce point,
+ * plutôt que d'envoyer plusieurs lignes désynchronisées dans le désordre.
+ */
+export async function enqueueSheetsSync(pointId, fields) {
+  const existingPending = await db.sheetsQueue
+    .where("pointId").equals(pointId)
+    .filter(item => item.status === "pending")
+    .first();
+  if (existingPending) {
+    await db.sheetsQueue.update(existingPending.id, { fields, attempts: 0, error: null });
+    return;
+  }
+  await db.sheetsQueue.add({ pointId, fields, status: "pending", attempts: 0 });
+}
+
+export async function getPendingSheetsSyncs() {
+  return await db.sheetsQueue.where("status").equals("pending").toArray();
+}
+
+export async function markSheetsSyncDone(id) {
+  await db.sheetsQueue.delete(id);
+}
+
+export async function markSheetsSyncFailed(id, errorMsg, maxAttempts = 3) {
+  const item = await db.sheetsQueue.get(id);
+  const attempts = (item?.attempts || 0) + 1;
+  const dead = attempts >= maxAttempts;
+  await db.sheetsQueue.update(id, { status: dead ? "dead" : "pending", error: errorMsg, attempts });
+  return { dead, attempts };
+}
+
+export async function getDeadSheetsSyncs() {
+  return await db.sheetsQueue.where("status").equals("dead").toArray();
+}
+
+export async function retryDeadSheetsSyncs() {
+  const dead = await getDeadSheetsSyncs();
+  await Promise.all(dead.map(item => db.sheetsQueue.update(item.id, { status: "pending", attempts: 0, error: null })));
+  return dead.length;
 }
 
 export async function markPointSynced(pointId, completedQueueId = null) {

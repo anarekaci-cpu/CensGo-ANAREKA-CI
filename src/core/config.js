@@ -33,6 +33,16 @@ export const CONFIG = {
   // Features
   ENABLE_OFFLINE: import.meta.env.VITE_ENABLE_OFFLINE !== 'false',
   ENABLE_TOUR_OPTIMIZATION: import.meta.env.VITE_ENABLE_TOUR_OPTIMIZATION !== 'false',
+  // Désactivé par défaut (opt-in, contrairement aux flags ci-dessus) : le
+  // double envoi Google Sheets (Partie C roadmap) dépend d'une Edge
+  // Function déployée + de credentials Google configurés côté serveur
+  // (voir supabase/functions/sheets-sync/index.ts). Sans ce flag, chaque
+  // fiche créée/modifiée tenterait un appel voué à échouer (fonction non
+  // déployée) et finirait par afficher un avertissement confus à l'agent
+  // ("fiches non envoyées à Google Sheets") pour une fonctionnalité qu'il
+  // ignore encore. À activer (VITE_ENABLE_SHEETS_SYNC=true) une fois la
+  // Edge Function déployée et ses secrets configurés.
+  ENABLE_SHEETS_SYNC: import.meta.env.VITE_ENABLE_SHEETS_SYNC === 'true',
 
   // Cartographie
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles

@@ -9,7 +9,7 @@ import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocat
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
-import { retryFailedSyncs, dismissConflict, triggerPhotoUpload } from "./modules/sync/syncEngine.js";
+import { retryFailedSyncs, dismissConflict, triggerPhotoUpload, triggerSheetsSync } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { loadCities, addCity, removeCity } from "./core/cities.js";
@@ -27,7 +27,7 @@ import { haversineKm } from "./core/geo.js";
 import { getWeather, getRainAlert, describeWeatherCode } from "./modules/weather/weather.js";
 import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
 import { auditExportQuality } from "./core/exportQuality.js";
-import { getPendingSyncs, retryDeadPhotos } from "./db/database.js";
+import { getPendingSyncs, retryDeadPhotos, retryDeadSheetsSyncs } from "./db/database.js";
 import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
 import { buildAgentReportHtml, computeAgentPeriodPoints, computeAgentPeriodDistance } from "./modules/report/agentReport.js";
 import { getSignedPhotoUrl } from "./core/censusPhotos.js";
@@ -1718,6 +1718,7 @@ function bindStoreListeners() {
     const status = store.get("sync.status");
     const deadCount = store.get("sync.deadCount") || 0;
     const deadPhotoCount = store.get("sync.deadPhotoCount") || 0;
+    const deadSheetsCount = store.get("sync.deadSheetsCount") || 0;
     const pendingCount = store.get("sync.pendingCount") || 0;
     const conflicts = store.get("sync.conflicts") || [];
     const dataSource = store.get("sync.dataSource");
@@ -1749,6 +1750,21 @@ function bindStoreListeners() {
         toastWarning(`${deadPhotoCount} photo(s) en attente de renvoi...`);
         await retryDeadPhotos();
         await triggerPhotoUpload();
+      };
+      return;
+    }
+
+    // Priorité encore moindre que deadPhotoCount : un échec Sheets ne touche
+    // ni le point ni sa photo, seulement le double export optionnel.
+    if (deadSheetsCount > 0) {
+      el.textContent = `📊 ${deadSheetsCount} fiche${deadSheetsCount > 1 ? "s" : ""} non envoyée${deadSheetsCount > 1 ? "s" : ""} à Google Sheets — Voir`;
+      el.title = "Échec du double envoi vers Google Sheets après plusieurs tentatives (fiches déjà synchronisées sur Supabase). Cliquez pour réessayer.";
+      el.className = "sync-status sync-status-error";
+      el.style.cursor = "pointer";
+      el.onclick = async () => {
+        toastWarning(`${deadSheetsCount} fiche(s) en attente de renvoi vers Google Sheets...`);
+        await retryDeadSheetsSyncs();
+        await triggerSheetsSync();
       };
       return;
     }
@@ -1797,6 +1813,7 @@ function bindStoreListeners() {
   store.subscribe("sync.status", renderSyncStatus);
   store.subscribe("sync.deadCount", renderSyncStatus);
   store.subscribe("sync.deadPhotoCount", renderSyncStatus);
+  store.subscribe("sync.deadSheetsCount", renderSyncStatus);
   store.subscribe("sync.pendingCount", renderSyncStatus);
   store.subscribe("sync.conflicts", renderSyncStatus);
   store.subscribe("sync.dataSource", renderSyncStatus);
