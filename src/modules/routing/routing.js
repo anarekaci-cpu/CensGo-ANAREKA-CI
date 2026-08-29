@@ -12,6 +12,9 @@ import { haversineKm } from "../../core/geo.js";
 import { log } from "../../core/debug.js";
 import { getHeuristicCarSpeedMps } from "./trafficHeuristic.js";
 import { getTrafficFactor } from "./trafficHeuristic.js";
+import { computeLearnedWalkingSpeedMps } from "./walkingSpeedLearning.js";
+import { getMeta, setMeta } from "../../db/database.js";
+import { getSupabaseClient } from "../../core/supabase.js";
 
 /**
  * Métadonnées des modes de navigation.
@@ -73,11 +76,73 @@ const AVERAGE_SPEEDS_MPS = {
   car: 11.1    // ≈ 40 km/h — prudent en zone urbaine/piste non bitumée
 };
 
+// Rempli en arrière-plan par refreshLearnedWalkingSpeed() ci-dessous — null
+// tant qu'aucun historique suffisant n'est disponible (nouvel agent, hors
+// ligne au démarrage...), auquel cas AVERAGE_SPEEDS_MPS.foot reste utilisée.
+let learnedFootSpeedMps = null;
+
+const LEARNED_SPEED_META_KEY = "routing.learnedFootSpeedMps";
+const LEARNED_SPEED_CACHE_MS = 24 * 60 * 60 * 1000; // 24h : suffisant, une poignée de tournées par jour ne déplace pas significativement la moyenne pondérée.
+// Les plus récentes seulement : un agent peut changer de rythme (terrain
+// différent, blessure) — de très anciennes tournées ne doivent pas peser
+// indéfiniment dans l'estimation.
+const TOUR_SESSIONS_SAMPLE_SIZE = 30;
+
 /**
- * Vitesse moyenne effective pour `mode`, ajustée par le trafic heuristique
- * (mode voiture uniquement — voir modules/traffic/trafficHeuristic.js).
+ * Rafraîchit en arrière-plan la vitesse de marche apprise à partir des
+ * tournées réelles de l'agent connecté (tour_sessions, voir
+ * db/database.js:logTourSession()) — jamais bloquant pour le calcul
+ * d'itinéraire lui-même : resolveAverageSpeedMps() lit uniquement la valeur
+ * déjà en cache (ou la constante par défaut si aucune n'est encore prête).
+ * À appeler une fois après authentification (voir main.js).
+ */
+export async function refreshLearnedWalkingSpeed(userId) {
+  if (!userId) return;
+
+  try {
+    const cached = await getMeta(LEARNED_SPEED_META_KEY);
+    if (cached && Date.now() - cached.at < LEARNED_SPEED_CACHE_MS) {
+      learnedFootSpeedMps = cached.value;
+      return;
+    }
+  } catch (err) {
+    log.warn("ROUTE", "Lecture du cache de rythme de marche échouée :", err?.message || err);
+  }
+
+  if (!navigator.onLine) return;
+
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("tour_sessions")
+      .select("distance_km, started_at, ended_at")
+      .eq("user_id", userId)
+      .order("started_at", { ascending: false })
+      .limit(TOUR_SESSIONS_SAMPLE_SIZE);
+    if (error) throw error;
+
+    const sessions = (data || []).map(row => ({
+      distanceKm: row.distance_km,
+      startedAt: row.started_at,
+      endedAt: row.ended_at
+    }));
+
+    learnedFootSpeedMps = computeLearnedWalkingSpeedMps(sessions);
+    await setMeta(LEARNED_SPEED_META_KEY, { value: learnedFootSpeedMps, at: Date.now() });
+  } catch (err) {
+    log.warn("ROUTE", "Apprentissage du rythme de marche échoué :", err?.message || err);
+  }
+}
+
+/**
+ * Vitesse moyenne effective pour `mode` : rythme de marche appris à partir
+ * de l'historique réel de l'agent quand disponible (mode "foot" seulement —
+ * voir refreshLearnedWalkingSpeed()), sinon la constante par défaut ;
+ * ajustée par le trafic heuristique pour le mode voiture (voir
+ * modules/traffic/trafficHeuristic.js).
  */
 function resolveAverageSpeedMps(mode) {
+  if (mode === "foot" && learnedFootSpeedMps) return learnedFootSpeedMps;
   const base = AVERAGE_SPEEDS_MPS[mode];
   return mode === "car" ? getHeuristicCarSpeedMps(base) : base;
 }
@@ -144,7 +209,14 @@ async function calculateRouteViaORS(fromLat, fromLng, toLat, toLng, mode) {
         coordinates: [[fromLng, fromLat], [toLng, toLat]],
         instructions: true,
         language: "fr",
-        alternative_routes: { target_count: 3, share_factor: 0.6 }
+        alternative_routes: { target_count: 3, share_factor: 0.6 },
+        // Un point de recensement (kiosque, vendeur ambulant) est rarement
+        // posé exactement sur une voie cartographiée — sans ça, ORS refusait
+        // parfois de "raccrocher" un point à quelques dizaines de mètres du
+        // graphe routier et renvoyait une erreur "no route found", alors
+        // qu'un itinéraire réel existe bien en élargissant la recherche.
+        // -1 = pas de limite (comportement documenté ORS).
+        radiuses: [-1, -1]
       }),
       signal: controller.signal
     });
