@@ -17,12 +17,17 @@ import { escapeHtml } from "./core/utils.js";
 import { initTheme } from "./core/theme.js";
 import { initPwa } from "./core/pwa.js";
 import { requestPersistentStorage } from "./core/storagePersistence.js";
+import { initInstallPrompt, maybeShowInstallPrompt } from "./core/installPrompt.js";
 
 // Avant tout rendu (y compris le boot-screen) : évite un flash de thème
 // clair si l'agent a explicitement choisi le sombre lors d'une session
 // précédente (voir core/theme.js).
 initTheme();
 initPwa();
+// Doit être posé tôt : l'événement beforeinstallprompt peut se déclencher
+// à tout moment après le chargement de la page, bien avant que l'app ait
+// fini de monter.
+initInstallPrompt();
 
 async function bootstrap() {
   const app = document.getElementById("app");
@@ -82,6 +87,12 @@ async function bootstrap() {
     await appInstance.mount();
 
     initGeolocation();
+
+    // Après le montage réussi (agent déjà connecté à ce stade dans le flux
+    // normal — voir initAuth() ci-dessus) plutôt qu'au chargement de la
+    // page : proposer l'installation à quelqu'un qui n'a pas encore vu
+    // l'app n'a aucun sens.
+    maybeShowInstallPrompt();
 
   } catch (err) {
     console.error("❌ Erreur au démarrage:", err);
