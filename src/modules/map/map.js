@@ -8,8 +8,8 @@ import { store } from "../../core/store.js";
 import { calculateRoutePadding } from "../../core/routeView.js";
 import { getEffectiveTheme } from "../../core/theme.js";
 
-// OpenFreeMap "Liberty" au lieu de CARTO Voyager (choisi avec l'utilisateur,
-// compromis assumé) : CARTO Voyager/Dark Matter sont des styles délibérément
+// OpenFreeMap au lieu de CARTO Voyager (choisi avec l'utilisateur, compromis
+// assumé) : CARTO Voyager/Dark Matter sont des styles délibérément
 // minimalistes (schéma CARTO simplifié) qui n'affichent quasiment aucun
 // détail piéton — passages piétons, sentiers, petites voies, carrefours
 // détaillés — signalé illisible sur le terrain. OpenFreeMap réutilise le
@@ -20,7 +20,14 @@ import { getEffectiveTheme } from "../../core/theme.js";
 // établie) — si OpenFreeMap a un incident, seul ce fond de carte est touché
 // (tout le reste de l'app — données, sync, formulaires — continue de
 // fonctionner normalement, cache-first comme documenté ailleurs).
-const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+//
+// Variante "positron" (pas "liberty"/"bright") : comparées ensemble en
+// direct dans l'app avec l'utilisateur — liberty/bright colorent les routes
+// par type (jaune/orange, façon carte OSM brute) mais ont été jugées moins
+// présentables ; positron reste sobre/gris, le plus proche esthétiquement de
+// l'ancien rendu CARTO, tout en gardant le même niveau de détail sous-jacent
+// (même source vectorielle OpenMapTiles, seule la palette de couleurs change).
+const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 // Variante sombre OpenFreeMap officielle (même famille de tuiles
 // vectorielles OpenMapTiles) — vérifiée manuellement avant ce correctif.
 // Sans elle, le thème nuit de l'app (voir core/theme.js) laissait le fond de
