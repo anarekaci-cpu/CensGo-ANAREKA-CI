@@ -6,6 +6,7 @@ import { log } from "../../core/debug.js";
 import { destinationPoint } from "../../core/geo.js";
 import { store } from "../../core/store.js";
 import { calculateRoutePadding } from "../../core/routeView.js";
+import { getEffectiveTheme } from "../../core/theme.js";
 
 // CARTO Voyager au lieu de tile.openstreetmap.org : le serveur public OSM
 // applique une politique anti-usage-app (rate-limiting / blocage des PWAs)
@@ -22,6 +23,12 @@ import { calculateRoutePadding } from "../../core/routeView.js";
 // une dépendance du projet) le consomme nativement via une simple URL de
 // style, sans configuration de tuiles/sources manuelle.
 const BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+// Variante sombre CARTO — même famille de tuiles vectorielles gratuites
+// (carto.streets), vérifiée manuellement avant ce correctif. Sans elle, le
+// thème nuit de l'app (voir core/theme.js) laissait le fond de carte lui-même
+// intégralement clair — la seule partie de l'écran qui ne suivait pas le choix
+// de thème de l'agent.
+const DARK_BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 let mapInstance = null;
 let clusterInstance = null;
@@ -36,7 +43,7 @@ export function initMap(containerId = "map") {
 
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: BASEMAP_STYLE_URL,
+    style: getEffectiveTheme() === "dark" ? DARK_BASEMAP_STYLE_URL : BASEMAP_STYLE_URL,
     center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
     zoom: CONFIG.MAP_ZOOM,
     maxZoom: CONFIG.MAP_MAX_ZOOM,
@@ -80,6 +87,33 @@ export function initMap(containerId = "map") {
 }
 
 export function getMap() { return mapInstance; }
+
+/**
+ * Bascule le fond de carte clair/sombre en direct (voir core/theme.js:
+ * toggleTheme(), appelé depuis le bouton lune/soleil du header). setStyle()
+ * remplace TOUTES les sources/couches personnalisées (itinéraire, cercle de
+ * précision GPS, heatmap de couverture) — les DOM Marker (points recensés,
+ * position agent, destination) n'en font pas partie et survivent tels
+ * quels. On réapplique donc juste ces trois couches après le rechargement
+ * du style, à partir de l'état déjà connu du store — pas besoin de refaire
+ * de calcul, seulement de redessiner.
+ * @param {"dark"|"light"} theme
+ */
+export function setMapTheme(theme) {
+  if (!mapInstance) return;
+  const nextUrl = theme === "dark" ? DARK_BASEMAP_STYLE_URL : BASEMAP_STYLE_URL;
+  const wasHeatmapVisible = heatmapVisible;
+  const route = store.get("navigation.route");
+  const mode = store.get("navigation.mode");
+  const pos = store.get("geo.position");
+
+  mapInstance.once("style.load", () => {
+    if (wasHeatmapVisible) updateCoverageHeatmap(store.get("points"));
+    if (route?.geometry) addRouteLayer(route.geometry, mode);
+    if (pos) showUserLocation(pos.lat, pos.lng, pos.accuracy);
+  });
+  mapInstance.setStyle(nextUrl);
+}
 export function getClusterGroup() { return clusterInstance; }
 
 export function flyToPoint(lat, lon, zoom = 17) {

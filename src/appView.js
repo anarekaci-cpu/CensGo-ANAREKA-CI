@@ -3,7 +3,7 @@ import { CONFIG } from "./core/config.js";
 import { canMarkVisited } from "./core/geofence.js";
 import { updatePointVisit } from "./db/database.js";
 import { getSupabaseClient } from "./core/supabase.js";
-import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap } from "./modules/map/map.js";
+import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap, setMapTheme } from "./modules/map/map.js";
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
 import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
@@ -881,7 +881,9 @@ function bindEvents() {
   const themeBtn = document.getElementById("themeToggleBtn");
   themeBtn.textContent = getEffectiveTheme() === "dark" ? "☀️" : "🌙";
   themeBtn.onclick = () => {
-    themeBtn.textContent = toggleTheme() === "dark" ? "☀️" : "🌙";
+    const next = toggleTheme();
+    themeBtn.textContent = next === "dark" ? "☀️" : "🌙";
+    setMapTheme(next);
   };
 
   const handleOpenCensus = () => {
