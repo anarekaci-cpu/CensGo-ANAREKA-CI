@@ -269,8 +269,8 @@ export async function upsertPoint(pointData) {
  * parcourus par agent, voir supabase/add_tour_sessions.sql et
  * modules/report/agentReport.js). Passe par la même file `syncQueue` que les
  * points — même garanties offline-first (retry, dead-letter) — mais sans
- * `pointId` : markPointSynced(null, ...) ci-dessous ne trouve simplement
- * aucun point et ne fait rien, sans erreur (comportement Dexie voulu).
+ * `pointId` : markPointSynced() court-circuite explicitement (pointId falsy)
+ * plutôt que d'appeler Dexie avec une clé null.
  */
 export async function logTourSession({ distanceKm, stopCount, startedAt, endedAt }) {
   await db.syncQueue.add({
@@ -386,6 +386,11 @@ export async function retryDeadSheetsSyncs() {
 }
 
 export async function markPointSynced(pointId, completedQueueId = null) {
+  // Dexie rejette .equals(null/undefined) au lieu de ne rien trouver (clé
+  // IndexedDB invalide) — les items "log_tour" n'ont pas de pointId (voir
+  // logTourSession() ci-dessus) et doivent donc court-circuiter ici plutôt
+  // que de planter à chaque tentative de sync.
+  if (!pointId) return;
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return;
   const remaining = await db.syncQueue

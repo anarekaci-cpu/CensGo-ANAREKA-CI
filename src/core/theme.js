@@ -32,14 +32,23 @@ function applyTheme(theme) {
   }
 }
 
+/**
+ * Sombre par défaut (demande explicite) tant qu'un agent n'a pas choisi
+ * lui-même le clair via le bouton lune/soleil — readStoredTheme() reste
+ * toujours prioritaire, donc un choix déjà fait (dans un sens ou l'autre)
+ * n'est jamais écrasé. Avant ce changement, une préférence système claire
+ * (matchMedia) l'emportait par défaut ; ce n'est plus le cas.
+ */
+const DEFAULT_THEME = "dark";
+
 /** À appeler le plus tôt possible (avant le premier rendu) pour éviter un flash du mauvais thème. */
 export function initTheme() {
-  applyTheme(readStoredTheme());
+  applyTheme(readStoredTheme() || DEFAULT_THEME);
 }
 
-/** @returns {"dark"|"light"} le thème effectivement affiché (choix explicite, sinon préférence système). */
+/** @returns {"dark"|"light"} le thème effectivement affiché (choix explicite, sinon sombre par défaut). */
 export function getEffectiveTheme() {
-  return readStoredTheme() || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  return readStoredTheme() || DEFAULT_THEME;
 }
 
 /** Bascule et persiste le thème. @returns {"dark"|"light"} le nouveau thème appliqué. */

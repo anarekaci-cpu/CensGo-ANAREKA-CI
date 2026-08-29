@@ -1,6 +1,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
+import { shadow as versatilesShadow } from "@versatiles/style";
 import { CONFIG } from "../../core/config.js";
 import { log } from "../../core/debug.js";
 import { destinationPoint } from "../../core/geo.js";
@@ -28,12 +29,21 @@ import { getEffectiveTheme } from "../../core/theme.js";
 // l'ancien rendu CARTO, tout en gardant le même niveau de détail sous-jacent
 // (même source vectorielle OpenMapTiles, seule la palette de couleurs change).
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
-// Variante sombre OpenFreeMap officielle (même famille de tuiles
-// vectorielles OpenMapTiles) — vérifiée manuellement avant ce correctif.
-// Sans elle, le thème nuit de l'app (voir core/theme.js) laissait le fond de
-// carte lui-même intégralement clair — la seule partie de l'écran qui ne
-// suivait pas le choix de thème de l'agent.
-const DARK_BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+// Fond sombre : VersaTiles "shadow" plutôt que le style "dark" d'OpenFreeMap
+// (utilisé un temps, puis remplacé — comparaison en direct avec l'utilisateur
+// après une demande explicite de chercher une alternative open-source). Le
+// "dark" d'OpenFreeMap ne dessine quasiment que les routes sur fond noir —
+// pas de bâtiments, pas de libellés de rue visibles à l'écran. VersaTiles
+// (github.com/versatiles-org, licence Unlicense, tuiles Shortbread gratuites
+// et sans clé sur tiles.versatiles.org — même modèle "gratuit/keyless" que
+// OpenFreeMap) affiche bâtiments, libellés de rue, POI et pictos transport
+// même en sombre — bien plus proche d'un vrai mode nuit (Google/Apple Maps).
+// Généré via le package @versatiles/style plutôt qu'une URL de style.json
+// figée : la fonction shadow() construit l'objet de style directement, sans
+// dépendre d'un script tiers chargé à l'exécution (donc aucun changement de
+// CSP script-src nécessaire) ; seuls les tuiles/glyphes/sprites viennent de
+// tiles.versatiles.org (voir index.html pour le connect-src correspondant).
+const darkBasemapStyle = () => versatilesShadow({ baseUrl: "https://tiles.versatiles.org" });
 
 let mapInstance = null;
 let clusterInstance = null;
@@ -48,7 +58,7 @@ export function initMap(containerId = "map") {
 
   mapInstance = new maplibregl.Map({
     container: containerId,
-    style: getEffectiveTheme() === "dark" ? DARK_BASEMAP_STYLE_URL : BASEMAP_STYLE_URL,
+    style: getEffectiveTheme() === "dark" ? darkBasemapStyle() : BASEMAP_STYLE_URL,
     center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
     zoom: CONFIG.MAP_ZOOM,
     maxZoom: CONFIG.MAP_MAX_ZOOM,
@@ -68,8 +78,11 @@ export function initMap(containerId = "map") {
   mapInstance.addControl(
     new maplibregl.AttributionControl({
       compact: true,
+      // Statique (couvre les deux thèmes) : plus simple que de la reconstruire
+      // à chaque bascule clair/sombre dans setMapTheme(), et une attribution
+      // en trop ne pose aucun problème (contrairement à une manquante).
       customAttribution:
-        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://openfreemap.org\">OpenFreeMap</a>"
+        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://openfreemap.org\">OpenFreeMap</a> © <a href=\"https://versatiles.org\">VersaTiles</a>"
     }),
     "bottom-right"
   );
@@ -106,7 +119,7 @@ export function getMap() { return mapInstance; }
  */
 export function setMapTheme(theme) {
   if (!mapInstance) return;
-  const nextUrl = theme === "dark" ? DARK_BASEMAP_STYLE_URL : BASEMAP_STYLE_URL;
+  const nextUrl = theme === "dark" ? darkBasemapStyle() : BASEMAP_STYLE_URL;
   const wasHeatmapVisible = heatmapVisible;
   const route = store.get("navigation.route");
   const mode = store.get("navigation.mode");

@@ -27,6 +27,16 @@ const CACHE_NAME = "map-tiles";
 // découvrir les polices réellement utilisées (text-font de chaque layer),
 // sans liste codée en dur qui se périmerait pareillement à un changement de
 // style.
+// Volontairement toujours le style CLAIR, même si l'agent est en thème
+// sombre : les styles OpenFreeMap clair/sombre partagent la MÊME source
+// vectorielle OpenMapTiles (seule la palette change), donc précharger via
+// "liberty" couvre aussi le rendu du fond de carte OpenFreeMap. Le fond
+// sombre "shadow" (VersaTiles, voir map.js) vient d'une source différente
+// (tiles.versatiles.org) : il n'est PAS couvert par ce préchargement proactif
+// — seulement mis en cache passivement par le Service Worker au fil de ce que
+// l'agent fait défiler en ligne (voir vite.config.js). Limite assumée : ce
+// module cible la zone de terrain à couvrir, pas un fournisseur de tuiles en
+// particulier.
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const GLYPH_RANGE = "0-255"; // latin de base + supplément : couvre les accents français (é, è, à, ç...)
 

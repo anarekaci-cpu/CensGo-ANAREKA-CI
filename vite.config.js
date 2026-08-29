@@ -62,6 +62,21 @@ export default defineConfig({
             }
           },
           {
+            // Fond de carte sombre VersaTiles (voir map.js) : même cache
+            // "map-tiles" qu'OpenFreeMap — passif seulement (mis en cache au
+            // fil de ce que l'agent fait défiler en mode sombre), pas de
+            // préchargement proactif équivalent à offlineTiles.js pour ce
+            // fournisseur (limité au style clair OpenFreeMap, seul utilisé
+            // par le bouton "précharger une zone").
+            urlPattern: /^https:\/\/tiles\.versatiles\.org\/.*/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-tiles",
+              expiration: { maxEntries: 5000, maxAgeSeconds: 86400 * 30 },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
+          {
             urlPattern: /^https:\/\/router\.project-osrm\.org\/.*/,
             handler: "StaleWhileRevalidate",
             options: {
