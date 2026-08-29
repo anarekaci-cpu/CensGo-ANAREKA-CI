@@ -22,6 +22,17 @@ db.version(2).stores({
   points: "++localId, id, block, [block+order], name, status, visited, lat, lon, syncedAt, updatedAt"
 });
 
+// Version 3 : photo obligatoire à la création d'une fiche (voir
+// supabase/add_census_photos.sql). Table séparée de "points" — un Blob ne
+// doit jamais transiter par le localStorage du brouillon (CENSUS_DRAFT_KEY,
+// censusFormModal.js) ni par le payload JSON de syncQueue (upsert_point) :
+// Dexie stocke les Blob nativement, syncQueue reste léger. `uploadStatus`
+// suit le même vocabulaire que syncQueue ("pending"/"dead") pour rester
+// cohérent avec le reste du moteur de sync.
+db.version(3).stores({
+  photos: "++id, pointId, uploadStatus"
+});
+
 // === API haut niveau ===
 
 export async function savePoints(pointsArray) {
@@ -258,6 +269,61 @@ export async function logTourSession({ distanceKm, stopCount, startedAt, endedAt
     attempts: 0,
     status: "pending"
   });
+}
+
+/**
+ * Enfile une photo obligatoire de création pour upload (voir
+ * modules/census/censusFormModal.js, supabase/add_census_photos.sql). Le
+ * Blob déjà compressé (photoCompression.js) reste local jusqu'à ce que
+ * syncEngine.js l'envoie à Supabase Storage — offline-first comme le reste
+ * de la file de sync, mais dans sa PROPRE table (voir commentaire de
+ * db.version(3) plus haut).
+ */
+export async function savePendingPhoto({ pointId, blob, mimeType }) {
+  return await db.photos.add({
+    pointId,
+    blob,
+    mimeType,
+    createdAt: new Date().toISOString(),
+    uploadStatus: "pending",
+    attempts: 0
+  });
+}
+
+export async function getPendingPhotos() {
+  return await db.photos.where("uploadStatus").equals("pending").toArray();
+}
+
+export async function getDeadPhotos() {
+  return await db.photos.where("uploadStatus").equals("dead").toArray();
+}
+
+export async function retryDeadPhotos() {
+  const dead = await getDeadPhotos();
+  await Promise.all(dead.map(p => db.photos.update(p.id, { uploadStatus: "pending", attempts: 0, error: null })));
+  return dead.length;
+}
+
+/**
+ * Upload confirmé par le serveur : le Blob local n'a plus besoin d'exister
+ * (la preuve vit maintenant dans Supabase Storage, consultable par URL
+ * signée à la demande — voir core/censusPhotos.js) — supprimé pour ne pas
+ * accumuler indéfiniment des images dans IndexedDB, contrairement aux
+ * points synchronisés qui restent utiles hors-ligne.
+ */
+export async function markPhotoSynced(photoId, photoPath) {
+  const photo = await db.photos.get(photoId);
+  if (!photo) return;
+  await db.points.where("id").equals(photo.pointId).modify({ photoPath });
+  await db.photos.delete(photoId);
+}
+
+export async function markPhotoFailed(photoId, errorMsg, maxAttempts = 3) {
+  const photo = await db.photos.get(photoId);
+  const attempts = (photo?.attempts || 0) + 1;
+  const dead = attempts >= maxAttempts;
+  await db.photos.update(photoId, { uploadStatus: dead ? "dead" : "pending", error: errorMsg, attempts });
+  return { dead, attempts };
 }
 
 export async function markPointSynced(pointId, completedQueueId = null) {

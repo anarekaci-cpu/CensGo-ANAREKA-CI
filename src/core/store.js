@@ -49,6 +49,7 @@ class Store {
         partialLoad: null,
         pendingCount: 0,
         deadCount: 0,
+        deadPhotoCount: 0,
         pendingPointIds: [],
         conflicts: []
       },

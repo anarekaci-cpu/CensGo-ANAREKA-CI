@@ -83,13 +83,14 @@ export async function fetchAllPages(supabase, { since = null } = {}) {
       .from(CONFIG.TABLE_NAME)
       // Colonnes explicites plutôt que select(*) : pas de colonne inutile
       // téléchargée (le volume transféré compte sur lien 3G terrain).
-      // ATTENTION : "created_at" et "city" doivent être RÉELLEMENT présentes
-      // sur census_points avant de les demander ici (schema.sql pour
-      // created_at, supabase/add_cities.sql pour city) — sinon PostgREST
+      // ATTENTION : "created_at", "city" et "photo_path" doivent être
+      // RÉELLEMENT présentes sur census_points avant de les demander ici
+      // (schema.sql pour created_at, supabase/add_cities.sql pour city,
+      // supabase/add_census_photos.sql pour photo_path) — sinon PostgREST
       // renvoie 42703 sur CHAQUE requête, rejetant la page 0 avant tout
       // affichage et bloquant toute synchro (déjà vécu sur ce projet, voir
       // le commentaire équivalent dans schema.sql).
-      .select("point_id,block,order,name,tel,etablissement,activity_type,city,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_at,created_by")
+      .select("point_id,block,order,name,tel,etablissement,activity_type,city,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_at,created_by,photo_path")
       .order("block", { ascending: true })
       .order("order", { ascending: true })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);

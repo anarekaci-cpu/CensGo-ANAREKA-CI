@@ -81,7 +81,12 @@ export function normalizePoint(raw) {
     createdAt: toStr(raw.createdAt ?? raw.created_at) || null,
     // Agent ayant recensé le point + zone de rattachement (affichés popup)
     createdBy: toStr(raw.createdBy ?? raw.created_by) || null,
-    zone: toStr(raw.zone ?? raw.zone_name) || null
+    zone: toStr(raw.zone ?? raw.zone_name) || null,
+    // Chemin Storage de la photo obligatoire de création (voir
+    // supabase/add_census_photos.sql, db/database.js: markPhotoSynced()) —
+    // jamais d'URL directe : consultée via core/censusPhotos.js (signée,
+    // temporaire).
+    photoPath: toStr(raw.photoPath ?? raw.photo_path) || null
   };
 
   if (!coordsOk && (lat != null || lon != null)) {
@@ -115,7 +120,8 @@ function _emptyPoint() {
     updatedAt: null,
     createdAt: null,
     createdBy: null,
-    zone: null
+    zone: null,
+    photoPath: null
   };
 }
 

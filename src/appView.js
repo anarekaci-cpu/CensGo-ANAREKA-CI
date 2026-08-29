@@ -9,7 +9,7 @@ import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocat
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
-import { retryFailedSyncs, dismissConflict } from "./modules/sync/syncEngine.js";
+import { retryFailedSyncs, dismissConflict, triggerPhotoUpload } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
 import { loadCities, addCity, removeCity } from "./core/cities.js";
@@ -27,9 +27,10 @@ import { haversineKm } from "./core/geo.js";
 import { getWeather, getRainAlert, describeWeatherCode } from "./modules/weather/weather.js";
 import { getEffectiveTheme, toggleTheme } from "./core/theme.js";
 import { auditExportQuality } from "./core/exportQuality.js";
-import { getPendingSyncs } from "./db/database.js";
+import { getPendingSyncs, retryDeadPhotos } from "./db/database.js";
 import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
 import { buildAgentReportHtml, computeAgentPeriodPoints, computeAgentPeriodDistance } from "./modules/report/agentReport.js";
+import { getSignedPhotoUrl } from "./core/censusPhotos.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo envoyée à l'Agent Vision est
@@ -1341,7 +1342,7 @@ function renderAgentReport() {
 
   table.innerHTML = `
     <table class="agent-report-html-table">
-      <thead><tr><th>Date</th><th>Nom</th><th>Ville</th><th>Quartier</th><th>Statut</th><th>Visité</th></tr></thead>
+      <thead><tr><th>Date</th><th>Nom</th><th>Ville</th><th>Quartier</th><th>Statut</th><th>Visité</th><th>Photo</th></tr></thead>
       <tbody>
         ${matched.map(p => `
           <tr>
@@ -1351,6 +1352,9 @@ function renderAgentReport() {
             <td>${escapeHtml(p.quartier || "—")}</td>
             <td>${escapeHtml(p.status || "—")}</td>
             <td>${p.visited ? "✅" : "—"}</td>
+            <td>${p.photoPath
+              ? `<button type="button" class="photo-view-btn" data-photo-path="${escapeHtml(p.photoPath)}" title="Voir la photo">📷</button>`
+              : "—"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -1575,6 +1579,22 @@ function bindAgentsModalEvents() {
   document.getElementById("agentReportExportBtn")?.addEventListener("click", exportAgentReportCSV);
   document.getElementById("agentReportPdfBtn")?.addEventListener("click", exportAgentReportPdf);
 
+  document.getElementById("agentReportTable")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".photo-view-btn");
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "⌛";
+    const url = await getSignedPhotoUrl(btn.dataset.photoPath);
+    btn.disabled = false;
+    btn.textContent = original;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      toastWarning("Photo indisponible pour le moment.");
+    }
+  });
+
   document.getElementById("addCityBtn")?.addEventListener("click", async () => {
     if (!store.get("ui.isAdmin")) return;
     const input = document.getElementById("newCityInput");
@@ -1697,6 +1717,7 @@ function bindStoreListeners() {
     if (!el) return;
     const status = store.get("sync.status");
     const deadCount = store.get("sync.deadCount") || 0;
+    const deadPhotoCount = store.get("sync.deadPhotoCount") || 0;
     const pendingCount = store.get("sync.pendingCount") || 0;
     const conflicts = store.get("sync.conflicts") || [];
     const dataSource = store.get("sync.dataSource");
@@ -1711,6 +1732,23 @@ function bindStoreListeners() {
       el.onclick = async () => {
         toastWarning(`${deadCount} fiche(s) bloquée(s). ${lastError || "Nouvelle tentative en cours..."}`);
         await retryFailedSyncs();
+      };
+      return;
+    }
+
+    // Distinct de deadCount ci-dessus : une photo bloquée ne bloque JAMAIS
+    // la fiche elle-même (déjà synchronisée sans elle, voir syncEngine.js:
+    // triggerPhotoUpload()) — avertissement de priorité moindre, affiché
+    // seulement si rien de plus urgent (fiche bloquée, conflit) n'est déjà là.
+    if (deadPhotoCount > 0) {
+      el.textContent = `📷 ${deadPhotoCount} photo${deadPhotoCount > 1 ? "s" : ""} non envoyée${deadPhotoCount > 1 ? "s" : ""} — Voir`;
+      el.title = "Ces photos n'ont pas pu être envoyées après plusieurs tentatives (fiches déjà synchronisées sans elles). Cliquez pour réessayer.";
+      el.className = "sync-status sync-status-error";
+      el.style.cursor = "pointer";
+      el.onclick = async () => {
+        toastWarning(`${deadPhotoCount} photo(s) en attente de renvoi...`);
+        await retryDeadPhotos();
+        await triggerPhotoUpload();
       };
       return;
     }
@@ -1758,6 +1796,7 @@ function bindStoreListeners() {
 
   store.subscribe("sync.status", renderSyncStatus);
   store.subscribe("sync.deadCount", renderSyncStatus);
+  store.subscribe("sync.deadPhotoCount", renderSyncStatus);
   store.subscribe("sync.pendingCount", renderSyncStatus);
   store.subscribe("sync.conflicts", renderSyncStatus);
   store.subscribe("sync.dataSource", renderSyncStatus);

@@ -1144,6 +1144,12 @@ input:checked + .slider:before { transform: translateX(24px); }
   cursor: pointer; transition: background 0.15s ease;
 }
 .btn-capture-gps:hover { background: #dbeafe; }
+.btn-capture-gps.photo-captured { background: #eafaf0; color: #1a3d2b; border-color: #a7e8bf; }
+.cf-photo-preview { margin-top: 8px; }
+.cf-photo-preview img {
+  max-width: 100%; max-height: 220px; border-radius: 10px; border: 1px solid #e0ebe0;
+  display: block; object-fit: cover;
+}
 
 .form-actions {
   display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; margin-top: 10px;
@@ -1284,6 +1290,12 @@ input:checked + .slider:before { transform: translateX(24px); }
 }
 .agent-report-html-table th { color: var(--text-muted); font-weight: 700; }
 .agent-report-export-row { display: flex; gap: 8px; margin-top: 10px; }
+.photo-view-btn {
+  border: 1px solid #e0ebe0; background: #f9fbf9; border-radius: 6px;
+  padding: 2px 8px; font-size: 13px; cursor: pointer;
+}
+.photo-view-btn:hover { background: #eafaf0; }
+.photo-view-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Skeleton loading */
 .skeleton {

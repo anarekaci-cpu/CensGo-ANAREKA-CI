@@ -1,10 +1,11 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict } from "../../db/database.js";
+import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed } from "../../db/database.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
+let isUploadingPhotos = false;
 const MAX_CONCURRENT = 3;
 const DEAD_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 // Timeout par opération : sans lui, une requête suspendue (réseau mobile)
@@ -19,6 +20,7 @@ export async function initSyncEngine() {
     isOnline = true;
     store.set("sync.status", "idle");
     retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
+    triggerPhotoUpload();
   });
 
   window.addEventListener("offline", () => {
@@ -27,12 +29,14 @@ export async function initSyncEngine() {
   });
 
   setInterval(() => {
-    if (isOnline) triggerSync();
+    if (isOnline) { triggerSync(); triggerPhotoUpload(); }
   }, CONFIG.SYNC_INTERVAL_MS);
 
   setInterval(() => {
     if (isOnline) {
       retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
+      retryDeadPhotos().then(count => { if (count > 0) triggerPhotoUpload(); })
+        .catch(err => console.error("Dead photo retry failed:", err));
     }
   }, DEAD_RETRY_INTERVAL_MS);
 
@@ -53,6 +57,7 @@ export async function initSyncEngine() {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible" && isOnline) {
         triggerSync();
+        triggerPhotoUpload();
       }
     });
   }
@@ -66,7 +71,7 @@ export async function initSyncEngine() {
   // dégradé — alors que rien à l'écran n'en dépendait. La sync continue de
   // se dérouler normalement en arrière-plan et met à jour sync.status/
   // sync.pendingCount comme avant.
-  if (isOnline) triggerSync();
+  if (isOnline) { triggerSync(); triggerPhotoUpload(); }
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -352,6 +357,76 @@ export async function triggerSync() {
     console.error("Sync engine error:", err);
   } finally {
     isSyncing = false;
+  }
+}
+
+/**
+ * Flux SÉPARÉ de triggerSync() : les photos de création (voir
+ * censusFormModal.js, supabase/add_census_photos.sql) sont un second canal
+ * best-effort vers Supabase Storage, jamais un bloqueur pour la synchro du
+ * point lui-même (déjà acceptée par Supabase avant même que la photo n'ait
+ * fini d'uploader — voir censusFormModal.js: l'upsert_point ne dépend pas
+ * de cette file). Un point sans photo encore envoyée reste normalement
+ * utilisable/visible ; seul `photo_path` reste vide côté serveur jusqu'à
+ * l'upload effectif.
+ */
+// @supabase/storage-js n'expose pas d'option `signal` sur upload() (vérifié
+// dans node_modules avant d'écrire ce correctif — contrairement aux requêtes
+// PostgREST ci-dessus, qui supportent .abortSignal()) : withTimeout() ne
+// s'applique donc pas ici. Ce repli "course contre un timer" ne coupe pas la
+// requête réseau sous-jacente (elle continue en arrière-plan, potentiellement
+// pour rien), mais empêche au moins CETTE fonction de rester bloquée pour
+// toujours — même préoccupation que partout ailleurs dans ce moteur pour un
+// upload suspendu sur un réseau terrain dégradé.
+function raceTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+}
+
+async function uploadOnePhoto(supabase, photo) {
+  const user = store.get("user");
+  const path = `${user.id}/${photo.pointId}-${Date.now()}.jpg`;
+
+  const { error: uploadError } = await raceTimeout(
+    supabase.storage.from("census-photos").upload(path, photo.blob, { contentType: photo.mimeType, upsert: false }),
+    OP_TIMEOUT_MS,
+    "Envoi de la photo trop long — réessai plus tard."
+  );
+  if (uploadError) throw uploadError;
+
+  const { error: updateError } = await withTimeout((signal) =>
+    supabase.from(CONFIG.TABLE_NAME).update({ photo_path: path }).eq("point_id", photo.pointId).abortSignal(signal)
+  );
+  if (updateError) throw updateError;
+
+  await markPhotoSynced(photo.id, path);
+}
+
+export async function triggerPhotoUpload() {
+  if (isUploadingPhotos) return; // même garde de ré-entrance que triggerSync()
+  if (!store.get("user")) return;
+  isUploadingPhotos = true;
+
+  try {
+    const pending = await getPendingPhotos();
+    if (pending.length > 0) {
+      const supabase = getSupabaseClient();
+      for (const photo of pending) {
+        try {
+          await uploadOnePhoto(supabase, photo);
+        } catch (err) {
+          console.error(`Photo upload failed for ${photo.pointId}:`, err);
+          await markPhotoFailed(photo.id, err?.message || "Échec de l'envoi de la photo", CONFIG.MAX_RETRY_ATTEMPTS);
+        }
+      }
+    }
+    store.set("sync.deadPhotoCount", (await getDeadPhotos()).length);
+  } catch (err) {
+    console.error("Photo upload engine error:", err);
+  } finally {
+    isUploadingPhotos = false;
   }
 }
 

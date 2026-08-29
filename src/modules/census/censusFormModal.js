@@ -1,6 +1,6 @@
 import { store } from "../../core/store.js";
 import { CONFIG } from "../../core/config.js";
-import { upsertPoint } from "../../db/database.js";
+import { upsertPoint, savePendingPhoto } from "../../db/database.js";
 import { toastWarning, toastSuccess } from "../../core/toast.js";
 import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
@@ -8,6 +8,17 @@ import { isValidLatLng } from "../../core/normalize.js";
 import { canMarkVisited } from "../../core/geofence.js";
 import { normalizePointId, escapeHtml } from "../../core/utils.js";
 import { findProximityMatches } from "./proximityMatch.js";
+import { compressPhoto } from "../../core/photoCompression.js";
+import { extractExifGps } from "../../core/exif.js";
+import { haversineKm } from "../../core/geo.js";
+
+// Au-delà de cette distance entre la position GPS EXIF de la photo et la
+// position actuelle de l'agent, la photo est probablement une ancienne
+// photo de galerie plutôt qu'une prise fraîche sur le terrain — même seuil
+// et même logique que checkPhotoGeotag() dans appView.js (onglet Vision IA),
+// dupliqué ici en plus petit pour éviter un import croisé vers appView.js
+// (module de plus haut niveau, qui importe déjà ce fichier-ci).
+const PHOTO_GEOTAG_WARNING_M = 500;
 
 // Doublon "flou" : nom très proche (typo/variante d'orthographe) OU
 // téléphone identique, dans un rayon plus large que le doublon "strict"
@@ -23,6 +34,44 @@ const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe",
 /**
  * Module de Formulaire de Recensement Tactile avec Validation Temps Réel
  */
+
+// Photo obligatoire à la CRÉATION d'un point (pas à l'édition, voir plan) :
+// reste en mémoire (Blob déjà compressé) jusqu'au submit, jamais dans le
+// brouillon localStorage (CENSUS_DRAFT_FIELDS) — un Blob ne s'y prête pas et
+// une image y dépasserait vite le quota de localStorage. Écrite dans Dexie
+// (savePendingPhoto()) seulement une fois le point réellement créé, pour
+// avoir l'id définitif du point comme clé étrangère.
+let pendingPhoto = null; // { blob, mimeType } | null
+
+function resetPendingPhoto() {
+  pendingPhoto = null;
+  const preview = document.getElementById("cf_photoPreview");
+  if (preview) { preview.style.display = "none"; preview.innerHTML = ""; }
+  const btn = document.getElementById("cf_photoBtn");
+  if (btn) { btn.textContent = "📷 Prendre une photo (obligatoire)"; btn.classList.remove("photo-captured"); }
+}
+
+/**
+ * Avertissement non-bloquant (pas un blocage strict comme dans l'onglet
+ * Vision IA d'appView.js) : signale une photo probablement ancienne/hors
+ * zone, mais un GPS EXIF absent (cas fréquent, métadonnées retirées par
+ * l'app photo du téléphone) ne doit jamais empêcher de continuer.
+ */
+async function warnIfPhotoLooksStale(file) {
+  try {
+    const buffer = await file.arrayBuffer();
+    const exifGps = extractExifGps(buffer);
+    const livePos = store.get("geo.position");
+    if (!exifGps || !livePos) return;
+    const distanceKm = haversineKm(livePos.lat, livePos.lng, exifGps.lat, exifGps.lon);
+    if (distanceKm * 1000 > PHOTO_GEOTAG_WARNING_M) {
+      toastWarning("Cette photo semble avoir été prise loin de votre position actuelle — vérifiez qu'il s'agit bien d'une prise fraîche sur place.");
+    }
+  } catch {
+    // Best-effort — une photo sans EXIF ou un échec de lecture ne doit
+    // jamais bloquer la capture, seulement priver l'agent de cet avertissement.
+  }
+}
 
 export function initCensusFormModal() {
   const modalHtml = `
@@ -161,6 +210,16 @@ export function initCensusFormModal() {
             <div id="cf_proximity_warning" class="input-hint" style="display:none; margin-top:8px; padding:8px 10px; border-radius:8px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412;"></div>
           </div>
 
+          <!-- Photo obligatoire (création uniquement) : preuve que l'endroit
+               existe réellement, en complément du GPS — voir supabase/add_census_photos.sql -->
+          <div class="form-group" id="cf_photo_group" style="display:none;">
+            <label>Photo de l'établissement <span class="req">*</span></label>
+            <input type="file" id="cf_photo" accept="image/*" capture="environment" style="display:none;" />
+            <button type="button" id="cf_photoBtn" class="btn-capture-gps">📷 Prendre une photo (obligatoire)</button>
+            <div id="cf_photoPreview" class="cf-photo-preview" style="display:none;"></div>
+            <div id="cf_photo_err" class="input-hint">Une photo fraîche du kiosque/restaurant est requise pour valider la fiche.</div>
+          </div>
+
           <!-- Actions Footer -->
           <div class="form-actions">
             <button type="button" id="cf_ai_fix" class="btn-ai-format">✨ Nettoyer avec l'IA</button>
@@ -189,6 +248,12 @@ export function openCensusForm(point = null) {
   const fallbackCenter = map ? map.getCenter() : { lat: CONFIG.MAP_CENTER[0], lng: CONFIG.MAP_CENTER[1] };
 
   populateCityOptions();
+  resetPendingPhoto();
+  // Obligatoire seulement à la CRÉATION — une fiche déjà existante n'a pas à
+  // reprendre une photo pour être modifiée (voir plan : "se rassurer des
+  // endroits" vise l'existence du point, pas chaque édition ultérieure).
+  const photoGroup = document.getElementById("cf_photo_group");
+  if (photoGroup) photoGroup.style.display = point ? "none" : "block";
 
   if (point) {
     title.textContent = `Édition Fiche #${point.order || point.id}`;
@@ -495,6 +560,38 @@ function bindFormEvents() {
   document.getElementById("cf_lat")?.addEventListener("change", checkProximity);
   document.getElementById("cf_lon")?.addEventListener("change", checkProximity);
 
+  // Photo obligatoire (création uniquement, voir cf_photo_group/openCensusForm)
+  document.getElementById("cf_photoBtn")?.addEventListener("click", () => {
+    document.getElementById("cf_photo")?.click();
+  });
+  document.getElementById("cf_photo")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permet de reprendre la MÊME photo deux fois de suite si besoin
+    if (!file) return;
+
+    const btn = document.getElementById("cf_photoBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "⌛ Traitement..."; }
+    try {
+      const { blob, mimeType } = await compressPhoto(file);
+      pendingPhoto = { blob, mimeType };
+      warnIfPhotoLooksStale(file); // fire-and-forget, non-bloquant
+
+      const preview = document.getElementById("cf_photoPreview");
+      if (preview) {
+        const url = URL.createObjectURL(blob);
+        preview.innerHTML = `<img src="${url}" alt="Photo de l'établissement" />`;
+        preview.style.display = "block";
+      }
+      if (btn) { btn.textContent = "📷 Photo prise — reprendre"; btn.classList.add("photo-captured"); }
+      validateFormRealtime();
+    } catch {
+      toastWarning("Impossible de traiter cette photo — réessayez.");
+      if (btn) btn.textContent = "📷 Prendre une photo (obligatoire)";
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   // AI Clean Up
   document.getElementById("cf_ai_fix")?.addEventListener("click", () => {
     const nameEl = document.getElementById("cf_name");
@@ -523,7 +620,8 @@ function bindFormEvents() {
   document.getElementById("censusForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!validateFormRealtime()) {
-      toastWarning("Veuillez remplir correctement les champs obligatoires (Nom, Téléphone, Ville et Type d'activité).");
+      const isCreating = !document.getElementById("cf_id")?.value;
+      toastWarning(`Veuillez remplir correctement les champs obligatoires (Nom, Téléphone, Ville et Type d'activité${isCreating ? ", et prendre une photo" : ""}).`);
       return;
     }
 
@@ -593,6 +691,15 @@ function bindFormEvents() {
 
       const updated = await upsertPoint(pointData);
 
+      // Enfile la photo APRÈS upsertPoint() : on n'a l'id définitif du point
+      // (généré ici pour une création, voir database.js) qu'à cet instant —
+      // la photo devient une entrée Dexie séparée (db.photos), envoyée par
+      // syncEngine.js indépendamment de la synchro du point lui-même (best
+      // effort, ne bloque jamais l'agent si l'upload échoue/tarde).
+      if (!id && pendingPhoto) {
+        await savePendingPhoto({ pointId: updated.id, blob: pendingPhoto.blob, mimeType: pendingPhoto.mimeType });
+      }
+
       // Mettre à jour le store avec un NOUVEAU tableau : muter l'ancien et le
       // repasser à store.set() ne déclenche AUCUNE notification (comparaison
       // par référence) — les marqueurs, stats et la tournée ne se mettaient
@@ -611,6 +718,7 @@ function bindFormEvents() {
       pendingIds.add(updatedId);
       store.set("sync.pendingPointIds", [...pendingIds]);
       clearDraft();
+      resetPendingPhoto();
 
       // Pas d'appel upsertMarker() ici : l'abonnement "points" re-rend les
       // marqueurs en respectant les filtres actifs (un point créé hors filtre
@@ -747,8 +855,13 @@ function validateFormRealtime() {
   const isTelValid = telVal.length === 10;
   const isActivityValid = activityVal.length > 0;
   const isCityValid = cityVal.length > 0;
+  // Photo obligatoire seulement à la création (cf_id vide) — voir openCensusForm().
+  const isCreating = !document.getElementById("cf_id")?.value;
+  const isPhotoValid = !isCreating || pendingPhoto != null;
 
   if (cityErr) cityErr.style.color = isCityValid ? "#16a34a" : "#dc2626";
+  const photoErr = document.getElementById("cf_photo_err");
+  if (photoErr) photoErr.style.color = isPhotoValid ? "#16a34a" : "#dc2626";
 
   if (nameBadge) {
     if (isNameValid) {
@@ -782,7 +895,7 @@ function validateFormRealtime() {
   const valIcon = document.getElementById("censusValStatusIcon");
   const valText = document.getElementById("censusValStatusText");
 
-  if (isNameValid && isTelValid && isActivityValid && isCityValid) {
+  if (isNameValid && isTelValid && isActivityValid && isCityValid && isPhotoValid) {
     if (valBar) valBar.className = "census-val-bar val-success";
     if (valIcon) valIcon.textContent = "✅";
     if (valText) valText.textContent = "Fiche à 100% valide — Prête à être enregistrée !";
@@ -790,7 +903,7 @@ function validateFormRealtime() {
   } else {
     if (valBar) valBar.className = "census-val-bar val-warning";
     if (valIcon) valIcon.textContent = "⚠️";
-    if (valText) valText.textContent = "Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres), la Ville et le Type d'activité.";
+    if (valText) valText.textContent = `Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres), la Ville et le Type d'activité${isCreating ? ", et prenez une photo" : ""}.`;
     return false;
   }
 }
