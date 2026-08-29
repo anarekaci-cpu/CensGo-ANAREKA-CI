@@ -646,7 +646,32 @@ function startWeatherRefreshLoop() {
   });
 }
 
+// Le bandeau (.app-header) flotte maintenant AU-DESSUS de la carte
+// (position:absolute, voir style.css) au lieu de la repousser vers le bas —
+// sa hauteur réelle varie (météo/badge d'agents qui apparaissent de façon
+// asynchrone, largeur de viewport qui fait retomber la barre de recherche
+// sur 2 lignes...), donc figée en dur elle finirait décalée. --header-h est
+// donc mesurée en direct et republiée à chaque changement de taille du
+// bandeau — tout élément à l'intérieur de #main qui doit se caler juste en
+// dessous (routeBanner, arrivalBanner, contrôles flottants du haut de
+// carte) l'utilise via calc(var(--header-h) + Npx) plutôt qu'un décalage
+// figé qui supposerait un header "en flux".
+function observeHeaderHeight() {
+  const headerEl = document.querySelector(".app-header");
+  if (!headerEl) return;
+  const setHeaderHeight = () => {
+    document.documentElement.style.setProperty("--header-h", `${headerEl.offsetHeight}px`);
+  };
+  setHeaderHeight();
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(setHeaderHeight).observe(headerEl);
+  } else {
+    window.addEventListener("resize", setHeaderHeight);
+  }
+}
+
 async function initApp() {
+  observeHeaderHeight();
   initMap("map");
   initNavigation();
   initCensusFormModal();

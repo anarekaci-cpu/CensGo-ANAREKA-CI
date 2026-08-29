@@ -294,13 +294,19 @@ button { -webkit-user-select: none; user-select: none; }
 }
 
 /* --- Model 1: Afro-Modern Header --- */
-/* Bandeau "verre" (demande explicite) : le fond opaque en dégradé plein a
-   été remplacé par --glass-bg (déjà défini, ~92-94% opaque des deux côtés
-   clair/sombre — volontairement pas trop transparent, voir le repli
-   @supports plus bas et la note sur la lisibilité du "Liquid Glass"
-   d'Apple) + flou pour laisser deviner la carte derrière plutôt qu'un bloc
-   plein. Reste teinté vert foncé dans les deux thèmes (barre de marque,
-   pas suiveuse du thème — comportement déjà existant avant ce correctif). */
+/* Bandeau "verre" FLOTTANT (demande explicite : voir la carte au travers,
+   pas juste un fond teinté) : sorti du flux normal (position:absolute) pour
+   flotter AU-DESSUS de la carte au lieu de la repousser vers le bas comme
+   avant — #main (qui contient #map) occupe donc maintenant toute la hauteur
+   de #app-container, et le flou du header montre vraiment la carte derrière
+   lui en défilant. --header-h (posé dynamiquement par un ResizeObserver,
+   voir initApp() dans appView.js) donne aux éléments internes à #main qui
+   supposaient un header "en flux" (routeBanner, arrivalBanner, contrôles
+   flottants du haut de carte) la vraie hauteur du bandeau à ajouter à leur
+   propre décalage — sans ça ils se retrouveraient partiellement masqués
+   sous le nouveau header flottant. Valeur de repli (avant que le JS ne
+   tourne, ou si ResizeObserver est indisponible) : hauteur typique observée. */
+:root { --header-h: 138px; }
 header, .app-header {
   display: flex; flex-direction: column;
   gap: 8px;
@@ -309,7 +315,7 @@ header, .app-header {
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   backdrop-filter: blur(18px) saturate(160%);
   color: white;
-  flex-shrink: 0; z-index: 500;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 500;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -529,7 +535,7 @@ header, .app-header {
 
 /* --- Floating Map Controls (Model 1) --- */
 .map-floating-controls-top {
-  position: absolute; top: 14px; right: 14px; z-index: 300;
+  position: absolute; top: calc(var(--header-h) + 14px); right: 14px; z-index: 300;
   display: flex; flex-direction: column; gap: 8px;
 }
 .map-floating-controls-bottom {
@@ -960,7 +966,7 @@ header, .app-header {
      dans le DOM) recouvrait entièrement le bouton "Marquer visité", le
      rendant invisible et impossible à atteindre au moment précis où
      l'agent en a besoin. */
-  position: absolute; top: 140px; left: 16px; right: 16px;
+  position: absolute; top: calc(var(--header-h) + 2px); left: 16px; right: 16px;
   background: var(--glass-sheet-light); border-radius: var(--radius-lg);
   padding: 18px; display: none;
   box-shadow: var(--shadow-lg);
@@ -979,7 +985,7 @@ header, .app-header {
 .arrival-no { background: var(--bg-surface); color: var(--text-secondary); }
 
 #routeBanner {
-  position: absolute; top: 76px; left: 16px; right: 60px;
+  position: absolute; top: calc(var(--header-h) + 76px); left: 16px; right: 60px;
   background: linear-gradient(135deg, #0d2818, #1a3d2b); color: white;
   border-radius: 14px; padding: 12px 18px;
   display: none; align-items: center; justify-content: space-between;
