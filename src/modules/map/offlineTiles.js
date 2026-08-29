@@ -13,41 +13,65 @@
  */
 
 const CACHE_NAME = "map-tiles";
-const TILE_SUBDOMAINS = ["a", "b", "c", "d"];
 
-// BUG CORRIGÉ : ce module ciblait encore l'ancien CDN de tuiles RASTER
-// ({a,b,c}.basemaps.cartocdn.com/rastertiles/...), fermé par CARTO (voir
-// map.js — bascule vers le style GL vecteur "voyager-gl-style"). Le préchargement
-// hors-ligne échouait donc silencieusement sur CHAQUE tuile (404/erreur
-// réseau, comptées en `failed` sans jamais rien mettre en cache). URL du
-// tuiler vecteur récupérée depuis le TileJSON réel de la source "carto" du
-// style (tiles.basemaps.cartocdn.com/vector/carto.streets/v1/tiles.json),
-// vérifiée manuellement avant ce correctif — maxzoom réel = 14 (au-delà,
-// MapLibre sur-échantillonne la tuile z14 côté client, sans nouvelle requête
-// réseau : inutile de précharger plus profond).
-function tileUrl(subdomain, z, x, y) {
-  return `https://tiles-${subdomain}.basemaps.cartocdn.com/vectortiles/carto.streets/v1/${z}/${x}/${y}.mvt`;
+// BUG CORRIGÉ (round 2) : ce module ciblait le CDN vecteur CARTO, abandonné
+// au profit d'OpenFreeMap (voir map.js — bien plus de détail piéton :
+// passages, sentiers, carrefours, choix assumé avec l'utilisateur malgré un
+// fournisseur moins établi que CARTO). OpenFreeMap complique le
+// préchargement PROACTIF d'un détail important : son URL de tuiles porte un
+// SEGMENT DATÉ qui change à chaque rafraîchissement de leur extract planet
+// (ex: "/planet/20260823_080002_pt/{z}/{x}/{y}.pbf") — l'écrire en dur ici
+// finirait par pointer vers un instantané périmé. On résout donc TOUJOURS le
+// style.json et son TileJSON en direct avant de télécharger quoi que ce
+// soit, plutôt que de coder une URL figée — la même méthode sert aussi à
+// découvrir les polices réellement utilisées (text-font de chaque layer),
+// sans liste codée en dur qui se périmerait pareillement à un changement de
+// style.
+const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const GLYPH_RANGE = "0-255"; // latin de base + supplément : couvre les accents français (é, è, à, ç...)
+
+let resolvedUrlsPromise = null;
+
+/**
+ * Résout depuis le style.json EN DIRECT (jamais codé en dur, voir
+ * commentaire plus haut) : le gabarit d'URL de tuile réel + son maxzoom, le
+ * sprite et la liste des polices utilisées par les layers de labels.
+ * Mémorisé pour la durée de la session (variable de module) : le planet
+ * OpenFreeMap ne change qu'une fois par semaine, inutile de re-résoudre à
+ * chaque clic sur "précharger" — un rechargement complet de l'app (nouveau
+ * chargement de ce module) redemande naturellement un instantané frais.
+ */
+async function resolveStyleUrls() {
+  if (!resolvedUrlsPromise) {
+    resolvedUrlsPromise = (async () => {
+      const style = await fetch(STYLE_URL).then(r => r.json());
+      const vectorSource = Object.values(style.sources).find(s => s.type === "vector");
+      const tileJson = await fetch(vectorSource.url).then(r => r.json());
+
+      const fonts = new Set();
+      for (const layer of style.layers) {
+        const tf = layer.layout?.["text-font"];
+        if (tf) (Array.isArray(tf) ? tf : [tf]).forEach(f => fonts.add(f));
+      }
+
+      return {
+        tileTemplate: tileJson.tiles[0],
+        maxzoom: tileJson.maxzoom ?? 14,
+        spriteBase: style.sprite,
+        glyphsTemplate: style.glyphs,
+        fonts: [...fonts]
+      };
+    })();
+  }
+  return resolvedUrlsPromise;
 }
 
-const VECTOR_SOURCE_MAXZOOM = 14;
+function tileUrlFromTemplate(template, z, x, y) {
+  return template.replace("{z}", z).replace("{x}", x).replace("{y}", y);
+}
 
-// Polices utilisées par le style "voyager-gl-style" (voir style.json,
-// propriété "text-font" de chaque layer de labels) — préchargées pour la
-// plage de glyphes 0-255 (latin de base + supplément, couvre les accents
-// français : é, è, à, ç...) afin que les libellés (noms de rue/quartier)
-// restent lisibles hors-ligne, pas seulement le fond de carte brut.
-const LABEL_FONTS = [
-  "Open Sans Regular", "Open Sans Bold", "Open Sans Italic",
-  "Montserrat Regular", "Montserrat Medium", "Montserrat Regular Italic", "Montserrat Medium Italic",
-  "Noto Sans Regular", "HanWangHeiLight Regular", "NanumBarunGothic Regular"
-];
-
-const STYLE_URL = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-const SPRITE_BASE = "https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/sprite";
-const GLYPH_RANGE = "0-255";
-
-function glyphUrl(font) {
-  return `https://tiles.basemaps.cartocdn.com/fonts/${encodeURIComponent(font)}/${GLYPH_RANGE}.pbf`;
+function glyphUrl(glyphsTemplate, font, range) {
+  return glyphsTemplate.replace("{fontstack}", encodeURIComponent(font)).replace("{range}", range);
 }
 
 /**
@@ -57,12 +81,12 @@ function glyphUrl(font) {
  * bloque jamais le reste (le fond de carte reste utilisable, juste avec un
  * détail visuel en moins).
  */
-async function cacheStaticStyleAssets(cache) {
+async function cacheStaticStyleAssets(cache, resolved) {
   const urls = [
     STYLE_URL,
-    `${SPRITE_BASE}.json`, `${SPRITE_BASE}.png`,
-    `${SPRITE_BASE}@2x.json`, `${SPRITE_BASE}@2x.png`,
-    ...LABEL_FONTS.map(glyphUrl)
+    `${resolved.spriteBase}.json`, `${resolved.spriteBase}.png`,
+    `${resolved.spriteBase}@2x.json`, `${resolved.spriteBase}@2x.png`,
+    ...resolved.fonts.map(f => glyphUrl(resolved.glyphsTemplate, f, GLYPH_RANGE))
   ];
   await Promise.all(urls.map(async (url) => {
     try {
@@ -137,11 +161,18 @@ export async function downloadOfflineTiles(bounds, {
     throw new Error("Le stockage hors-ligne (Cache API) n'est pas disponible sur ce navigateur.");
   }
 
-  // Au-delà de VECTOR_SOURCE_MAXZOOM, aucune tuile distincte n'existe côté
-  // serveur (MapLibre sur-échantillonne la tuile z14 déjà en cache) — un
-  // appelant qui demande [13,14,15,16,17] (ancien défaut raster) ne
-  // gaspille donc plus de requêtes sur des tuiles vectorielles inexistantes.
-  const clampedZooms = [...new Set(zooms.map(z => Math.min(z, VECTOR_SOURCE_MAXZOOM)))];
+  let resolved;
+  try {
+    resolved = await resolveStyleUrls();
+  } catch (err) {
+    throw new Error(`Impossible de récupérer les informations du fond de carte (${err?.message || "réseau indisponible"}).`);
+  }
+
+  // Au-delà du maxzoom réel du tuiler, aucune tuile distincte n'existe côté
+  // serveur (MapLibre sur-échantillonne la plus profonde déjà en cache) — un
+  // appelant qui demande un zoom plus élevé ne gaspille donc pas de requêtes
+  // sur des tuiles vectorielles inexistantes.
+  const clampedZooms = [...new Set(zooms.map(z => Math.min(z, resolved.maxzoom)))];
 
   const tiles = computeTileList(bounds, clampedZooms);
   if (tiles.length === 0) {
@@ -155,7 +186,7 @@ export async function downloadOfflineTiles(bounds, {
   }
 
   const cache = await caches.open(CACHE_NAME);
-  await cacheStaticStyleAssets(cache);
+  await cacheStaticStyleAssets(cache, resolved);
   const queue = [...tiles];
   let done = 0;
   let downloaded = 0;
@@ -166,10 +197,7 @@ export async function downloadOfflineTiles(bounds, {
   async function worker() {
     while (queue.length > 0) {
       const t = queue.shift();
-      // Sous-domaine déterministe (répartit la charge comme MapLibre, sans
-      // dépendre d'un état partagé entre workers).
-      const subdomain = TILE_SUBDOMAINS[(t.x + t.y) % TILE_SUBDOMAINS.length];
-      const url = tileUrl(subdomain, t.z, t.x, t.y);
+      const url = tileUrlFromTemplate(resolved.tileTemplate, t.z, t.x, t.y);
 
       try {
         const alreadyCached = await cache.match(url);

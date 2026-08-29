@@ -45,14 +45,12 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // Fond de carte CARTO : style GL (basemaps.cartocdn.com), tuiles
-            // vecteur (tiles-{a,b,c,d}.basemaps.cartocdn.com/vectortiles/...),
-            // sprite et glyphes (tiles.basemaps.cartocdn.com). BUG CORRIGÉ :
-            // l'ancien motif ([abcd]\.)? ne couvrait QUE l'ancien CDN raster
-            // (mort depuis, voir map.js) — il ratait tiles.* et tiles-a/b/c/d.*
-            // utilisés par le nouveau style vecteur, qui ne bénéficiaient donc
-            // d'AUCUN cache offline (même pas opportuniste en navigant).
-            urlPattern: /^https:\/\/([a-z0-9-]+\.)?basemaps\.cartocdn\.com\/.*/i,
+            // Fond de carte OpenFreeMap : style, tuiles vecteur (planet),
+            // sprite et glyphes vivent tous sous tiles.openfreemap.org (voir
+            // map.js — bascule depuis CARTO pour plus de détail piéton,
+            // choix assumé avec l'utilisateur). Un seul host à couvrir,
+            // contrairement à CARTO qui étalait ça sur plusieurs sous-domaines.
+            urlPattern: /^https:\/\/tiles\.openfreemap\.org\/.*/,
             handler: "CacheFirst",
             options: {
               cacheName: "map-tiles",

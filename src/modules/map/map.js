@@ -8,27 +8,25 @@ import { store } from "../../core/store.js";
 import { calculateRoutePadding } from "../../core/routeView.js";
 import { getEffectiveTheme } from "../../core/theme.js";
 
-// CARTO Voyager au lieu de tile.openstreetmap.org : le serveur public OSM
-// applique une politique anti-usage-app (rate-limiting / blocage des PWAs)
-// et ses réponses d'erreur n'ont pas d'en-tête CORS, d'où les tempêtes de
-// "TypeError: Failed to fetch".
-//
-// BUG CORRIGÉ (audit terrain, capture d'écran à l'appui) : l'ancien style
-// pointait vers {a,b,c}.basemaps.cartocdn.com/rastertiles/voyager/... — ce
-// CDN de tuiles RASTER "legacy" a depuis été fermé par CARTO et renvoie
-// désormais une image "API KEY REQUIRED" sur CHAQUE tuile (carte
-// entièrement illisible en production). Le style GL VECTEUR ci-dessous
-// (basemaps.cartocdn.com/gl/voyager-gl-style/...) reste gratuit et sans clé
-// à ce jour — vérifié manuellement avant ce correctif. MapLibre GL (déjà
-// une dépendance du projet) le consomme nativement via une simple URL de
-// style, sans configuration de tuiles/sources manuelle.
-const BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-// Variante sombre CARTO — même famille de tuiles vectorielles gratuites
-// (carto.streets), vérifiée manuellement avant ce correctif. Sans elle, le
-// thème nuit de l'app (voir core/theme.js) laissait le fond de carte lui-même
-// intégralement clair — la seule partie de l'écran qui ne suivait pas le choix
-// de thème de l'agent.
-const DARK_BASEMAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+// OpenFreeMap "Liberty" au lieu de CARTO Voyager (choisi avec l'utilisateur,
+// compromis assumé) : CARTO Voyager/Dark Matter sont des styles délibérément
+// minimalistes (schéma CARTO simplifié) qui n'affichent quasiment aucun
+// détail piéton — passages piétons, sentiers, petites voies, carrefours
+// détaillés — signalé illisible sur le terrain. OpenFreeMap réutilise le
+// schéma OpenMapTiles (le même que Mapbox/MapTiler), bien plus riche en
+// détail urbain, et reste gratuit/sans clé/sans limite de requêtes (aucune
+// inscription — voir openfreemap.org). Contrepartie assumée : fournisseur
+// plus récent et moins éprouvé en production que CARTO (déjà une entreprise
+// établie) — si OpenFreeMap a un incident, seul ce fond de carte est touché
+// (tout le reste de l'app — données, sync, formulaires — continue de
+// fonctionner normalement, cache-first comme documenté ailleurs).
+const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+// Variante sombre OpenFreeMap officielle (même famille de tuiles
+// vectorielles OpenMapTiles) — vérifiée manuellement avant ce correctif.
+// Sans elle, le thème nuit de l'app (voir core/theme.js) laissait le fond de
+// carte lui-même intégralement clair — la seule partie de l'écran qui ne
+// suivait pas le choix de thème de l'agent.
+const DARK_BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
 
 let mapInstance = null;
 let clusterInstance = null;
@@ -59,12 +57,12 @@ export function initMap(containerId = "map") {
   );
   // customAttribution explicite : ne pas dépendre de ce que le style GL
   // distant choisit (ou non) de déclarer sur sa source — l'obligation
-  // d'attribution OSM/CARTO ne doit pas dépendre d'un tiers.
+  // d'attribution OSM/OpenFreeMap ne doit pas dépendre d'un tiers.
   mapInstance.addControl(
     new maplibregl.AttributionControl({
       compact: true,
       customAttribution:
-        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://carto.com/attributions\">CARTO</a>"
+        "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> © <a href=\"https://openfreemap.org\">OpenFreeMap</a>"
     }),
     "bottom-right"
   );

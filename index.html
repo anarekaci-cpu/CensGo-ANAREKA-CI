@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co https://router.project-osrm.org https://api.openrouteservice.org https://api.open-meteo.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; img-src 'self' data: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; worker-src 'self' blob:; frame-src 'none';">
+  <!-- BUG CORRIGÉ : la bascule du fond de carte CARTO -> OpenFreeMap
+       (map.js, plus de détail piéton — passages, sentiers, carrefours)
+       laissait cette CSP figée sur les anciens domaines cartocdn — la carte
+       chargeait le style.json (même origine que le HTML donc pas bloqué)
+       mais CHAQUE requête de tuile/sprite/glyphe vers tiles.openfreemap.org
+       était bloquée par le navigateur ("violates Content Security Policy"),
+       laissant un fond de carte entièrement vide malgré un style valide. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co https://router.project-osrm.org https://api.openrouteservice.org https://api.open-meteo.com https://tiles.openfreemap.org; img-src 'self' data: https://tiles.openfreemap.org; worker-src 'self' blob:; frame-src 'none';">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,9 +30,7 @@
        chargement du JS, au lieu d'attendre le premier fetch réel une fois
        l'app démarrée — gain net sur le temps avant premier affichage utile
        de la carte, surtout sur un réseau mobile à latence élevée. -->
-  <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossorigin>
-  <link rel="preconnect" href="https://b.basemaps.cartocdn.com" crossorigin>
-  <link rel="preconnect" href="https://c.basemaps.cartocdn.com" crossorigin>
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
   <link rel="dns-prefetch" href="https://router.project-osrm.org">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
