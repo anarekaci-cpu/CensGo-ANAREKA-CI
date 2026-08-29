@@ -51,12 +51,108 @@ const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/bright";
 // tiles.versatiles.org (voir index.html pour le connect-src correspondant).
 const darkBasemapStyle = () => versatilesShadow({ baseUrl: "https://tiles.versatiles.org" });
 
+/**
+ * Contrôle MapLibre natif (même style que NavigationControl/ScaleControl) —
+ * placé sur la carte plutôt que dans le header déjà chargé (météo, sync, IA,
+ * thème, filtres...), puisqu'il s'agit d'une préférence d'affichage de LA
+ * CARTE elle-même, pas d'une action applicative.
+ */
+class SatelliteToggleControl {
+  onAdd(map) {
+    this._map = map;
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+
+    this._button = document.createElement("button");
+    this._button.type = "button";
+    this._button.title = "Basculer vue satellite";
+    this._button.setAttribute("aria-label", "Basculer vue satellite");
+    this._button.setAttribute("aria-pressed", "false");
+    this._button.style.cssText = "font-size:16px;line-height:1;";
+    this._button.textContent = "🛰️";
+    this._button.addEventListener("click", () => {
+      const visible = toggleSatelliteView();
+      this._button.setAttribute("aria-pressed", String(visible));
+      this._button.style.background = visible ? "#1a3d2b" : "";
+      this._button.style.filter = visible ? "invert(1)" : "";
+    });
+
+    this._container.appendChild(this._button);
+    return this._container;
+  }
+
+  onRemove() {
+    this._container?.parentNode?.removeChild(this._container);
+    this._map = undefined;
+  }
+}
+
 let mapInstance = null;
 let clusterInstance = null;
 let userLocationMarker = null;
 let destinationMarker = null;
 let heatmapVisible = false;
+let satelliteVisible = false;
 let cameraFollowEnabled = true;
+
+// Imagerie satellite Esri World Imagery : gratuite et sans clé (même choix
+// "gratuit/sans clé" que le fond de carte principal, voir commentaire
+// BASEMAP_STYLE_URL) — utile pour distinguer des habitations dans une
+// concession dense, où le rendu vectoriel (bâtiments génériques) ne montre
+// aucun détail exploitable au sol.
+const SATELLITE_SOURCE_ID = "satellite-imagery";
+const SATELLITE_LAYER_ID = "satellite-imagery-layer";
+const SATELLITE_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+
+/**
+ * Ajoute la couche satellite (masquée par défaut) si elle n'existe pas déjà.
+ * Suit le même garde-fou que addRouteLayer() : addSource/addLayer lèvent une
+ * erreur tant que le style du fond de carte n'a pas fini de charger.
+ */
+function addSatelliteLayer() {
+  if (!mapInstance) return;
+
+  if (!mapInstance.isStyleLoaded()) {
+    mapInstance.once("idle", addSatelliteLayer);
+    return;
+  }
+
+  if (mapInstance.getSource(SATELLITE_SOURCE_ID)) return;
+
+  mapInstance.addSource(SATELLITE_SOURCE_ID, {
+    type: "raster",
+    tiles: [SATELLITE_TILE_URL],
+    tileSize: 256,
+    attribution: "© Esri, Maxar, Earthstar Geographics"
+  });
+  mapInstance.addLayer({
+    id: SATELLITE_LAYER_ID,
+    type: "raster",
+    source: SATELLITE_SOURCE_ID,
+    layout: { visibility: satelliteVisible ? "visible" : "none" }
+  });
+}
+
+/**
+ * Bascule l'affichage satellite. setStyle() (bascule clair/sombre, voir
+ * setMapTheme()) supprime cette couche comme les autres — elle est
+ * réappliquée au même endroit que la route/heatmap/position.
+ * @returns {boolean} nouvel état (true = satellite visible)
+ */
+export function toggleSatelliteView() {
+  if (!mapInstance) return satelliteVisible;
+  satelliteVisible = !satelliteVisible;
+
+  if (!mapInstance.getLayer(SATELLITE_LAYER_ID)) {
+    addSatelliteLayer();
+  } else {
+    mapInstance.setLayoutProperty(SATELLITE_LAYER_ID, "visibility", satelliteVisible ? "visible" : "none");
+  }
+
+  return satelliteVisible;
+}
+
+export function isSatelliteVisible() { return satelliteVisible; }
 
 export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
@@ -98,6 +194,7 @@ export function initMap(containerId = "map") {
     new maplibregl.ScaleControl({ maxWidth: 100, unit: "metric" }),
     "bottom-left"
   );
+  mapInstance.addControl(new SatelliteToggleControl(), "top-right");
 
   // minPoints très élevé => les points ne fusionnent JAMAIS en bulle "N
   // points" : chaque point reste son propre marqueur, visible individuellement
@@ -135,6 +232,7 @@ export function setMapTheme(theme) {
     if (wasHeatmapVisible) updateCoverageHeatmap(store.get("points"));
     if (route?.geometry) addRouteLayer(route.geometry, mode);
     if (pos) showUserLocation(pos.lat, pos.lng, pos.accuracy);
+    if (satelliteVisible) addSatelliteLayer();
   });
   mapInstance.setStyle(nextUrl);
 }
