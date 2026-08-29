@@ -1,5 +1,7 @@
 import { store } from "./core/store.js";
 import { CONFIG } from "./core/config.js";
+import { canMarkVisited } from "./core/geofence.js";
+import { updatePointVisit } from "./db/database.js";
 import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap } from "./modules/map/map.js";
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
@@ -32,6 +34,7 @@ import { getPendingSyncs, retryDeadPhotos, retryDeadSheetsSyncs } from "./db/dat
 import { mergeTourStopsWithLiveStatus, buildTourReportHtml, openTourReportPrintWindow } from "./modules/report/tourReport.js";
 import { buildAgentReportHtml, computeAgentPeriodPoints, computeAgentPeriodDistance } from "./modules/report/agentReport.js";
 import { getSignedPhotoUrl } from "./core/censusPhotos.js";
+import { buildPopupModel } from "./modules/census/popupModel.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo envoyée à l'Agent Vision est
@@ -78,17 +81,6 @@ function getAiModule() {
   return aiModulePromise;
 }
 
-let compassModulePromise = null;
-function getCompassModule() {
-  if (!compassModulePromise) {
-    compassModulePromise = lazyImport(() => import("./modules/compass/compassView.js")).then(mod => {
-      mod.mountCompass();
-      return mod;
-    });
-  }
-  return compassModulePromise;
-}
-
 function debounce(fn, ms) {
   let timer;
   return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
@@ -97,25 +89,60 @@ function debounce(fn, ms) {
 export async function mountAuthenticatedApp(container) {
   container.innerHTML = `
     <div id="app-container">
-      <header>
-        <div class="htitle">
-          <span class="brand-mark">🗺️</span>
-          <div>
-            <h1>CensGo <span>ANAREKA-CI</span></h1>
-            <div class="stats" id="statsHeader">Chargement...</div>
-            <span id="agentNumberBadge" class="pending-approval-badge" style="display:none;"></span>
+      <header class="app-header">
+        <div class="header-top">
+          <div class="brand-container">
+            <div class="brand-logo-wrap">
+              <span class="brand-mark">🗺️</span>
+            </div>
+            <div class="brand-text">
+              <span class="brand-title">CensGo</span>
+              <span class="brand-tag">ANAREKA-CI</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div id="weatherWidget" style="display:none;" title="Météo à votre position"></div>
+            <button id="syncStatus" class="sync-badge-btn" type="button" aria-label="État de synchronisation">
+              <span class="sync-dot"></span>
+              <span class="sync-label">🌐 Connexion...</span>
+            </button>
+            <button id="aiModalBtnHeader" class="header-icon-btn" title="Assistant & Optimisation IA" aria-label="Assistant & Optimisation IA">🤖</button>
+            <button id="themeToggleBtn" class="header-icon-btn" title="Basculer le thème clair/sombre" aria-label="Basculer le thème clair/sombre">🌙</button>
+            <button id="menuToggleBtn" class="header-icon-btn" title="Filtres" aria-label="Filtres">☰</button>
+            <button id="addCensusBtnHeader" style="display:none;" aria-label="Nouveau point">➕</button>
+            <button id="compassBtnHeader" style="display:none;" aria-label="Boussole">🧭</button>
           </div>
         </div>
-        <div class="right">
-          <div id="weatherWidget" style="display:none;" title="Météo à votre position"></div>
-          <button id="syncStatus" type="button" aria-label="État de synchronisation">🌐 Connexion...</button>
-          <div class="header-actions">
-            <button id="addCensusBtnHeader" class="btn-add-header" title="Nouveau point de recensement" aria-label="Nouveau point de recensement">➕ <span class="btn-label">Saisie</span></button>
-            <button id="compassBtnHeader" class="btn-compass-header" title="Boussole terrain" aria-label="Boussole terrain">🧭 <span class="btn-label">Boussole</span></button>
-            <button id="aiModalBtnHeader" class="btn-ai-header" title="Assistant & Optimisation IA" aria-label="Assistant & Optimisation IA">🤖 <span class="btn-label">Agents IA</span></button>
-            <button id="themeToggleBtn" title="Basculer le thème clair/sombre" aria-label="Basculer le thème clair/sombre">🌙</button>
-            <button id="menuToggleBtn" title="Filtres" aria-label="Filtres">☰</button>
+
+        <div class="header-search-bar">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchBox" placeholder="Rechercher commerçant, quartier, tel..." autocomplete="off" />
+            <button id="clearSearchBtn" class="clear-search-btn" style="display:none;" aria-label="Effacer">✕</button>
           </div>
+          <button id="quickFilterToggleBtn" class="quick-filter-btn" title="Options et filtres" aria-label="Options et filtres">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="header-zone-pill-row">
+          <button id="zoneSelectorPill" class="zone-pill-btn" type="button" title="Sélectionner une zone ou ville">
+            <span class="zone-icon">📍</span>
+            <span id="selectedZoneLabel" class="zone-name">Toutes les zones</span>
+            <span class="zone-caret">▾</span>
+          </button>
+          <div class="stats" id="statsHeader">Chargement...</div>
+          <span id="agentNumberBadge" class="pending-approval-badge" style="display:none;"></span>
         </div>
       </header>
 
@@ -154,16 +181,13 @@ export async function mountAuthenticatedApp(container) {
               </select>
             </label>
           </div>
-          <div class="row2">
-            <label>Visite
-              <select id="filterVisited">
-                <option value="all">Tous</option>
-                <option value="no">Non visités</option>
-                <option value="yes">Déjà visités</option>
-              </select>
-            </label>
-            <label>Recherche <input type="text" id="searchBox" placeholder="Nom, ville, quartier, tel..."></label>
-          </div>
+          <label>Visite
+            <select id="filterVisited">
+              <option value="all">Tous</option>
+              <option value="no">Non visités</option>
+              <option value="yes">Déjà visités</option>
+            </select>
+          </label>
           <div id="searchResultCount" style="font-size:12px; color:#64748b; margin:-4px 0 8px; min-height:16px;"></div>
           <div class="action-row">
             <button id="locateBtn" class="btn-locate">📍 Me localiser</button>
@@ -202,6 +226,73 @@ export async function mountAuthenticatedApp(container) {
       <div id="main">
         <div id="map"></div>
 
+        <div class="map-floating-controls-top">
+          <button id="floatingLocateBtn" class="fab-map-control" title="Me géolocaliser" aria-label="Me géolocaliser">📍</button>
+        </div>
+
+        <div class="map-floating-controls-bottom">
+          <button id="zoomInBtn" class="fab-map-zoom" title="Zoomer" aria-label="Zoomer">+</button>
+          <button id="zoomOutBtn" class="fab-map-zoom" title="Dézoomer" aria-label="Dézoomer">−</button>
+        </div>
+
+        <!-- Model 1: Merchant Bottom Sheet -->
+        <div id="merchantBottomSheet" class="merchant-bottom-sheet" aria-hidden="true">
+          <div class="sheet-drag-handle" id="sheetDragHandle">
+            <span class="handle-bar"></span>
+          </div>
+          <button id="closeSheetBtn" class="sheet-close-btn" aria-label="Fermer la fiche">✕</button>
+          
+          <div class="sheet-content">
+            <div class="sheet-header">
+              <div class="sheet-title-row">
+                <h2 id="sheetMerchantName" class="sheet-merchant-name">Établissement</h2>
+                <span id="sheetStatusBadge" class="sheet-status-badge">🟢 Vert</span>
+              </div>
+              <div class="sheet-sub-row">
+                <span id="sheetRating" class="sheet-rating">⭐ Référencé</span>
+                <span id="sheetDistance" class="sheet-distance"></span>
+              </div>
+            </div>
+
+            <div class="sheet-body">
+              <div class="sheet-info-item">
+                <span class="info-icon">👤</span>
+                <span id="sheetOwner" class="info-text">—</span>
+              </div>
+              <div class="sheet-info-item">
+                <span class="info-icon">📍</span>
+                <span id="sheetAddress" class="info-text">—</span>
+              </div>
+              <div class="sheet-info-item">
+                <span class="info-icon">🏷️</span>
+                <span id="sheetActivityTag" class="info-text tag-pill">Restauration</span>
+              </div>
+              <div class="sheet-info-item" id="sheetTelRow" style="display:none;">
+                <span class="info-icon">📞</span>
+                <a id="sheetTelLink" href="tel:" class="info-tel-link">—</a>
+              </div>
+            </div>
+
+            <div class="sheet-actions-row">
+              <button id="sheetActionPrimary" class="btn-sheet-primary">➕ Recenser</button>
+              <button id="sheetActionRoute" class="btn-sheet-secondary">🧭 Itinéraire</button>
+              <button id="sheetActionVisit" class="btn-sheet-secondary">✅ Visité</button>
+              <button id="sheetActionEdit" class="btn-sheet-icon" title="Modifier">✏️</button>
+            </div>
+
+            <div class="sheet-status-pills">
+              <span id="sheetGpsStatusPill" class="status-pill">
+                <span class="status-dot green"></span>
+                <span id="sheetGpsText">GPS: Stable</span>
+              </span>
+              <span id="sheetOfflineStatusPill" class="status-pill">
+                <span class="status-dot green"></span>
+                <span id="sheetSyncText">Mode Hors ligne • Synch. ✓</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div id="navBottomStack">
           <div id="navModeRow">
             <button type="button" class="nav-mode-btn" data-mode="foot" title="À pied">🚶 À pied</button>
@@ -236,8 +327,8 @@ export async function mountAuthenticatedApp(container) {
           <button id="closeRouteBtn" aria-label="Fermer l'itinéraire">✕</button>
         </div>
         
-        <button id="fabNearest">🏃 Point le plus proche</button>
-        <button id="fabAdd" aria-label="Ajouter un point de recensement">➕</button>
+        <button id="fabNearest" style="display:none;">🏃 Point le plus proche</button>
+        <button id="fabAdd" style="display:none;" aria-label="Ajouter un point de recensement">➕</button>
         
         <div class="legend">
           <div><b>Statut</b></div>
@@ -414,6 +505,57 @@ export async function mountAuthenticatedApp(container) {
           </div>
         </div>
       </div>
+
+      <!-- Model 1: Bottom Navigation Bar -->
+      <nav id="bottomNavBar" class="bottom-nav-bar" aria-label="Navigation principale">
+        <button id="navTabMap" class="nav-tab active" data-tab="map" aria-label="Carte">
+          <div class="tab-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+              <line x1="8" y1="2" x2="8" y2="18"></line>
+              <line x1="16" y1="6" x2="16" y2="22"></line>
+            </svg>
+          </div>
+          <span class="tab-label">Map</span>
+        </button>
+
+        <button id="navTabTasks" class="nav-tab" data-tab="tasks" aria-label="Tâches et tournée">
+          <div class="tab-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 11l3 3L22 4"></path>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+            </svg>
+          </div>
+          <span class="tab-label">Tâches</span>
+        </button>
+
+        <button id="navTabFabAdd" class="nav-tab-fab" title="Nouveau Recensement" aria-label="Nouveau Recensement">
+          <div class="fab-circle">
+            <span>➕</span>
+          </div>
+        </button>
+
+        <button id="navTabReports" class="nav-tab" data-tab="reports" aria-label="Rapports et analyses">
+          <div class="tab-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"></line>
+              <line x1="12" y1="20" x2="12" y2="4"></line>
+              <line x1="6" y1="20" x2="6" y2="14"></line>
+            </svg>
+          </div>
+          <span class="tab-label">Rapports</span>
+        </button>
+
+        <button id="navTabProfile" class="nav-tab" data-tab="profile" aria-label="Profil et options">
+          <div class="tab-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </div>
+          <span class="tab-label">Profil</span>
+        </button>
+      </nav>
     </div>
   `;
 
@@ -1021,9 +1163,92 @@ function bindEvents() {
     document.getElementById("arrivalBanner").style.display = "none";
   };
 
-  document.getElementById("compassBtnHeader")?.addEventListener("click", async () => {
-    (await getCompassModule()).openCompassPanel();
-    closeControls();
+  // --- Model 1: Floating Map Controls ---
+  document.getElementById("floatingLocateBtn")?.addEventListener("click", () => {
+    locateAndCenter();
+  });
+  document.getElementById("zoomInBtn")?.addEventListener("click", () => {
+    getMap()?.zoomIn();
+  });
+  document.getElementById("zoomOutBtn")?.addEventListener("click", () => {
+    getMap()?.zoomOut();
+  });
+
+  // --- Model 1: Search & Quick Filter Controls ---
+  const searchInput = document.getElementById("searchBox");
+  const clearBtn = document.getElementById("clearSearchBtn");
+  if (searchInput && clearBtn) {
+    searchInput.addEventListener("input", () => {
+      clearBtn.style.display = searchInput.value ? "flex" : "none";
+    });
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      clearBtn.style.display = "none";
+      applyFilters();
+    });
+  }
+
+  document.getElementById("quickFilterToggleBtn")?.addEventListener("click", () => {
+    document.getElementById("controls")?.classList.toggle("open");
+  });
+
+  document.getElementById("zoneSelectorPill")?.addEventListener("click", () => {
+    const controls = document.getElementById("controls");
+    controls?.classList.add("open");
+    document.getElementById("filterCity")?.focus();
+  });
+
+  // --- Model 1: Merchant Bottom Sheet Close ---
+  document.getElementById("closeSheetBtn")?.addEventListener("click", () => {
+    document.getElementById("merchantBottomSheet")?.classList.remove("open");
+    store.set("ui.selectedPointId", null);
+  });
+  document.getElementById("sheetDragHandle")?.addEventListener("click", () => {
+    document.getElementById("merchantBottomSheet")?.classList.remove("open");
+    store.set("ui.selectedPointId", null);
+  });
+
+  // --- Model 1: Bottom Navigation Bar ---
+  const navTabs = {
+    navTabMap: () => {
+      closeControls();
+      const tourPanel = document.getElementById("tourPanel");
+      if (tourPanel) tourPanel.style.display = "none";
+      const aiModal = document.getElementById("aiModal");
+      if (aiModal) aiModal.style.display = "none";
+      const agentsModal = document.getElementById("agentsModal");
+      if (agentsModal) agentsModal.style.display = "none";
+      const reportModal = document.getElementById("agentReportModal");
+      if (reportModal) reportModal.style.display = "none";
+    },
+    navTabTasks: () => {
+      document.getElementById("tourBtn")?.click();
+    },
+    navTabFabAdd: () => {
+      handleOpenCensus();
+    },
+    navTabReports: () => {
+      const reportModal = document.getElementById("agentReportModal");
+      if (reportModal) reportModal.style.display = "block";
+    },
+    navTabProfile: () => {
+      if (store.get("ui.isAdmin")) {
+        const agentsModal = document.getElementById("agentsModal");
+        if (agentsModal) agentsModal.style.display = "block";
+      } else {
+        document.getElementById("controls")?.classList.toggle("open");
+      }
+    }
+  };
+
+  Object.entries(navTabs).forEach(([id, action]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", () => {
+      document.querySelectorAll(".nav-tab").forEach(tab => tab.classList.remove("active"));
+      if (id !== "navTabFabAdd") el.classList.add("active");
+      action();
+    });
   });
 
   bindAiEvents();
@@ -1970,6 +2195,128 @@ function bindStoreListeners() {
   store.subscribe("tour.currentIndex", () => {
     renderTourDetails();
   });
+
+  store.subscribe("ui.selectedPointId", (pointId) => {
+    if (!pointId) {
+      document.getElementById("merchantBottomSheet")?.classList.remove("open");
+      return;
+    }
+    const points = store.get("points") || [];
+    const point = points.find(p => String(p.id) === String(pointId));
+    if (point) {
+      renderMerchantBottomSheet(point);
+    }
+  });
+}
+
+function renderMerchantBottomSheet(point) {
+  const sheet = document.getElementById("merchantBottomSheet");
+  if (!sheet) return;
+  if (!point) {
+    sheet.classList.remove("open");
+    return;
+  }
+  const userPos = store.get("geo.position");
+  const model = buildPopupModel(point, userPos);
+
+  const nameEl = document.getElementById("sheetMerchantName");
+  if (nameEl) nameEl.textContent = model.name || "Établissement";
+
+  const statusBadge = document.getElementById("sheetStatusBadge");
+  if (statusBadge) {
+    statusBadge.textContent = model.status || "Non défini";
+    const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
+    const textColor = CONFIG.STATUS_TEXT_COLORS[point.status] || "#566573";
+    statusBadge.style.background = `${color}22`;
+    statusBadge.style.color = textColor;
+    statusBadge.style.borderColor = color;
+  }
+
+  const distanceEl = document.getElementById("sheetDistance");
+  if (distanceEl) {
+    distanceEl.textContent = model.distanceLabel ? `• ${model.distanceLabel}` : "";
+  }
+
+  const ownerEl = document.getElementById("sheetOwner");
+  if (ownerEl) {
+    ownerEl.textContent = point.proprio || point.agent || "Non renseigné";
+  }
+
+  const addressEl = document.getElementById("sheetAddress");
+  if (addressEl) {
+    addressEl.textContent = model.address || model.quartier || "Adresse non spécifiée";
+  }
+
+  const activityTag = document.getElementById("sheetActivityTag");
+  if (activityTag) {
+    activityTag.textContent = model.activityType || model.produits || "Commerce général";
+  }
+
+  const telRow = document.getElementById("sheetTelRow");
+  const telLink = document.getElementById("sheetTelLink");
+  if (telRow && telLink) {
+    if (model.tel) {
+      telRow.style.display = "flex";
+      telLink.href = `tel:${model.tel}`;
+      telLink.textContent = model.tel;
+    } else {
+      telRow.style.display = "none";
+    }
+  }
+
+  const gpsAcc = store.get("geo.accuracy");
+  const gpsText = document.getElementById("sheetGpsText");
+  if (gpsText) {
+    gpsText.textContent = gpsAcc ? `GPS: Stable • ${Math.round(gpsAcc)}m ✓` : "GPS: Stable ✓";
+  }
+
+  const syncStatus = store.get("sync.status");
+  const syncText = document.getElementById("sheetSyncText");
+  if (syncText) {
+    syncText.textContent = syncStatus === "offline" ? "Mode Hors ligne ✓" : "Mode Hors ligne • Synch. ✓";
+  }
+
+  // Action buttons
+  const primaryBtn = document.getElementById("sheetActionPrimary");
+  if (primaryBtn) {
+    primaryBtn.onclick = () => {
+      openCensusForm();
+    };
+  }
+
+  const routeBtn = document.getElementById("sheetActionRoute");
+  if (routeBtn) {
+    routeBtn.onclick = () => {
+      store.set("navigation.destination", { ...point });
+      store.set("navigation.active", true);
+      sheet.classList.remove("open");
+    };
+  }
+
+  const visitBtn = document.getElementById("sheetActionVisit");
+  if (visitBtn) {
+    visitBtn.textContent = point.visited ? "✓ Visité" : "✅ Marquer visité";
+    visitBtn.onclick = async () => {
+      const newVisited = !point.visited;
+      if (newVisited && !canMarkVisited(point.lat, point.lon)) return;
+      await updatePointVisit(point.id, newVisited, point.status, store.get("geo.position"));
+      const points = (store.get("points") || []).map(p =>
+        String(p.id) === String(point.id) ? { ...p, visited: newVisited } : p
+      );
+      store.set("points", points);
+      toastSuccess(newVisited ? "Point marqué comme visité." : "Visite annulée.");
+      renderMerchantBottomSheet({ ...point, visited: newVisited });
+    };
+  }
+
+  const editBtn = document.getElementById("sheetActionEdit");
+  if (editBtn) {
+    editBtn.onclick = () => {
+      openCensusForm(point);
+    };
+  }
+
+  sheet.classList.add("open");
 }
 
 function renderNavModeButtons() {
