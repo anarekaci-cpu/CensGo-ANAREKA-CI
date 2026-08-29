@@ -1230,8 +1230,26 @@ function bindEvents() {
       handleOpenCensus();
     },
     navTabReports: () => {
+      // BUG CORRIGÉ : ce bouton ouvrait le MÊME modal "Fiches recensées"
+      // pour tout le monde, sans jamais désigner d'agent — un compte agent
+      // normal (agentReportUserId jamais posé pour lui, cette variable
+      // n'étant sinon renseignée que depuis le bouton "📋 Fiches" du
+      // panneau admin, hors de portée d'un agent) tombait donc sur un
+      // modal vide en permanence. Un agent voit maintenant SES PROPRES
+      // fiches ; un admin garde en plus l'accès à celles de chaque agent
+      // via Profil -> Comptes agents -> "📋 Fiches".
+      const user = store.get("user");
+      if (!user) return;
+      agentReportUserId = user.id;
+      agentReportUserName = store.get("ui.fullName") || (store.get("ui.agentNumber") ? `Agent #${store.get("ui.agentNumber")}` : "Mon compte");
+      agentReportPeriod = "all";
+      document.querySelectorAll("#agentReportPeriodGroup .segment-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.period === "all");
+        b.setAttribute("aria-pressed", b.dataset.period === "all" ? "true" : "false");
+      });
       const reportModal = document.getElementById("agentReportModal");
       if (reportModal) reportModal.style.display = "block";
+      renderAgentReport();
     },
     navTabProfile: () => {
       if (store.get("ui.isAdmin")) {
