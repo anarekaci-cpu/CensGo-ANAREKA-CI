@@ -1042,10 +1042,14 @@ function bindEvents() {
           btn.textContent = `📥 ${Math.round((done / total) * 100)}%...`;
         }
       });
+      // sourcesFailed : fonds clair et sombre préchargés ensemble (voir
+      // offlineTiles.js) — un agent doit savoir si un seul des deux a
+      // réellement été couvert, pas juste "ça a marché" en général.
       toastSuccess(
-        `Zone préchargée : ${result.downloaded} tuiles téléchargées` +
+        `Zone préchargée (clair + sombre) : ${result.downloaded} tuiles téléchargées` +
         (result.skippedAlreadyCached ? `, ${result.skippedAlreadyCached} déjà en cache` : "") +
-        (result.failed ? `, ${result.failed} échouées` : "") + "."
+        (result.failed ? `, ${result.failed} échouées` : "") +
+        (result.sourcesFailed?.length ? ` — fond ${result.sourcesFailed.join(" et ")} indisponible, non couvert` : "") + "."
       );
     } catch (err) {
       toastError(err.message || "Échec du préchargement de la zone.");

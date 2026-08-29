@@ -10,70 +10,116 @@
  * de zoom, AVANT que l'agent ne perde la connexion — le handler CacheFirst
  * de Workbox les sert ensuite normalement, sans aucune différence avec une
  * tuile mise en cache "naturellement" en naviguant.
+ *
+ * BUG CORRIGÉ : ce module ne préchargeait QUE la source claire (OpenFreeMap)
+ * — le fond sombre (VersaTiles, voir map.js), utilisé par défaut depuis que
+ * le thème sombre est devenu le réglage par défaut de l'app (core/theme.js),
+ * n'était donc JAMAIS réellement pré-téléchargé : un agent qui préchargeait
+ * une zone en pensant être couvert hors-ligne se retrouvait avec une carte
+ * vide dès qu'il repassait (ou restait) en mode sombre sans réseau. Les deux
+ * sources sont maintenant préchargées dans le même passage.
  */
+
+import { shadow as versatilesShadow } from "@versatiles/style";
 
 const CACHE_NAME = "map-tiles";
 
-// BUG CORRIGÉ (round 2) : ce module ciblait le CDN vecteur CARTO, abandonné
-// au profit d'OpenFreeMap (voir map.js — bien plus de détail piéton :
-// passages, sentiers, carrefours, choix assumé avec l'utilisateur malgré un
-// fournisseur moins établi que CARTO). OpenFreeMap complique le
-// préchargement PROACTIF d'un détail important : son URL de tuiles porte un
-// SEGMENT DATÉ qui change à chaque rafraîchissement de leur extract planet
-// (ex: "/planet/20260823_080002_pt/{z}/{x}/{y}.pbf") — l'écrire en dur ici
-// finirait par pointer vers un instantané périmé. On résout donc TOUJOURS le
+// L'URL de tuiles OpenFreeMap porte un SEGMENT DATÉ qui change à chaque
+// rafraîchissement de leur extract planet (ex:
+// "/planet/20260823_080002_pt/{z}/{x}/{y}.pbf") — l'écrire en dur finirait
+// par pointer vers un instantané périmé. On résout donc TOUJOURS le
 // style.json et son TileJSON en direct avant de télécharger quoi que ce
 // soit, plutôt que de coder une URL figée — la même méthode sert aussi à
 // découvrir les polices réellement utilisées (text-font de chaque layer),
 // sans liste codée en dur qui se périmerait pareillement à un changement de
-// style.
-// Volontairement toujours le style CLAIR, même si l'agent est en thème
-// sombre : les styles OpenFreeMap clair/sombre partagent la MÊME source
-// vectorielle OpenMapTiles (seule la palette change), donc précharger via
-// "liberty" couvre aussi le rendu du fond de carte OpenFreeMap. Le fond
-// sombre "shadow" (VersaTiles, voir map.js) vient d'une source différente
-// (tiles.versatiles.org) : il n'est PAS couvert par ce préchargement proactif
-// — seulement mis en cache passivement par le Service Worker au fil de ce que
-// l'agent fait défiler en ligne (voir vite.config.js). Limite assumée : ce
-// module cible la zone de terrain à couvrir, pas un fournisseur de tuiles en
-// particulier.
-const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+// style. "liberty" plutôt que "bright" : styles OpenFreeMap différents mais
+// MÊME source vectorielle OpenMapTiles sous-jacente (seule la palette
+// change) — peu importe lequel des deux est utilisé pour résoudre le
+// gabarit de tuile, "bright" (voir map.js) fonctionne identiquement.
+const LIGHT_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const DARK_TILES_BASE_URL = "https://tiles.versatiles.org";
 const GLYPH_RANGE = "0-255"; // latin de base + supplément : couvre les accents français (é, è, à, ç...)
 
-let resolvedUrlsPromise = null;
+/**
+ * Normalise le champ "sprite" d'un style MapLibre : une simple chaîne
+ * (OpenFreeMap) ou un tableau {id,url} (VersaTiles, plusieurs feuilles de
+ * sprites nommées) — toujours renvoyé comme un tableau de bases d'URL.
+ */
+function normalizeSpriteBases(sprite) {
+  if (!sprite) return [];
+  return Array.isArray(sprite) ? sprite.map(s => s.url) : [sprite];
+}
+
+function extractFonts(layers) {
+  const fonts = new Set();
+  for (const layer of layers || []) {
+    const tf = layer.layout?.["text-font"];
+    if (tf) (Array.isArray(tf) ? tf : [tf]).forEach(f => fonts.add(f));
+  }
+  return [...fonts];
+}
+
+let lightResolvedPromise = null;
 
 /**
- * Résout depuis le style.json EN DIRECT (jamais codé en dur, voir
- * commentaire plus haut) : le gabarit d'URL de tuile réel + son maxzoom, le
- * sprite et la liste des polices utilisées par les layers de labels.
- * Mémorisé pour la durée de la session (variable de module) : le planet
- * OpenFreeMap ne change qu'une fois par semaine, inutile de re-résoudre à
- * chaque clic sur "précharger" — un rechargement complet de l'app (nouveau
- * chargement de ce module) redemande naturellement un instantané frais.
+ * Résout depuis le style.json OpenFreeMap EN DIRECT (jamais codé en dur,
+ * voir commentaire plus haut) : le gabarit d'URL de tuile réel + son
+ * maxzoom, les sprites et la liste des polices utilisées par les layers de
+ * labels. Mémorisé pour la durée de la session (variable de module) : le
+ * planet OpenFreeMap ne change qu'une fois par semaine, inutile de
+ * re-résoudre à chaque clic sur "précharger" — un rechargement complet de
+ * l'app (nouveau chargement de ce module) redemande naturellement un
+ * instantané frais.
  */
-async function resolveStyleUrls() {
-  if (!resolvedUrlsPromise) {
-    resolvedUrlsPromise = (async () => {
-      const style = await fetch(STYLE_URL).then(r => r.json());
+async function resolveLightStyleUrls() {
+  if (!lightResolvedPromise) {
+    lightResolvedPromise = (async () => {
+      const style = await fetch(LIGHT_STYLE_URL).then(r => r.json());
       const vectorSource = Object.values(style.sources).find(s => s.type === "vector");
       const tileJson = await fetch(vectorSource.url).then(r => r.json());
 
-      const fonts = new Set();
-      for (const layer of style.layers) {
-        const tf = layer.layout?.["text-font"];
-        if (tf) (Array.isArray(tf) ? tf : [tf]).forEach(f => fonts.add(f));
-      }
-
       return {
+        label: "clair (OpenFreeMap)",
+        styleUrl: LIGHT_STYLE_URL,
         tileTemplate: tileJson.tiles[0],
         maxzoom: tileJson.maxzoom ?? 14,
-        spriteBase: style.sprite,
+        spriteBases: normalizeSpriteBases(style.sprite),
         glyphsTemplate: style.glyphs,
-        fonts: [...fonts]
+        fonts: extractFonts(style.layers)
       };
     })();
   }
-  return resolvedUrlsPromise;
+  return lightResolvedPromise;
+}
+
+let darkResolvedPromise = null;
+
+/**
+ * Résout le style sombre VersaTiles — généré EN MÉMOIRE via @versatiles/style
+ * (même fonction que map.js), donc pas de fetch réseau pour le style
+ * lui-même (rien à mettre en cache pour ça : reconstruit à l'identique même
+ * hors-ligne). Contrairement à OpenFreeMap, le gabarit de tuile et le
+ * maxzoom sont directement embarqués dans la source (pas d'indirection
+ * TileJSON à résoudre séparément).
+ */
+async function resolveDarkStyleUrls() {
+  if (!darkResolvedPromise) {
+    darkResolvedPromise = (async () => {
+      const style = versatilesShadow({ baseUrl: DARK_TILES_BASE_URL });
+      const vectorSource = Object.values(style.sources).find(s => s.type === "vector");
+
+      return {
+        label: "sombre (VersaTiles)",
+        styleUrl: null,
+        tileTemplate: vectorSource.tiles[0],
+        maxzoom: vectorSource.maxzoom ?? 14,
+        spriteBases: normalizeSpriteBases(style.sprite),
+        glyphsTemplate: style.glyphs,
+        fonts: extractFonts(style.layers)
+      };
+    })();
+  }
+  return darkResolvedPromise;
 }
 
 function tileUrlFromTemplate(template, z, x, y) {
@@ -85,17 +131,16 @@ function glyphUrl(glyphsTemplate, font, range) {
 }
 
 /**
- * Précharge le style, le sprite (icônes) et les glyphes (police des
- * libellés) — un petit nombre de requêtes fixes, à part des milliers de
- * tuiles. Best-effort : une police ou une variante sprite manquante ne
- * bloque jamais le reste (le fond de carte reste utilisable, juste avec un
- * détail visuel en moins).
+ * Précharge le style (si son URL existe), les sprites (icônes) et les
+ * glyphes (police des libellés) d'UN résolu — un petit nombre de requêtes
+ * fixes, à part des milliers de tuiles. Best-effort : une police ou une
+ * variante sprite manquante ne bloque jamais le reste (le fond de carte
+ * reste utilisable, juste avec un détail visuel en moins).
  */
 async function cacheStaticStyleAssets(cache, resolved) {
   const urls = [
-    STYLE_URL,
-    `${resolved.spriteBase}.json`, `${resolved.spriteBase}.png`,
-    `${resolved.spriteBase}@2x.json`, `${resolved.spriteBase}@2x.png`,
+    ...(resolved.styleUrl ? [resolved.styleUrl] : []),
+    ...resolved.spriteBases.flatMap(base => [`${base}.json`, `${base}.png`, `${base}@2x.json`, `${base}@2x.png`]),
     ...resolved.fonts.map(f => glyphUrl(resolved.glyphsTemplate, f, GLYPH_RANGE))
   ];
   await Promise.all(urls.map(async (url) => {
@@ -153,14 +198,20 @@ export function computeTileList(bounds, zooms) {
 }
 
 /**
- * Télécharge et met en cache les tuiles couvrant `bounds`.
+ * Télécharge et met en cache les tuiles couvrant `bounds`, pour les DEUX
+ * fonds de carte (clair OpenFreeMap + sombre VersaTiles) — un agent qui
+ * précharge une zone reste couvert hors-ligne quel que soit le thème choisi
+ * ensuite, ou celui déjà actif au moment du basculement (voir le bug
+ * corrigé en tête de fichier). Une source dont la résolution échoue (ex:
+ * OpenFreeMap injoignable) n'empêche pas l'autre d'être préchargée — le
+ * résultat rapporte alors une couverture partielle plutôt que rien du tout.
  *
  * @param {{west:number, south:number, east:number, north:number}} bounds
  * @param {object} [options]
  * @param {number[]} [options.zooms] niveaux de zoom à précharger
- * @param {number} [options.maxTiles] garde-fou anti-abus (zone trop grande)
+ * @param {number} [options.maxTiles] garde-fou anti-abus (zone trop grande), TOTAL des deux sources
  * @param {(done:number, total:number) => void} [options.onProgress]
- * @returns {Promise<{total:number, downloaded:number, failed:number, skippedAlreadyCached:number}>}
+ * @returns {Promise<{total:number, downloaded:number, failed:number, skippedAlreadyCached:number, sourcesFailed:string[]}>}
  */
 export async function downloadOfflineTiles(bounds, {
   zooms = [12, 13, 14],
@@ -171,33 +222,42 @@ export async function downloadOfflineTiles(bounds, {
     throw new Error("Le stockage hors-ligne (Cache API) n'est pas disponible sur ce navigateur.");
   }
 
-  let resolved;
-  try {
-    resolved = await resolveStyleUrls();
-  } catch (err) {
-    throw new Error(`Impossible de récupérer les informations du fond de carte (${err?.message || "réseau indisponible"}).`);
+  const SOURCE_LABELS = ["clair", "sombre"];
+  const settled = await Promise.allSettled([resolveLightStyleUrls(), resolveDarkStyleUrls()]);
+  const resolvedList = settled.filter(r => r.status === "fulfilled").map(r => r.value);
+  // Index conservé AVANT le filter (sinon "i" ré-indexerait dans le tableau
+  // filtré et associerait le mauvais libellé à l'échec).
+  const sourcesFailed = settled
+    .map((r, i) => (r.status === "rejected" ? SOURCE_LABELS[i] : null))
+    .filter(Boolean);
+  if (resolvedList.length === 0) {
+    throw new Error("Impossible de récupérer les informations du fond de carte (réseau indisponible).");
   }
 
   // Au-delà du maxzoom réel du tuiler, aucune tuile distincte n'existe côté
   // serveur (MapLibre sur-échantillonne la plus profonde déjà en cache) — un
   // appelant qui demande un zoom plus élevé ne gaspille donc pas de requêtes
-  // sur des tuiles vectorielles inexistantes.
-  const clampedZooms = [...new Set(zooms.map(z => Math.min(z, resolved.maxzoom)))];
+  // sur des tuiles vectorielles inexistantes. Chaque source a son propre
+  // maxzoom (les deux tuileurs peuvent diverger).
+  const tasks = resolvedList.flatMap(resolved => {
+    const clampedZooms = [...new Set(zooms.map(z => Math.min(z, resolved.maxzoom)))];
+    return computeTileList(bounds, clampedZooms).map(t => ({ ...t, resolved }));
+  });
 
-  const tiles = computeTileList(bounds, clampedZooms);
-  if (tiles.length === 0) {
+  if (tasks.length === 0) {
     throw new Error("Aucune tuile à précharger pour cette zone.");
   }
-  if (tiles.length > maxTiles) {
+  if (tasks.length > maxTiles) {
     throw new Error(
-      `Zone trop grande pour un préchargement (${tiles.length} tuiles, max ${maxTiles}). ` +
+      `Zone trop grande pour un préchargement (${tasks.length} tuiles pour les deux fonds de carte, max ${maxTiles}). ` +
       "Zoomez sur une zone plus précise avant de relancer."
     );
   }
 
   const cache = await caches.open(CACHE_NAME);
-  await cacheStaticStyleAssets(cache, resolved);
-  const queue = [...tiles];
+  await Promise.all(resolvedList.map(resolved => cacheStaticStyleAssets(cache, resolved)));
+
+  const queue = [...tasks];
   let done = 0;
   let downloaded = 0;
   let failed = 0;
@@ -207,7 +267,7 @@ export async function downloadOfflineTiles(bounds, {
   async function worker() {
     while (queue.length > 0) {
       const t = queue.shift();
-      const url = tileUrlFromTemplate(resolved.tileTemplate, t.z, t.x, t.y);
+      const url = tileUrlFromTemplate(t.resolved.tileTemplate, t.z, t.x, t.y);
 
       try {
         const alreadyCached = await cache.match(url);
@@ -229,11 +289,11 @@ export async function downloadOfflineTiles(bounds, {
       }
 
       done++;
-      onProgress?.(done, tiles.length);
+      onProgress?.(done, tasks.length);
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tiles.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length) }, worker));
 
-  return { total: tiles.length, downloaded, failed, skippedAlreadyCached };
+  return { total: tasks.length, downloaded, failed, skippedAlreadyCached, sourcesFailed };
 }
