@@ -127,23 +127,18 @@ export function locateAndCenter() {
 // large pour couvrir un détour routier réaliste autour d'un obstacle
 // (lagune, fleuve — fréquent à Abidjan) sans dépasser la limite pratique de
 // coordonnées du service OSRM /table public.
-const ROAD_DISTANCE_CANDIDATE_COUNT = 12;
-
-// BUG CONFIRMÉ EN TERRAIN (nouvel audit, retour utilisateur avec capture
-// d'écran) : la présélection à ROAD_DISTANCE_CANDIDATE_COUNT (12) résout le
-// cas courant, mais échoue encore quand les 12 points les plus proches À VOL
-// D'OISEAU sont TOUS de l'autre côté d'un obstacle (lagune sans pont piéton
-// proche) — findNearestByRoad() renvoie alors `null` pour chacun d'eux
-// (aucun n'est atteignable dans le graphe piéton d'OSRM), la fonction
-// retombait directement sur byStraightLine[0], c'est-à-dire EXACTEMENT le
-// point-au-vol-d'oiseau que ce correctif est censé éviter (dans le cas vécu :
-// un point à 20+ km / 4h de marche affiché comme "le plus proche" alors que
-// des dizaines d'autres points étaient visibles bien plus près sur la carte,
-// simplement hors du pool des 12 plus proches à vol d'oiseau). Un second
-// pool, élargi, n'est tenté QUE si le premier échoue entièrement — le cas
-// courant (candidat trouvé dans les 12) ne coûte donc toujours qu'UNE seule
-// requête OSRM, comme avant.
-const ROAD_DISTANCE_CANDIDATE_COUNT_WIDE = 40;
+//
+// BUG CONFIRMÉ EN TERRAIN (deux audits distincts, dont une capture d'écran) :
+// un premier correctif limitait ce pool à 12, avec un second pool élargi à 40
+// tenté SEULEMENT si les 12 étaient TOUS inatteignables. Ça ratait le cas
+// réellement vécu : les 12 candidats les plus proches à vol d'oiseau étaient
+// bien atteignables (par un long détour), donc aucun élargissement ne se
+// déclenchait jamais — alors qu'un point réellement plus proche PAR LA ROUTE
+// (ex: de l'autre côté d'un pont proche) existait, mais classé au-delà du
+// rang 12 à vol d'oiseau, jamais soumis au calcul de distance routée. On
+// interroge donc directement ce pool large en un seul essai — findNearestByRoad()
+// a déjà démontré qu'il fonctionne à cette taille (c'était l'ancien repli).
+const ROAD_DISTANCE_CANDIDATE_COUNT = 40;
 
 /**
  * BUG CONFIRMÉ EN TERRAIN (audit) : le "plus proche" était calculé à vol
@@ -153,12 +148,9 @@ const ROAD_DISTANCE_CANDIDATE_COUNT_WIDE = 40;
  * réellement plus proches PAR LA ROUTE. On présélectionne maintenant les
  * N points les plus proches à vol d'oiseau (rapide, local, aucune requête
  * réseau) puis on les départage par distance routée réelle
- * (findNearestByRoad(), OSRM /table) — en élargissant le pool si le premier
- * essai n'a trouvé AUCUN candidat atteignable (voir
- * ROAD_DISTANCE_CANDIDATE_COUNT_WIDE ci-dessus). Repli sur le vol d'oiseau
- * pur seulement si toutes les tentatives échouent (hors-ligne, timeout,
- * aucun point du tout atteignable) — jamais de blocage total de la
- * fonctionnalité.
+ * (findNearestByRoad(), OSRM /table). Repli sur le vol d'oiseau pur
+ * seulement si la requête échoue entièrement (hors-ligne, timeout, aucun
+ * point du tout atteignable) — jamais de blocage total de la fonctionnalité.
  *
  * @param {object[]} [candidatePoints] - si fourni, restreint la recherche à
  * cet ensemble (voir appView.js: nearestBtn, qui y passe les points
@@ -202,22 +194,19 @@ export async function findNearestUnvisited(candidatePoints) {
     withinRadius: distanceKm <= CONFIG.NEAREST_SEARCH_RADIUS_KM
   });
 
-  for (const count of [ROAD_DISTANCE_CANDIDATE_COUNT, ROAD_DISTANCE_CANDIDATE_COUNT_WIDE]) {
-    const candidates = byStraightLine.slice(0, count);
-    try {
-      const best = await findNearestByRoad(position.lat, position.lng, candidates.map(c => c.point));
-      if (best) {
-        return withRadiusFlag(candidates[best.index].point, best.distanceM / 1000);
-      }
-    } catch (err) {
-      log.warn("GPS", "findNearestByRoad() indisponible, repli sur le vol d'oiseau:", err?.message || err);
-      break; // requête réellement indisponible (hors-ligne...) : élargir ne changera rien
+  const candidates = byStraightLine.slice(0, ROAD_DISTANCE_CANDIDATE_COUNT);
+  try {
+    const best = await findNearestByRoad(position.lat, position.lng, candidates.map(c => c.point));
+    if (best) {
+      return withRadiusFlag(candidates[best.index].point, best.distanceM / 1000);
     }
+  } catch (err) {
+    log.warn("GPS", "findNearestByRoad() indisponible, repli sur le vol d'oiseau:", err?.message || err);
   }
 
-  // Repli : hors-ligne, timeout, ou aucun candidat (même parmi les 40)
-  // atteignable par la route connue d'OSRM — le plus proche à vol d'oiseau
-  // reste préférable à rien, mais ce cas doit désormais être rarissime.
+  // Repli : hors-ligne, timeout, ou aucun candidat (même parmi les
+  // ROAD_DISTANCE_CANDIDATE_COUNT) atteignable par la route connue —
+  // le plus proche à vol d'oiseau reste préférable à rien.
   log.traceAlways("GPS", "findNearestUnvisited : repli sur le plus proche à vol d'oiseau (aucun candidat routé disponible)");
   if (!byStraightLine[0]) return null;
   return withRadiusFlag(byStraightLine[0].point, byStraightLine[0].distance);
