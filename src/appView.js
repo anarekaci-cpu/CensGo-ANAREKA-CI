@@ -1,7 +1,7 @@
 import { store } from "./core/store.js";
 import { CONFIG } from "./core/config.js";
 import { canMarkVisited } from "./core/geofence.js";
-import { updatePointVisit } from "./db/database.js";
+import { updatePointVisit, upsertPoint } from "./db/database.js";
 import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap, setMapTheme } from "./modules/map/map.js";
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
@@ -182,6 +182,9 @@ export async function mountAuthenticatedApp(container) {
           <div class="action-row" id="adminTrackingRow" style="display:none;">
             <button id="agentTrackingBtn" class="btn-ai-control">📍 Suivi Agents Terrain</button>
             <button id="manageAgentsBtn" class="btn-ai-control">👥 Comptes agents</button>
+          </div>
+          <div class="action-row" id="followUpRow" style="display:none;">
+            <button id="followUpBtn" class="btn-ai-control" style="grid-column: 1 / -1;">📞 Appels de suivi</button>
           </div>
           <div class="action-row" id="exportRow" style="display:none;">
             <button id="exportBtn" class="btn-export" style="grid-column: 1 / -1;">📄 Exporter CSV</button>
@@ -475,6 +478,36 @@ export async function mountAuthenticatedApp(container) {
                 <button id="agentReportExportBtn" type="button" class="btn-secondary">⬇️ CSV</button>
                 <button id="agentReportPdfBtn" type="button" class="btn-secondary">🖨️ PDF</button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Appels de suivi (demande explicite) : le recensement terrain
+             (agent) n'attribue plus lui-même Vert/Jaune/Rouge/Violet — ce
+             statut reflète l'appel de vérification que l'ADMINISTRATION
+             fait APRÈS coup pour confirmer que la personne recensée a bien
+             reçu l'information et savoir si elle est joignable/dispo. Tant
+             qu'aucun appel n'a eu lieu, un point reste "NON DEFINI" (déjà
+             la valeur par défaut à la création, voir censusFormModal.js) —
+             cette liste montre donc exactement "qui reste à appeler",
+             triée du plus récemment recensé au plus ancien pour faire
+             remonter naturellement les nouvelles fiches en premier. -->
+        <div id="followUpModal" class="ai-modal" role="dialog" aria-modal="true" aria-label="Appels de suivi" style="display:none;">
+          <div class="ai-modal-backdrop" id="followUpModalBackdrop"></div>
+          <div class="ai-modal-card">
+            <div class="ai-modal-header">
+              <div class="ai-modal-title">
+                <span class="ai-badge-icon">📞</span>
+                <div>
+                  <h3>Appels de suivi</h3>
+                  <p>Fiches recensées, pas encore vérifiées par appel</p>
+                </div>
+              </div>
+              <button id="followUpModalCloseBtn" class="ai-close-btn" aria-label="Fermer">✕</button>
+            </div>
+            <div class="ai-content-body">
+              <div id="followUpSummary" class="agents-summary"></div>
+              <div id="followUpList" class="agents-list"></div>
             </div>
           </div>
         </div>
@@ -811,6 +844,10 @@ async function refreshAdminRole() {
     // explicite, voir cadrage de la fonctionnalité).
     const tourReportRow = document.getElementById("tourReportRow");
     if (tourReportRow) tourReportRow.style.display = isAdmin ? "flex" : "none";
+    // Appels de suivi : réservé à l'admin, même logique que le reste de ce
+    // bloc — voir renderFollowUpList() pour le contenu.
+    const followUpRow = document.getElementById("followUpRow");
+    if (followUpRow) followUpRow.style.display = isAdmin ? "flex" : "none";
 
     renderAgentBadge();
     refreshEmptyStateContent();
@@ -1780,6 +1817,65 @@ async function renderInvitesList() {
   }
 }
 
+// Boutons de statut proposés lors de l'appel de suivi — mêmes libellés que
+// le filtre existant (filterStatus), voir config.js pour les couleurs.
+const FOLLOW_UP_STATUS_OPTIONS = [
+  { value: "VERT (Joignable)", label: "✅ Joignable", cls: "follow-up-btn-vert" },
+  { value: "JAUNE (Injoignable)", label: "📵 Injoignable", cls: "follow-up-btn-jaune" },
+  { value: "ROUGE (Refus)", label: "🚫 Refus", cls: "follow-up-btn-rouge" },
+  { value: "VIOLET (A verifier)", label: "❓ À vérifier", cls: "follow-up-btn-violet" }
+];
+
+/**
+ * Liste des fiches recensées mais pas encore appelées par l'administration
+ * (demande explicite) : le statut Vert/Jaune/Rouge/Violet ne reflète PLUS
+ * une appréciation de l'agent terrain au moment du recensement — il
+ * reflète l'appel de vérification que l'administration fait APRÈS coup
+ * (confirmer que la personne a bien été informée, savoir si elle est
+ * joignable). Un point neuf reste donc "NON DEFINI" (déjà la valeur par
+ * défaut à la création, voir censusFormModal.js) tant que cet appel n'a
+ * pas eu lieu — cette liste est simplement "tous les NON DEFINI", triée
+ * par date de recensement décroissante pour faire remonter les nouvelles
+ * fiches en premier (pas besoin d'un champ dédié "nouveau").
+ */
+function renderFollowUpList() {
+  const container = document.getElementById("followUpList");
+  const summary = document.getElementById("followUpSummary");
+  if (!container) return;
+
+  const pending = (store.get("points") || [])
+    .filter(p => (p.status || "NON DEFINI") === "NON DEFINI")
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+  if (summary) summary.textContent = `${pending.length} fiche${pending.length > 1 ? "s" : ""} en attente d'appel`;
+
+  if (pending.length === 0) {
+    container.innerHTML = `<div class="cities-list-empty">Tout le monde a été appelé — aucune fiche en attente.</div>`;
+    return;
+  }
+
+  container.innerHTML = pending.map(p => {
+    const tel = (p.tel || "").trim();
+    const telLink = tel
+      ? `<a href="tel:${escapeHtml(tel)}" class="tel">📞 ${escapeHtml(tel)}</a>`
+      : `<span class="tel muted">Téléphone non renseigné</span>`;
+    return `
+      <div class="agent-row" data-point-id="${escapeHtml(p.id)}">
+        <div class="agent-row-info">
+          <div class="agent-row-name">${escapeHtml(p.name || "Sans nom")}</div>
+          <div class="agent-row-email">${telLink}</div>
+          <div class="agent-row-stats">${escapeHtml(p.quartier || p.city || "Quartier non renseigné")}</div>
+        </div>
+        <div class="agent-row-actions follow-up-actions">
+          ${FOLLOW_UP_STATUS_OPTIONS.map(opt => `
+            <button type="button" class="agent-action-btn follow-up-status-btn ${opt.cls}" data-point-id="${escapeHtml(p.id)}" data-status="${escapeHtml(opt.value)}">${opt.label}</button>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function bindAgentsModalEvents() {
   const openModal = async () => {
     document.getElementById("agentsModal").style.display = "block";
@@ -1795,6 +1891,39 @@ function bindAgentsModalEvents() {
   document.getElementById("manageAgentsBtn")?.addEventListener("click", openModal);
   document.getElementById("agentsModalCloseBtn")?.addEventListener("click", closeModal);
   document.getElementById("agentsModalBackdrop")?.addEventListener("click", closeModal);
+
+  document.getElementById("followUpBtn")?.addEventListener("click", () => {
+    document.getElementById("followUpModal").style.display = "block";
+    closeControls();
+    renderFollowUpList();
+  });
+  const closeFollowUpModal = () => { document.getElementById("followUpModal").style.display = "none"; };
+  document.getElementById("followUpModalCloseBtn")?.addEventListener("click", closeFollowUpModal);
+  document.getElementById("followUpModalBackdrop")?.addEventListener("click", closeFollowUpModal);
+
+  document.getElementById("followUpList")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".follow-up-status-btn");
+    if (!btn) return;
+    const pointId = btn.dataset.pointId;
+    const status = btn.dataset.status;
+    const row = btn.closest(".agent-row");
+    row?.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await upsertPoint({ id: pointId, status });
+      // Reflet immédiat dans le store (même schéma que "Marquer visité"
+      // ci-dessus) : le pin change de couleur sur la carte et la fiche
+      // disparaît de cette liste sans attendre un rechargement complet.
+      const points = (store.get("points") || []).map(p =>
+        String(p.id) === String(pointId) ? { ...p, status } : p
+      );
+      store.set("points", points);
+      renderFollowUpList();
+      toastSuccess("Statut mis à jour après appel.");
+    } catch (err) {
+      toastError(err.message || "Échec de la mise à jour du statut.");
+      row?.querySelectorAll("button").forEach(b => { b.disabled = false; });
+    }
+  });
 
   document.getElementById("agentsList")?.addEventListener("click", async (e) => {
     // Le bouton "📋 Fiches" partage la classe .agent-action-btn pour son style
