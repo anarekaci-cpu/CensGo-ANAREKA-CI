@@ -1063,7 +1063,24 @@ function bindEvents() {
 
     const points = store.get("points").filter(p => !p.visited);
     const { generateOptimizedTour, startTour } = await getTourModule();
-    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading });
+
+    // BUG signalé (audit) : le premier arrêt de la tournée pouvait diverger
+    // du résultat du bouton "Plus proche" — le glouton géométrique de
+    // tourPlanner.js ignore la route réelle (lagune, sens unique...) pour
+    // TOUS ses choix, par conception (voir ce module). On corrige au moins
+    // le TOUT PREMIER arrêt via le même calcul routier que "Plus proche"
+    // (findNearestUnvisited, déjà ORS/OSRM avec repli vol d'oiseau) — un
+    // seul appel réseau, pas un par étape. Best-effort : un échec réseau ne
+    // bloque pas la génération, le glouton géométrique reste un repli valide.
+    let forcedFirstStopId;
+    try {
+      const nearest = await findNearestUnvisited(points);
+      if (nearest?.point) forcedFirstStopId = nearest.point.id;
+    } catch (err) {
+      console.warn("Correction du premier arrêt de tournée par la route échouée, repli géométrique:", err?.message || err);
+    }
+
+    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading }, undefined, forcedFirstStopId);
     if (tour.length === 0) {
       toastInfo("Tous les points non-visités ont déjà été traités !");
       return;

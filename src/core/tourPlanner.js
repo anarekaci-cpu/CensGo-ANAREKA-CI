@@ -57,9 +57,20 @@ const DIRECTION_PENALTY_PER_DEGREE_M = 2;
  *   PREMIER arrêt (sinon ce premier choix reste un plus-proche-voisin pur,
  *   faute de direction connue avant tout déplacement).
  * @param {number} [maxStops=MAX_TOUR_STOPS]
+ * @param {string|number} [forcedFirstStopId] - id d'un point à imposer comme
+ *   TOUT PREMIER arrêt, quel que soit son score géométrique. Résolu par
+ *   l'appelant (voir appView.js: tourBtn) via findNearestUnvisited(), qui
+ *   connaît la distance ROUTIÈRE réelle (ORS/OSRM) — le glouton ci-dessous
+ *   reste volontairement géométrique/hors-ligne pour TOUS LES AUTRES arrêts
+ *   (un aller-retour réseau par étape serait trop coûteux, voir plus haut),
+ *   mais un seul appel réseau pour ce premier choix est un compromis
+ *   raisonnable : c'est celui qui donne le plus l'impression d'un calcul
+ *   "faux" quand il diverge de ce que répond le bouton "Plus proche" (BUG
+ *   signalé : la lagune/un sens unique peut rendre un point géométriquement
+ *   proche en réalité inatteignable directement, et vice-versa).
  * @returns {object[]} tournée ordonnée, chaque point porte distanceFromPrev (km)
  */
-export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOPS) {
+export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOPS, forcedFirstStopId) {
   if (!Array.isArray(points) || !startPos) return [];
 
   const usable = points.filter(p =>
@@ -76,12 +87,32 @@ export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOP
       .sort((a, b) => a.d0 - b.d0)
       .slice(0, maxStops)
       .map(e => e.p);
+
+    // Le point forcé doit survivre à la troncature même s'il n'est pas
+    // parmi les maxStops plus proches À VOL D'OISEAU — la route réelle peut
+    // légitimement diverger de la géométrie (lagune, sens unique...),
+    // c'est exactement ce que cette correction doit rattraper.
+    if (forcedFirstStopId != null && !candidates.some(p => p.id === forcedFirstStopId)) {
+      const forced = usable.find(p => p.id === forcedFirstStopId);
+      if (forced) candidates = [forced, ...candidates.slice(0, maxStops - 1)];
+    }
   }
 
   const tour = [];
   let current = { lat: startPos.lat, lng: startPos.lng };
   let heading = Number.isFinite(startPos.heading) ? startPos.heading : null;
   const remaining = [...candidates];
+
+  if (forcedFirstStopId != null) {
+    const idx = remaining.findIndex(p => p.id === forcedFirstStopId);
+    if (idx !== -1) {
+      const first = remaining.splice(idx, 1)[0];
+      const distKm = haversineKm(current.lat, current.lng, first.lat, first.lon);
+      tour.push({ ...first, distanceFromPrev: distKm });
+      heading = bearingDeg(current.lat, current.lng, first.lat, first.lon);
+      current = { lat: first.lat, lng: first.lon };
+    }
+  }
 
   while (remaining.length > 0) {
     let bestIdx = 0;
@@ -113,7 +144,11 @@ export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOP
     current = { lat: next.lat, lng: next.lon };
   }
 
-  return _twoOptImprove(tour, startPos);
+  // lockFirstStop : si un premier arrêt a été imposé (vérifié par la route
+  // réelle), le 2-opt ne doit pas pouvoir l'échanger avec l'arrêt suivant —
+  // sinon la correction ci-dessus serait silencieusement défaite dès que
+  // l'échange réduit la distance géométrique totale.
+  return _twoOptImprove(tour, startPos, 4, forcedFirstStopId != null && tour.length > 0 && tour[0].id === forcedFirstStopId);
 }
 
 /**
@@ -155,7 +190,13 @@ export function generateOptimizedTour(points, startPos, maxStops = MAX_TOUR_STOP
  */
 const MIN_IMPROVEMENT_M = 1;
 
-function _twoOptImprove(tourStops, startPos, maxPasses = 4) {
+/**
+ * @param {boolean} [lockFirstStop] - si vrai, le premier arrêt (nodes[1],
+ *   déjà imposé par generateOptimizedTour via findNearestByRoad) ne peut
+ *   jamais être échangé — la boucle démarre alors à i=1 au lieu de i=0,
+ *   qui swapperait précisément nodes[1] avec nodes[2].
+ */
+function _twoOptImprove(tourStops, startPos, maxPasses = 4, lockFirstStop = false) {
   const n = tourStops.length;
   if (n < 3) return tourStops;
 
@@ -183,7 +224,7 @@ function _twoOptImprove(tourStops, startPos, maxPasses = 4) {
     improved = false;
     pass++;
 
-    for (let i = 0; i < len - 2; i++) {
+    for (let i = (lockFirstStop ? 1 : 0); i < len - 2; i++) {
       const j = i + 2; // échange des arrêts i+1 et j (adjacents)
       const hasNextEdge = j + 1 < len;
       // 3 arêtes avant : (i,i+1), (i+1,j), (j,j+1 si elle existe).

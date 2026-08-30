@@ -97,6 +97,45 @@ describe("generateOptimizedTour", () => {
     expect(withoutHeading[0].id).toBe("X");
   });
 
+  // forcedFirstStopId : correctif "premier arrêt = résultat de 'Plus
+  // proche'" (audit terrain — le glouton géométrique ignore la route réelle
+  // pour TOUS ses choix, l'appelant corrige au moins le tout premier via un
+  // calcul routier séparé, voir appView.js: tourBtn).
+  describe("forcedFirstStopId", () => {
+    it("impose le premier arrêt même s'il n'est pas le plus proche géométriquement", () => {
+      // "loin" est objectivement plus proche à vol d'oiseau que "route" —
+      // sans forçage, le glouton choisirait "loin" en premier (cf. test
+      // "ordre plus-proche-voisin" ci-dessus). Le forçage doit l'emporter.
+      const proche = mkPoint("proche", 5.3505, -3.9905);
+      const route = mkPoint("route", 5.40, -4.05);
+
+      const tour = generateOptimizedTour([proche, route], start, undefined, "route");
+      expect(tour[0].id).toBe("route");
+      expect(tour.map(p => p.id)).toEqual(["route", "proche"]);
+    });
+
+    it("le 2-opt ne peut pas échanger le premier arrêt imposé", () => {
+      // Même géométrie que le test "balaie plusieurs points alignés" —
+      // sans lockFirstStop, le 2-opt réordonnerait A/B/C par distance pure ;
+      // avec un forçage sur B, B doit rester en première position même si
+      // ça laisse un trajet géométriquement moins optimal.
+      const A = mkPoint("A", 5.3510, -3.9900);
+      const B = mkPoint("B", 5.3520, -3.9900);
+      const C = mkPoint("C", 5.3530, -3.9900);
+
+      const tour = generateOptimizedTour([C, A, B], start, undefined, "B");
+      expect(tour[0].id).toBe("B");
+    });
+
+    it("id forcé absent de la liste : repli silencieux sur le glouton normal", () => {
+      const tour = generateOptimizedTour(
+        [mkPoint("proche", 5.3505, -3.9905), mkPoint("loin", 5.60, -4.30)],
+        start, undefined, "inexistant"
+      );
+      expect(tour[0].id).toBe("proche");
+    });
+  });
+
   it("plafonné à MAX_TOUR_STOPS — pas d'explosion O(N²) sur 10k points", () => {
     const pts = [];
     for (let i = 0; i < 10000; i++) {
