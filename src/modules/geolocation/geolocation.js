@@ -128,17 +128,26 @@ export function locateAndCenter() {
 // (lagune, fleuve — fréquent à Abidjan) sans dépasser la limite pratique de
 // coordonnées du service OSRM /table public.
 //
-// BUG CONFIRMÉ EN TERRAIN (deux audits distincts, dont une capture d'écran) :
-// un premier correctif limitait ce pool à 12, avec un second pool élargi à 40
-// tenté SEULEMENT si les 12 étaient TOUS inatteignables. Ça ratait le cas
-// réellement vécu : les 12 candidats les plus proches à vol d'oiseau étaient
-// bien atteignables (par un long détour), donc aucun élargissement ne se
-// déclenchait jamais — alors qu'un point réellement plus proche PAR LA ROUTE
-// (ex: de l'autre côté d'un pont proche) existait, mais classé au-delà du
-// rang 12 à vol d'oiseau, jamais soumis au calcul de distance routée. On
-// interroge donc directement ce pool large en un seul essai — findNearestByRoad()
-// a déjà démontré qu'il fonctionne à cette taille (c'était l'ancien repli).
-const ROAD_DISTANCE_CANDIDATE_COUNT = 40;
+// BUG CONFIRMÉ EN TERRAIN (trois audits distincts, dont deux captures
+// d'écran) : un premier correctif limitait ce pool à 12, avec un second pool
+// élargi à 40 tenté SEULEMENT si les 12 étaient TOUS inatteignables. Ça
+// ratait le cas réellement vécu : les 12 (puis les 40) candidats les plus
+// proches à vol d'oiseau étaient bien atteignables (par un long détour),
+// donc aucun élargissement ne se déclenchait jamais — alors qu'un point
+// réellement plus proche PAR LA ROUTE (ex: de l'autre côté d'un pont
+// proche) existait, mais classé au-delà du rang 12 (puis 40) à vol
+// d'oiseau, jamais soumis au calcul de distance routée. Le même schéma
+// s'est reproduit à 40 dans une zone très dense (village d'Abatta,
+// Bingerville — des dizaines de points recensés sur quelques centaines de
+// mètres) : le pool ne "voyait" jamais le point le plus proche par la
+// route, classé trop loin à vol d'oiseau par la seule densité locale.
+// Élargi à 80 — reste largement dans les limites pratiques d'OSRM /table
+// et de la Matrix API ORS (un seul appel réseau, pas un par candidat). Ce
+// n'est pas une solution définitive (une zone encore plus dense pourrait
+// reproduire le même problème) mais un pool deux fois plus large réduit
+// fortement la fréquence du cas — voir aussi le commentaire de
+// findNearestByRoad() (routing.js) pour la bascule ORS/OSRM elle-même.
+const ROAD_DISTANCE_CANDIDATE_COUNT = 80;
 
 /**
  * BUG CONFIRMÉ EN TERRAIN (audit) : le "plus proche" était calculé à vol
