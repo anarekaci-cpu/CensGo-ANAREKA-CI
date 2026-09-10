@@ -18,7 +18,7 @@ import { distanceToPolylineMeters, remainingRouteDistanceMeters, bearingDeg, car
 import { speak, cancelSpeech } from "../../core/speech.js";
 import { toastInfo, toastWarning } from "../../core/toast.js";
 import { log } from "../../core/debug.js";
-import { flyToPoint, enableCameraFollow } from "../map/map.js";
+import { flyToPoint, enableCameraFollow, setNav3DView } from "../map/map.js";
 import { isRushHour } from "../traffic/trafficHeuristic.js";
 import { enableNavigationWakeLock, disableNavigationWakeLock } from "../../core/wakeLock.js";
 import { haptic } from "../../core/haptics.js";
@@ -111,9 +111,11 @@ export function initNavigation() {
       if (active) {
         enableCameraFollow();
         enableNavigationWakeLock();
+        setNav3DView(true); // caméra inclinée (pitch 45°) pendant le guidage
         scheduleStartNavigation();
       } else {
         disableNavigationWakeLock();
+        setNav3DView(false); // retour à plat en fin de navigation
 
         if (pendingNavFrame) {
           cancelAnimationFrame(pendingNavFrame);

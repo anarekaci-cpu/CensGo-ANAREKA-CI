@@ -333,6 +333,22 @@ const ROUTE_LINE_STYLES = {
   car: { "line-color": "#dc2626", "line-width": 5.5, "line-opacity": 0.95, "line-cap": "round" }
 };
 
+// Effet néon : lueur cyan large et floutée sous le tracé (voir --route-core).
+// Le CŒUR garde la couleur du MODE (piéton orange / vélo bleu / véhicule
+// rouge) — information utile sur le terrain à ne pas perdre au profit d'une
+// teinte unique. La lueur, elle, donne la signature "néon" moderne.
+const ROUTE_GLOW_COLOR = "#00F0FF";
+
+const ROUTE_LAYER_IDS = ["route-line-arrows", "route-line-layer", "route-line-casing", "route-line-glow"];
+
+function removeRouteLayers() {
+  if (!mapInstance) return;
+  for (const id of ROUTE_LAYER_IDS) {
+    if (mapInstance.getLayer(id)) mapInstance.removeLayer(id);
+  }
+  if (mapInstance.getSource("route-line")) mapInstance.removeSource("route-line");
+}
+
 export function addRouteLayer(geojson, mode) {
   if (!mapInstance) {
     log.trace("ROUTE", "STOP addRouteLayer: mapInstance null");
@@ -348,26 +364,36 @@ export function addRouteLayer(geojson, mode) {
     return;
   }
 
-  if (mapInstance.getLayer("route-line-layer")) {
-    mapInstance.removeLayer("route-line-layer");
-  }
-  if (mapInstance.getLayer("route-line-casing")) {
-    mapInstance.removeLayer("route-line-casing");
-  }
-  if (mapInstance.getSource("route-line")) {
-    mapInstance.removeSource("route-line");
-  }
+  removeRouteLayers();
 
   const { "line-cap": lineCap, ...paint } = ROUTE_LINE_STYLES[mode] || ROUTE_LINE_STYLES.car;
+  const coreWidth = paint["line-width"];
 
   mapInstance.addSource("route-line", { type: "geojson", data: geojson });
+
+  // 1. Lueur externe : large + floutée (effet néon).
+  mapInstance.addLayer({
+    id: "route-line-glow",
+    type: "line",
+    source: "route-line",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": ROUTE_GLOW_COLOR,
+      "line-width": coreWidth + 10,
+      "line-blur": 6,
+      "line-opacity": 0.35
+    }
+  });
+  // 2. Fin liseré sombre : détache le tracé d'un fond clair (surtout mode
+  //    piéton pointillé) sans ré-introduire l'ancien gros casing blanc.
   mapInstance.addLayer({
     id: "route-line-casing",
     type: "line",
     source: "route-line",
     layout: { "line-cap": lineCap, "line-join": "round" },
-    paint: { "line-color": "#ffffff", "line-width": paint["line-width"] + 4, "line-opacity": 0.9 }
+    paint: { "line-color": "rgba(15,23,42,0.55)", "line-width": coreWidth + 2, "line-opacity": 0.7 }
   });
+  // 3. Cœur net et vif (couleur du mode).
   mapInstance.addLayer({
     id: "route-line-layer",
     type: "line",
@@ -375,11 +401,45 @@ export function addRouteLayer(geojson, mode) {
     layout: { "line-cap": lineCap, "line-join": "round" },
     paint
   });
+  // 4. Flèches directionnelles répétées le long du tracé.
+  mapInstance.addLayer({
+    id: "route-line-arrows",
+    type: "symbol",
+    source: "route-line",
+    layout: {
+      "symbol-placement": "line",
+      "symbol-spacing": 90,
+      "text-field": "▸",
+      "text-font": ["Noto Sans Regular"],
+      "text-size": 16,
+      "text-rotation-alignment": "map",
+      "text-pitch-alignment": "map",
+      "text-keep-upright": false,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true
+    },
+    paint: {
+      "text-color": "#ffffff",
+      "text-halo-color": "#0f172a",
+      "text-halo-width": 1.4,
+      "text-opacity": 0.9
+    }
+  });
 
   log.traceAlways("ROUTE",
-    `map source="route-line" ajoutée, layer="route-line-layer" ajouté (mode=${mode || "car"})`,
+    `map source="route-line" ajoutée, layers néon + flèches ajoutés (mode=${mode || "car"})`,
     `${geojson?.coordinates?.length || 0} points de tracé`);
   return { sourceId: "route-line", layerId: "route-line-layer" };
+}
+
+/**
+ * Bascule la caméra en vue 3D inclinée pendant une navigation (pitch 45°),
+ * ou la remet à plat. Appelé par modules/navigation/navigation.js à
+ * l'activation / l'arrêt d'un itinéraire.
+ */
+export function setNav3DView(on) {
+  if (!mapInstance) return;
+  mapInstance.easeTo({ pitch: on ? 45 : 0, duration: 800, essential: true });
 }
 
 // Rayon maximal affiché pour le cercle de précision GPS : au-delà, le
@@ -513,16 +573,7 @@ export function hideUserLocation() {
 }
 
 export function clearRouteLayers() {
-  if (!mapInstance) return;
-  if (mapInstance.getLayer("route-line-layer")) {
-    mapInstance.removeLayer("route-line-layer");
-  }
-  if (mapInstance.getLayer("route-line-casing")) {
-    mapInstance.removeLayer("route-line-casing");
-  }
-  if (mapInstance.getSource("route-line")) {
-    mapInstance.removeSource("route-line");
-  }
+  removeRouteLayers();
 }
 
 /**

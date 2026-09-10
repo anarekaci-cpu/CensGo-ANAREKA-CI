@@ -11,6 +11,7 @@ const routingMocks = vi.hoisted(() => ({
 vi.mock("../modules/map/map.js", () => ({
   flyToPoint: vi.fn(),
   enableCameraFollow: vi.fn(),
+  setNav3DView: vi.fn(),
   getMap: vi.fn(() => null)
 }));
 
