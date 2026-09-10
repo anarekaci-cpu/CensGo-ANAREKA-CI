@@ -44,6 +44,16 @@ export const CONFIG = {
   // Edge Function déployée et ses secrets configurés.
   ENABLE_SHEETS_SYNC: import.meta.env.VITE_ENABLE_SHEETS_SYNC === 'true',
 
+  // Chargement spatial par emprise (BBOX) — opt-in. À activer SEULEMENT après
+  // avoir exécuté supabase/add_spatial_bbox.sql (extension PostGIS + colonne
+  // geog + index GiST + RPC census_points_in_bbox). Tant que false, l'app
+  // charge le recensement complet comme avant. Voir dataLoader.js:
+  // refreshPointsInBounds().
+  ENABLE_BBOX_LOADING: import.meta.env.VITE_ENABLE_BBOX_LOADING === 'true',
+  // Plafond de lignes rapatriées par requête d'emprise (le RPC borne aussi
+  // à 10000 côté serveur).
+  BBOX_MAX_ROWS: Number(import.meta.env.VITE_BBOX_MAX_ROWS) || 2000,
+
   // Cartographie
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles
   // sont utilisées par src/modules/map/map.js -> la carte ne s'initialisait jamais.

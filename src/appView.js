@@ -5,7 +5,7 @@ import { updatePointVisit, upsertPoint } from "./db/database.js";
 import { getSupabaseClient } from "./core/supabase.js";
 import { initMap, fitToBounds, flyToPoint, toggleCoverageHeatmap, updateCoverageHeatmap, getMap, setMapTheme } from "./modules/map/map.js";
 import { downloadOfflineTiles } from "./modules/map/offlineTiles.js";
-import { loadCensusData } from "./modules/census/dataLoader.js";
+import { loadCensusData, refreshPointsInBounds } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation, chooseRouteAlternative } from "./modules/navigation/navigation.js";
 import { initHazards } from "./modules/hazards/hazards.js";
@@ -20,7 +20,7 @@ import { loadCities, addCity, removeCity } from "./core/cities.js";
 import { listInvites, createInvite, revokeInvite, buildInviteUrl } from "./core/invites.js";
 import { loadTourSessions } from "./core/tourSessions.js";
 import { confirmAction } from "./core/confirmModal.js";
-import { escapeHtml, normalizePointId } from "./core/utils.js";
+import { escapeHtml, normalizePointId, debounce } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
 import { computeTourAsync } from "./core/computeClient.js";
@@ -701,6 +701,21 @@ async function initApp() {
   appEventsInitialized = true;
 
   const points = await loadCensusData();
+
+  // Chargement spatial par emprise (opt-in VITE_ENABLE_BBOX_LOADING) : sur un
+  // très gros recensement, rafraîchit le détail de la seule zone regardée
+  // quand l'agent déplace la carte. No-op (et sans coût) si le flag est off.
+  if (CONFIG.ENABLE_BBOX_LOADING) {
+    const map = getMap();
+    if (map) {
+      const onViewportChange = debounce(() => {
+        const b = map.getBounds();
+        refreshPointsInBounds({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() });
+      }, 500);
+      map.on("moveend", onViewportChange);
+      onViewportChange();
+    }
+  }
 
   populateBlockFilter(points);
   populateQuartierFilter(points);

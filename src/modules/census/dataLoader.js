@@ -4,6 +4,7 @@ import { store } from "../../core/store.js";
 import { savePoints, mergePoints, getAllPoints, getMeta, setMeta } from "../../db/database.js";
 import { normalizePoint } from "../../core/normalize.js";
 import { log, isVerbose } from "../../core/debug.js";
+import { bboxRpcArgs, boundsChangedEnough } from "../../core/bboxLoader.js";
 
 // Traduit une erreur Supabase/PostgREST en message actionnable pour un
 // agent terrain. Sans ça, une policy RLS bloquante ou une table vide
@@ -125,6 +126,58 @@ export async function fetchAllPages(supabase, { since = null } = {}) {
     console.info(`📥 [DATA] Page ${page + 1} reçue (${allRows.length} lignes)...`);
   }
   return allRows;
+}
+
+/**
+ * Charge les points dans l'emprise `bounds` via le RPC PostGIS
+ * census_points_in_bbox (voir supabase/add_spatial_bbox.sql). Renvoie les
+ * lignes brutes (non normalisées). Chaque appel a son propre timeout.
+ */
+export async function fetchPointsInBounds(supabase, bounds, maxRows = CONFIG.BBOX_MAX_ROWS) {
+  const args = bboxRpcArgs(bounds, { maxRows });
+  if (!args) return [];
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
+  try {
+    const { data, error } = await supabase.rpc("census_points_in_bbox", args).abortSignal(controller.signal);
+    if (error) throw error;
+    return data || [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+let lastBboxBounds = null;
+
+/**
+ * Rafraîchit le détail de la zone actuellement visible sur la carte — appelé
+ * (débouncé) sur "moveend" quand VITE_ENABLE_BBOX_LOADING=true. FUSIONNE
+ * (mergePoints) : ne supprime jamais les points hors écran déjà en cache,
+ * pour préserver la continuité hors-ligne. No-op si le flag est off, hors
+ * ligne, ou si l'emprise n'a pas assez bougé depuis le dernier appel.
+ *
+ * @returns {Promise<number|null>} nombre de points fusionnés, ou null si sauté.
+ */
+export async function refreshPointsInBounds(bounds, { force = false } = {}) {
+  if (!CONFIG.ENABLE_BBOX_LOADING || !navigator.onLine) return null;
+  if (!force && !boundsChangedEnough(lastBboxBounds, bounds)) return null;
+
+  try {
+    const supabase = getSupabaseClient();
+    const rows = await fetchPointsInBounds(supabase, bounds);
+    lastBboxBounds = bounds;
+    if (rows.length === 0) return 0;
+    const formatted = rows.map(normalizePoint);
+    await mergePoints(formatted);
+    store.set("points", await getAllPoints());
+    log.trace("BBOX", `merged ${formatted.length} point(s) pour l'emprise visible`);
+    return formatted.length;
+  } catch (err) {
+    // Best-effort : un échec de rafraîchissement d'emprise ne casse rien
+    // (les points déjà chargés restent affichés).
+    log.warn("BBOX", err?.message || err);
+    return null;
+  }
 }
 
 // Promesse partagée : plusieurs modules peuvent demander un chargement au
