@@ -267,6 +267,8 @@ export function initMap(containerId = "map") {
   // FUSION visuelle en bulles est désactivée.
   clusterInstance = new Supercluster({ radius: 60, maxZoom: 17, minPoints: Infinity });
 
+  mapInstance.once("load", add3DBuildings);
+
   return mapInstance;
 }
 
@@ -296,6 +298,7 @@ export function setMapTheme(theme) {
     if (route?.geometry) addRouteLayer(route.geometry, mode);
     if (pos) showUserLocation(pos.lat, pos.lng, pos.accuracy);
     if (satelliteVisible) addSatelliteLayer();
+    add3DBuildings();
   });
   mapInstance.setStyle(nextUrl);
 }
@@ -440,6 +443,71 @@ export function addRouteLayer(geojson, mode) {
 export function setNav3DView(on) {
   if (!mapInstance) return;
   mapInstance.easeTo({ pitch: on ? 45 : 0, duration: 800, essential: true });
+}
+
+const BUILDINGS_LAYER_ID = "buildings-3d";
+
+/**
+ * Choisit la source vectorielle qui porte les bâtiments (pur, testable).
+ * OpenFreeMap (schéma OpenMapTiles) et VersaTiles (Shortbread) nomment tous
+ * deux la source-layer "building" mais pas forcément la SOURCE de la même
+ * façon — on part donc d'une couche "building" déjà déclarée dans le style,
+ * sinon de la première source vecteur.
+ * @param {object} style - résultat de map.getStyle()
+ * @returns {string|null}
+ */
+export function pickBuildingSourceId(style) {
+  const layers = style?.layers || [];
+  const fromLayer = layers.find(l => l["source-layer"] === "building" && l.source);
+  if (fromLayer) return fromLayer.source;
+  const sources = style?.sources || {};
+  return Object.keys(sources).find(id => sources[id]?.type === "vector") || null;
+}
+
+/**
+ * Ajoute la couche fill-extrusion des bâtiments (zoom >= 15). Hauteur tirée
+ * de `render_height` (OpenMapTiles) ou `height` (Shortbread), avec repli.
+ * Insérée sous la première couche de libellés pour ne pas masquer les rues.
+ * Réappliquée après un changement de style (bascule de thème).
+ */
+function add3DBuildings() {
+  if (!CONFIG.ENABLE_3D_BUILDINGS || !mapInstance) return;
+  if (!mapInstance.isStyleLoaded()) { mapInstance.once("idle", add3DBuildings); return; }
+  if (mapInstance.getLayer(BUILDINGS_LAYER_ID)) return;
+
+  const style = mapInstance.getStyle();
+  const srcId = pickBuildingSourceId(style);
+  if (!srcId) {
+    log.trace("MAP", "3D buildings : aucune source vecteur trouvée dans le style");
+    return;
+  }
+
+  const dark = getEffectiveTheme() === "dark";
+  const firstSymbolId = (style.layers || []).find(l => l.type === "symbol")?.id;
+  const heightExpr = ["coalesce", ["get", "render_height"], ["get", "height"], 6];
+  const baseExpr = ["coalesce", ["get", "render_min_height"], ["get", "min_height"], 0];
+
+  try {
+    mapInstance.addLayer({
+      id: BUILDINGS_LAYER_ID,
+      type: "fill-extrusion",
+      source: srcId,
+      "source-layer": "building",
+      minzoom: 15,
+      paint: {
+        "fill-extrusion-color": dark ? "#2a3550" : "#dcdee6",
+        // Montée progressive entre z15 et z16 : évite un "pop" brutal des
+        // volumes quand on franchit le seuil.
+        "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, heightExpr],
+        "fill-extrusion-base": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, baseExpr],
+        "fill-extrusion-opacity": 0.6
+      }
+    }, firstSymbolId);
+  } catch (err) {
+    // Schéma de tuiles inattendu : on renonce silencieusement aux volumes 3D,
+    // le fond de carte 2D reste pleinement fonctionnel.
+    log.warn("MAP", "3D buildings non ajoutés:", err?.message || err);
+  }
 }
 
 // Rayon maximal affiché pour le cercle de précision GPS : au-delà, le

@@ -33,6 +33,10 @@ export const CONFIG = {
   // Features
   ENABLE_OFFLINE: import.meta.env.VITE_ENABLE_OFFLINE !== 'false',
   ENABLE_TOUR_OPTIMIZATION: import.meta.env.VITE_ENABLE_TOUR_OPTIMIZATION !== 'false',
+  // Volumes de bâtiments 3D (fill-extrusion) à partir du zoom 15. Activé par
+  // défaut ; VITE_ENABLE_3D_BUILDINGS=false pour le couper si un parc
+  // d'appareils d'entrée de gamme montre des saccades (voir map.js).
+  ENABLE_3D_BUILDINGS: import.meta.env.VITE_ENABLE_3D_BUILDINGS !== 'false',
   // Désactivé par défaut (opt-in, contrairement aux flags ci-dessus) : le
   // double envoi Google Sheets (Partie C roadmap) dépend d'une Edge
   // Function déployée + de credentials Google configurés côté serveur

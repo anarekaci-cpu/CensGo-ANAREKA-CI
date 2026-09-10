@@ -6,7 +6,7 @@ vi.mock("maplibre-gl", () => ({ default: {}, Map: class {}, NavigationControl: c
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("@versatiles/style", () => ({ shadow: () => ({}) }));
 
-const { compassNeedleTransform } = await import("../modules/map/map.js");
+const { compassNeedleTransform, pickBuildingSourceId } = await import("../modules/map/map.js");
 
 describe("compassNeedleTransform", () => {
   it("cap 0 -> aiguille à 0°", () => {
@@ -27,5 +27,31 @@ describe("compassNeedleTransform", () => {
   it("entrée non numérique -> 0°", () => {
     expect(compassNeedleTransform(undefined)).toBe("rotate(0.0deg)");
     expect(compassNeedleTransform(NaN)).toBe("rotate(0.0deg)");
+  });
+});
+
+describe("pickBuildingSourceId", () => {
+  it("prend la source d'une couche 'building' déjà déclarée", () => {
+    const style = {
+      sources: { openmaptiles: { type: "vector" }, sat: { type: "raster" } },
+      layers: [
+        { id: "water", source: "openmaptiles", "source-layer": "water" },
+        { id: "building", source: "openmaptiles", "source-layer": "building" }
+      ]
+    };
+    expect(pickBuildingSourceId(style)).toBe("openmaptiles");
+  });
+
+  it("repli sur la première source vecteur si aucune couche building", () => {
+    const style = {
+      sources: { basemap: { type: "vector" }, sat: { type: "raster" } },
+      layers: [{ id: "roads", source: "basemap", "source-layer": "transportation" }]
+    };
+    expect(pickBuildingSourceId(style)).toBe("basemap");
+  });
+
+  it("null si aucune source vecteur", () => {
+    expect(pickBuildingSourceId({ sources: { sat: { type: "raster" } }, layers: [] })).toBeNull();
+    expect(pickBuildingSourceId(null)).toBeNull();
   });
 });
