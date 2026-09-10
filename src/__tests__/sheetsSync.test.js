@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
   getPendingSyncs: vi.fn(async () => []),
+  getDueSyncs: vi.fn(async () => []),
   markSyncDone: vi.fn(async () => {}),
   markSyncFailed: vi.fn(async () => {}),
   markPointSynced: vi.fn(async () => {}),

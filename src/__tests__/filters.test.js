@@ -76,6 +76,14 @@ describe("passesFilters", () => {
   it("point null -> false sans exception", () => {
     expect(passesFilters(null, DEFAULT_FILTERS)).toBe(false);
   });
+
+  it("filters absent -> traité comme DEFAULT_FILTERS (tout passe)", () => {
+    expect(passesFilters(P("a"), undefined)).toBe(true);
+  });
+
+  it("la recherche couvre aussi l'identifiant du point", () => {
+    expect(passesFilters(P("arka_abc123"), { ...DEFAULT_FILTERS, search: "abc123" })).toBe(true);
+  });
 });
 
 describe("filterPoints", () => {
@@ -100,5 +108,10 @@ describe("filterPoints", () => {
     expect(filtered).toHaveLength(1);
     const reset = filterPoints(pts, DEFAULT_FILTERS);
     expect(reset).toHaveLength(3);
+  });
+
+  it("entrée non-tableau -> [] sans exception", () => {
+    expect(filterPoints(null, DEFAULT_FILTERS)).toEqual([]);
+    expect(filterPoints(undefined, { ...DEFAULT_FILTERS, block: "1" })).toEqual([]);
   });
 });

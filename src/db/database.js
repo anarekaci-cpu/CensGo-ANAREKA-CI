@@ -1,6 +1,7 @@
 import Dexie from "dexie";
 import { CONFIG } from "../core/config.js";
 import { normalizePointId } from "../core/utils.js";
+import { nextRetryAtIso, isRetryDue } from "../core/backoff.js";
 
 export const db = new Dexie(CONFIG.DB_NAME);
 
@@ -504,6 +505,19 @@ export async function getPendingSyncs() {
   return await db.syncQueue.where("status").equals("pending").toArray();
 }
 
+/**
+ * Sous-ensemble de getPendingSyncs() effectivement envoyable MAINTENANT :
+ * exclut les items encore en backoff exponentiel après un échec récent
+ * (voir markSyncFailed() + core/backoff.js). getPendingSyncs() reste la
+ * référence pour le COMPTEUR affiché à l'agent (une opération en backoff est
+ * toujours "en attente"), getDueSyncs() pilote la boucle d'envoi.
+ */
+export async function getDueSyncs() {
+  const now = Date.now();
+  const pending = await db.syncQueue.where("status").equals("pending").toArray();
+  return pending.filter(item => isRetryDue(item, now));
+}
+
 export async function markSyncDone(queueId) {
   await db.syncQueue.delete(queueId);
 }
@@ -519,7 +533,14 @@ export async function markSyncFailed(queueId, errorMsg, maxAttempts = 3) {
   await db.syncQueue.update(queueId, {
     status: dead ? "dead" : "pending",
     error: errorMsg,
-    attempts
+    attempts,
+    // Backoff exponentiel (core/backoff.js) : tant qu'il reste des
+    // tentatives, l'item n'est PAS renvoyé au tick suivant — il attend une
+    // échéance croissante (1 s, 2 s, 4 s… plafond 5 min). Évite le
+    // bombardement de Supabase quand la connexion mobile clignote (chaque
+    // "online" relançant sinon la file entière). "dead" : plus de backoff,
+    // l'item ne repart que sur action explicite (retryDeadSyncs()).
+    nextRetryAt: dead ? null : nextRetryAtIso(attempts)
   });
   return { dead, attempts };
 }
@@ -531,7 +552,10 @@ export async function getDeadSyncs() {
 export async function retryDeadSyncs() {
   const dead = await db.syncQueue.where("status").equals("dead").toArray();
   await Promise.all(dead.map(item =>
-    db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null })
+    // nextRetryAt remis à null : relance explicite (bouton "réessayer" ou
+    // retour de connexion) — l'agent veut un envoi immédiat, pas d'attendre
+    // le backoff hérité de la dernière tentative échouée.
+    db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null, nextRetryAt: null })
   ));
   return dead.length;
 }

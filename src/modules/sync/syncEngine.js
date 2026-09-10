@@ -1,7 +1,8 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards } from "../../db/database.js";
+import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards } from "../../db/database.js";
+import { backoffDelayMs } from "../../core/backoff.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
@@ -334,7 +335,13 @@ async function syncWithConcurrency(items, supabase) {
             await markSyncFailed(item.id, message, CONFIG.MAX_RETRY_ATTEMPTS);
             store.set("sync.lastError", message);
           } else {
-            await sleep(500 * Math.pow(2, attempts - 1));
+            // Backoff exponentiel + jitter (core/backoff.js) : espace les
+            // réessais INTRA-cycle et désynchronise les MAX_CONCURRENT
+            // workers pour qu'ils ne rejouent pas tous au même instant.
+            // Base/plafond courts : ce délai s'écoule pendant que la garde
+            // isSyncing est tenue. Le backoff long (minutes) est porté par
+            // nextRetryAt entre deux cycles, pas ici.
+            await sleep(backoffDelayMs(attempts, { base: 500, cap: 8000 }));
           }
         }
       }
@@ -377,11 +384,19 @@ export async function triggerSync() {
       return;
     }
 
+    // pendingCount reflète TOUT ce qui reste à envoyer (compteur agent) ;
+    // `due` est le sous-ensemble hors backoff, seul réellement envoyé ce
+    // tick. Si tout est en backoff (connexion instable, échecs récents), on
+    // ne touche pas au réseau : le prochain tick / la prochaine échéance
+    // nextRetryAt reprendra la main.
     store.set("sync.status", "syncing");
     store.set("sync.pendingCount", pending.length);
 
+    const due = await getDueSyncs();
+    if (due.length === 0) return;
+
     const supabase = getSupabaseClient();
-    const deduped = dedupSyncQueue(pending);
+    const deduped = dedupSyncQueue(due);
     await syncWithConcurrency(deduped, supabase);
 
     const remaining = await getPendingSyncs();

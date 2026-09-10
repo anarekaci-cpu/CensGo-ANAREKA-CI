@@ -28,6 +28,20 @@ describe("generateOptimizedTour", () => {
     expect(generateOptimizedTour([], start)).toEqual([]);
   });
 
+  it("entrées invalides -> tournée vide sans exception", () => {
+    expect(generateOptimizedTour(null, start)).toEqual([]);
+    expect(generateOptimizedTour(undefined, start)).toEqual([]);
+    expect(generateOptimizedTour([mkPoint("a", 5.36, -3.98)], null)).toEqual([]);
+  });
+
+  it("tous les points déjà visités -> tournée vide", () => {
+    const tour = generateOptimizedTour(
+      [mkPoint("a", 5.36, -3.98, true), mkPoint("b", 5.37, -4.0, true)],
+      start
+    );
+    expect(tour).toEqual([]);
+  });
+
   it("ordre plus-proche-voisin : le point adjacent vient en premier", () => {
     const tour = generateOptimizedTour([
       mkPoint("loin", 5.60, -4.30),

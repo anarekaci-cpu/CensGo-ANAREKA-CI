@@ -58,6 +58,37 @@ describe("computeStats", () => {
     expect(zone.pct).toBe(0);
   });
 
+  it("coveragePct est arrondi à l'entier le plus proche", () => {
+    expect(computeStats([P("a", true), P("b", false), P("c", false)]).coveragePct).toBe(33);
+    expect(computeStats([P("a", true), P("b", true), P("c", false), P("d", false), P("e", false), P("f", false)]).coveragePct).toBe(33);
+  });
+
+  it("remaining ne devient jamais négatif et quartierCount reflète les quartiers distincts", () => {
+    const s = computeStats([
+      P("a", true, "VERT (Joignable)", "Kiosque", "Yopougon"),
+      P("b", false, "VERT (Joignable)", "Kiosque", "Cocody"),
+      P("c", false, "VERT (Joignable)", "Kiosque", "Cocody")
+    ]);
+    expect(s.remaining).toBe(2);
+    expect(s.quartierCount).toBe(2);
+  });
+
+  it("byQuartier trié : quartier le moins couvert en premier", () => {
+    const s = computeStats([
+      P("a", true, "VERT (Joignable)", "Kiosque", "Bien"),
+      P("b", true, "VERT (Joignable)", "Kiosque", "Bien"),
+      P("c", false, "VERT (Joignable)", "Kiosque", "Mal"),
+      P("d", false, "VERT (Joignable)", "Kiosque", "Mal")
+    ]);
+    expect(s.byQuartier[0].quartier).toBe("Mal");
+    expect(s.byQuartier[0].pct).toBe(0);
+  });
+
+  it("quartier vide -> regroupé sous 'Non renseigné'", () => {
+    const s = computeStats([P("a", false, "VERT (Joignable)", "Kiosque", "")]);
+    expect(s.byQuartier.find(q => q.quartier === "Non renseigné")).toBeDefined();
+  });
+
   it("AUCUN doublon possible : la source store est déjà dédupliquée", () => {
     // Le store reçoit normalizePoints() en amont — computeStats compte
     // exactement la liste qu'on lui passe, point par point.

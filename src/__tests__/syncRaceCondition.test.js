@@ -14,8 +14,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * concurrents à triggerSync() ne doivent traiter la file qu'UNE SEULE fois.
  */
 
-const dbMock = vi.hoisted(() => ({
-  getPendingSyncs: vi.fn(),
+const dbMock = vi.hoisted(() => {
+  const getPendingSyncs = vi.fn();
+  return {
+  getPendingSyncs,
+  getDueSyncs: vi.fn((...a) => getPendingSyncs(...a)),
   markSyncDone: vi.fn(),
   markSyncFailed: vi.fn(),
   markPointSynced: vi.fn(),
@@ -24,7 +27,8 @@ const dbMock = vi.hoisted(() => ({
   recordSyncConflict: vi.fn(),
   getSyncConflicts: vi.fn(async () => []),
   dismissSyncConflict: vi.fn()
-}));
+  };
+});
 
 vi.mock("../db/database.js", () => dbMock);
 vi.mock("../core/supabase.js", () => ({

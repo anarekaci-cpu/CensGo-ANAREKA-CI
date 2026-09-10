@@ -9,7 +9,7 @@ import { loadCensusData } from "./modules/census/dataLoader.js";
 import { renderMarkers, getFilteredBounds, openPopup } from "./modules/census/markers.js";
 import { initNavigation, markArrivedVisited, setNavigationMode, recenterNavigation, chooseRouteAlternative } from "./modules/navigation/navigation.js";
 import { initHazards } from "./modules/hazards/hazards.js";
-import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocation } from "./modules/geolocation/geolocation.js";
+import { locateAndCenter, findNearestUnvisited, getCurrentPosition, stopGeolocation, cycleGpsPowerMode } from "./modules/geolocation/geolocation.js";
 import { startAgentTracking, stopAgentTracking } from "./modules/geolocation/agentTracking.js";
 import { logout } from "./modules/auth/auth.js";
 import { initCensusFormModal, openCensusForm } from "./modules/census/censusFormModal.js";
@@ -192,6 +192,9 @@ export async function mountAuthenticatedApp(container) {
           </div>
           <div class="action-row" id="tourReportRow" style="display:none;">
             <button id="tourReportBtn" class="btn-export" style="grid-column: 1 / -1;">🖨️ Rapport PDF de la dernière tournée</button>
+          </div>
+          <div class="action-row">
+            <button id="gpsPowerBtn" class="btn-overview" type="button" style="grid-column: 1 / -1;" title="Ajuste la fréquence de rafraîchissement GPS selon le niveau de batterie et l'immobilité, pour économiser l'autonomie sur une longue journée terrain">🔋 GPS : auto</button>
           </div>
           <div id="geoStatus"></div>
           <div class="controls-footer">
@@ -1069,6 +1072,28 @@ function bindEvents() {
       btn.textContent = originalLabel;
     }
   });
+
+  const renderGpsPowerBtn = () => {
+    const btn = document.getElementById("gpsPowerBtn");
+    if (!btn) return;
+    const mode = store.get("geo.powerMode") || "auto";
+    const profile = store.get("geo.powerProfile") || "normal";
+    const label = mode === "high"
+      ? "⚡ GPS : précision max"
+      : mode === "saver"
+        ? "🔋 GPS : économie"
+        : `🔋 GPS : auto${profile === "saver" ? " · éco active" : ""}`;
+    btn.textContent = label;
+    btn.setAttribute("aria-pressed", String(mode !== "auto"));
+    btn.classList.toggle("active", mode !== "auto");
+  };
+  document.getElementById("gpsPowerBtn")?.addEventListener("click", () => {
+    cycleGpsPowerMode();
+    renderGpsPowerBtn();
+  });
+  store.subscribe("geo.powerMode", renderGpsPowerBtn);
+  store.subscribe("geo.powerProfile", renderGpsPowerBtn);
+  renderGpsPowerBtn();
 
   document.getElementById("agentTrackingBtn")?.addEventListener("click", async () => {
     agentTrackingActive = !agentTrackingActive;

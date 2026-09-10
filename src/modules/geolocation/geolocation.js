@@ -7,6 +7,15 @@ import { log } from "../../core/debug.js";
 import { toastInfo, toastWarning } from "../../core/toast.js";
 import { findNearestByRoad } from "../routing/routing.js";
 import { shouldAcceptGpsFix, smoothGpsPosition } from "../../core/positionSmoothing.js";
+import {
+  isStationary,
+  resolveGpsProfile,
+  describeGpsPowerMode,
+  readGpsPowerPreference,
+  writeGpsPowerPreference,
+  nextGpsPowerPreference,
+  STATIONARY_WINDOW_MS
+} from "../../core/gpsPowerMode.js";
 
 let position = null;
 let displayPosition = null;
@@ -14,65 +23,209 @@ let hasAutoCentered = false;
 let hasCheckedZoneProximity = false;
 let watchId = null;
 
+// === Mode économie de batterie GPS (voir core/gpsPowerMode.js) ===
+// Historique brut des fixes récents (positions non lissées) pour la
+// détection d'immobilité — borné à la fenêtre utile.
+let recentFixes = [];
+// Profil d'acquisition actuellement armé sur watchPosition.
+let currentProfile = null;
+// Dernier fix RÉELLEMENT traité (store/carte/report) — sert au throttle du
+// profil "saver".
+let lastProcessedAt = 0;
+// Préférence agent persistée : "auto" | "saver" | "high".
+let powerPreference = readGpsPowerPreference();
+// État batterie (null tant que l'API Battery n'a pas répondu, ou absente —
+// iOS Safari / Firefox ne l'exposent pas).
+let batteryLevel = null;
+let batteryCharging = null;
+let batteryInit = false;
+
+function gpsProfileInputs() {
+  return {
+    preference: powerPreference,
+    batteryLevel,
+    charging: batteryCharging,
+    stationary: isStationary(recentFixes)
+  };
+}
+
+function publishPowerState() {
+  store.set("geo.powerMode", powerPreference);
+  store.set("geo.powerProfile", currentProfile?.name || "normal");
+}
+
+/**
+ * (Re)arme watchPosition avec les options du profil fourni. Idempotent tant
+ * que le profil ne change pas (comparaison par nom) — appelé après chaque
+ * fix traité, à chaque événement batterie et au changement de préférence.
+ */
+function armWatch(profile) {
+  if (!navigator.geolocation) return;
+  if (currentProfile && currentProfile.name === profile.name && watchId !== null) return;
+
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  currentProfile = profile;
+  watchId = navigator.geolocation.watchPosition(onGpsFix, onGpsError, {
+    enableHighAccuracy: profile.enableHighAccuracy,
+    maximumAge: profile.maximumAge,
+    timeout: profile.timeout
+  });
+  publishPowerState();
+  log.debug("GPS", `profil d'acquisition = ${profile.name} (${profile.reason})`);
+}
+
+function reevaluateProfile() {
+  if (watchId === null) return;
+  armWatch(resolveGpsProfile(gpsProfileInputs()));
+}
+
+function initBatteryWatch() {
+  if (batteryInit || typeof navigator === "undefined" || typeof navigator.getBattery !== "function") return;
+  batteryInit = true;
+  navigator.getBattery().then((b) => {
+    const sync = () => {
+      batteryLevel = b.level;
+      batteryCharging = b.charging;
+      reevaluateProfile();
+    };
+    sync();
+    b.addEventListener("levelchange", sync);
+    b.addEventListener("chargingchange", sync);
+  }).catch(() => {
+    // API présente mais refusée (contexte non sécurisé, permissions) — on
+    // reste sur le comportement "batterie inconnue" (profil piloté par la
+    // seule immobilité + la préférence agent).
+  });
+}
+
+/**
+ * Bascule la préférence agent (auto -> économie -> précision max -> auto),
+ * la persiste et réarme immédiatement le watch. Renvoie la nouvelle valeur.
+ */
+export function cycleGpsPowerMode() {
+  return setGpsPowerMode(nextGpsPowerPreference(powerPreference));
+}
+
+export function setGpsPowerMode(pref) {
+  powerPreference = writeGpsPowerPreference(pref);
+  if (watchId !== null) {
+    reevaluateProfile();
+  } else {
+    publishPowerState();
+  }
+  return powerPreference;
+}
+
+export function getGpsPowerMode() {
+  return powerPreference;
+}
+
+/** Libellé court pour l'indicateur d'état (voir appView.js). */
+export function getGpsPowerLabel() {
+  return describeGpsPowerMode(powerPreference, currentProfile?.name || "normal");
+}
+
 export function initGeolocation() {
+  // Publie la préférence persistée dès le démarrage (le bouton d'état
+  // l'affiche avant même le premier fix GPS).
+  store.set("geo.powerMode", powerPreference);
+
   if (!navigator.geolocation) {
     log.traceAlways("GPS", "navigator.geolocation INDISPONIBLE");
     store.set("geo.error", "Géolocalisation non supportée");
     return;
   }
 
-  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-  watchId = navigator.geolocation.watchPosition(
-    (pos) => {
-      const rawPosition = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        heading: pos.coords.heading,
-        timestamp: pos.timestamp
-      };
-      if (!shouldAcceptGpsFix(rawPosition, position)) return;
-      position = rawPosition;
-      displayPosition = smoothGpsPosition(displayPosition, rawPosition);
-      log.debug("GPS", `fix lat=${position.lat} lng=${position.lng} accuracy=${position.accuracy}m`);
-      store.set("geo.position", position);
-      store.set("geo.tracking", true);
-      store.set("geo.error", null);
-      // La position était suivie en interne (distances, itinéraire) mais
-      // jamais affichée sur la carte — un agent ne voyait jamais où il était.
-      showUserLocation(displayPosition.lat, displayPosition.lng, position.accuracy);
-      reportPosition(position);
+  initBatteryWatch();
+  // Premier armement : historique vide + batterie inconnue => profil
+  // "normal", identique au réglage historique { enableHighAccuracy: true,
+  // maximumAge: 10000, timeout: 15000 }. Le profil s'ajuste ensuite au fil
+  // des fixes (immobilité) et des événements batterie.
+  armWatch(resolveGpsProfile(gpsProfileInputs()));
+}
 
-      // La carte s'ouvrait toujours centrée sur Abidjan par défaut, quel que
-      // soit l'endroit réel où l'agent travaille. L'app doit fonctionner
-      // n'importe où en Côte d'Ivoire (ou ailleurs) : dès la première position
-      // GPS reçue, on recentre automatiquement dessus une seule fois, sans
-      // continuer à déplacer la caméra à chaque mise à jour ensuite (ce qui
-      // gênerait un agent en train de consulter la carte).
-      if (!hasAutoCentered) {
-        hasAutoCentered = true;
-        flyToPoint(position.lat, position.lng, 15);
-      }
+/**
+ * Ajoute un fix brut à l'historique d'immobilité et le tronque à la fenêtre
+ * utile (2× STATIONARY_WINDOW_MS de marge pour lisser les trous de signal).
+ */
+function recordFix(rawPosition) {
+  recentFixes.push({ lat: rawPosition.lat, lng: rawPosition.lng, timestamp: rawPosition.timestamp || Date.now() });
+  const cutoff = (rawPosition.timestamp || Date.now()) - STATIONARY_WINDOW_MS * 2;
+  if (recentFixes.length > 60 || recentFixes[0].timestamp < cutoff) {
+    recentFixes = recentFixes.filter(f => f.timestamp >= cutoff).slice(-60);
+  }
+}
 
-      // Demandé (agent terrain, lagune d'Abidjan) : prévenir explicitement
-      // si l'agent démarre à plus de NEAREST_SEARCH_RADIUS_KM de TOUT point
-      // de recensement — pas seulement quand il clique "Point le plus
-      // proche" (voir appView.js:nearestBtn, même seuil). Un seul avis par
-      // session (pas à chaque fix GPS) ; reporté tant que "points" n'a pas
-      // encore chargé (sinon "aucun point" serait interprété à tort comme
-      // "zone injoignable" avant même que les données n'arrivent).
-      if (!hasCheckedZoneProximity && (store.get("points") || []).length > 0) {
-        hasCheckedZoneProximity = true;
-        checkZoneProximityOnce();
-      }
-    },
-    (err) => {
-      console.warn("Géolocalisation erreur:", err);
-      store.set("geo.error", describeGeoError(err));
-      store.set("geo.tracking", false);
-    },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-  );
+function onGpsFix(pos) {
+  const rawPosition = {
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    accuracy: pos.coords.accuracy,
+    heading: pos.coords.heading,
+    timestamp: pos.timestamp
+  };
+
+  recordFix(rawPosition);
+
+  // Throttle du profil "saver" : sur batterie faible / à l'arrêt, inutile de
+  // repasser par le store, la carte et l'envoi réseau à chaque fix quasi
+  // identique. On laisse toujours passer un mouvement franc (>= 25 m) pour
+  // réagir immédiatement quand l'agent repart (et sortir de l'immobilité).
+  const nowT = rawPosition.timestamp || Date.now();
+  const minInterval = currentProfile?.minIntervalMs || 0;
+  if (minInterval > 0 && position && lastProcessedAt) {
+    const movedM = haversineKm(position.lat, position.lng, rawPosition.lat, rawPosition.lng) * 1000;
+    if (nowT - lastProcessedAt < minInterval && movedM < 25) {
+      reevaluateProfile();
+      return;
+    }
+  }
+
+  if (!shouldAcceptGpsFix(rawPosition, position)) return;
+  lastProcessedAt = nowT;
+  position = rawPosition;
+  displayPosition = smoothGpsPosition(displayPosition, rawPosition);
+  log.debug("GPS", `fix lat=${position.lat} lng=${position.lng} accuracy=${position.accuracy}m`);
+  store.set("geo.position", position);
+  store.set("geo.tracking", true);
+  store.set("geo.error", null);
+  // La position était suivie en interne (distances, itinéraire) mais
+  // jamais affichée sur la carte — un agent ne voyait jamais où il était.
+  showUserLocation(displayPosition.lat, displayPosition.lng, position.accuracy);
+  reportPosition(position);
+
+  // La carte s'ouvrait toujours centrée sur Abidjan par défaut, quel que
+  // soit l'endroit réel où l'agent travaille. L'app doit fonctionner
+  // n'importe où en Côte d'Ivoire (ou ailleurs) : dès la première position
+  // GPS reçue, on recentre automatiquement dessus une seule fois, sans
+  // continuer à déplacer la caméra à chaque mise à jour ensuite (ce qui
+  // gênerait un agent en train de consulter la carte).
+  if (!hasAutoCentered) {
+    hasAutoCentered = true;
+    flyToPoint(position.lat, position.lng, 15);
+  }
+
+  // Demandé (agent terrain, lagune d'Abidjan) : prévenir explicitement
+  // si l'agent démarre à plus de NEAREST_SEARCH_RADIUS_KM de TOUT point
+  // de recensement — pas seulement quand il clique "Point le plus
+  // proche" (voir appView.js:nearestBtn, même seuil). Un seul avis par
+  // session (pas à chaque fix GPS) ; reporté tant que "points" n'a pas
+  // encore chargé (sinon "aucun point" serait interprété à tort comme
+  // "zone injoignable" avant même que les données n'arrivent).
+  if (!hasCheckedZoneProximity && (store.get("points") || []).length > 0) {
+    hasCheckedZoneProximity = true;
+    checkZoneProximityOnce();
+  }
+
+  // Le mouvement/l'immobilité vient peut-être de changer : ajuste le profil
+  // d'acquisition pour le prochain fix.
+  reevaluateProfile();
+}
+
+function onGpsError(err) {
+  console.warn("Géolocalisation erreur:", err);
+  store.set("geo.error", describeGeoError(err));
+  store.set("geo.tracking", false);
 }
 
 export function stopGeolocation() {
@@ -83,6 +236,9 @@ export function stopGeolocation() {
   position = null;
   displayPosition = null;
   hasAutoCentered = false;
+  recentFixes = [];
+  currentProfile = null;
+  lastProcessedAt = 0;
   store.set("geo.tracking", false);
 }
 

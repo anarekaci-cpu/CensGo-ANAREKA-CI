@@ -9,8 +9,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * payload.visited === true (jamais au décochage).
  */
 
-const dbMock = vi.hoisted(() => ({
-  getPendingSyncs: vi.fn(),
+const dbMock = vi.hoisted(() => {
+  const getPendingSyncs = vi.fn();
+  return {
+  getPendingSyncs,
+  // getDueSyncs (backoff, core/backoff.js) reflète getPendingSyncs dans ces
+  // tests : aucun item n'a de nextRetryAt, donc tout est "dû".
+  getDueSyncs: vi.fn((...a) => getPendingSyncs(...a)),
   markSyncDone: vi.fn(async () => {}),
   markSyncFailed: vi.fn(async () => {}),
   markPointSynced: vi.fn(async () => {}),
@@ -19,7 +24,8 @@ const dbMock = vi.hoisted(() => ({
   recordSyncConflict: vi.fn(),
   getSyncConflicts: vi.fn(async () => []),
   dismissSyncConflict: vi.fn()
-}));
+  };
+});
 
 vi.mock("../db/database.js", () => dbMock);
 

@@ -19,7 +19,12 @@ class Store {
         heading: 0,
         accuracy: null,
         tracking: false,
-        error: null
+        error: null,
+        // Mode économie batterie GPS (voir core/gpsPowerMode.js) :
+        // powerMode = préférence agent ("auto" | "saver" | "high"),
+        // powerProfile = profil d'acquisition effectif ("normal" | "saver" | "high").
+        powerMode: "auto",
+        powerProfile: "normal"
       },
       navigation: {
         active: false,
