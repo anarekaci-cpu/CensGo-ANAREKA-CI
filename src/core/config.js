@@ -54,6 +54,12 @@ export const CONFIG = {
   // à 10000 côté serveur).
   BBOX_MAX_ROWS: Number(import.meta.env.VITE_BBOX_MAX_ROWS) || 2000,
 
+  // Rendu des marqueurs en couches WebGL natives (circle + clustering
+  // MapLibre) au lieu du pool de marqueurs DOM. Opt-in : le chemin DOM,
+  // audité en conditions terrain, reste le défaut. À tester sur appareil
+  // réel avant activation. Voir modules/census/markersGl.js.
+  ENABLE_WEBGL_MARKERS: import.meta.env.VITE_ENABLE_WEBGL_MARKERS === 'true',
+
   // Cartographie
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles
   // sont utilisées par src/modules/map/map.js -> la carte ne s'initialisait jamais.

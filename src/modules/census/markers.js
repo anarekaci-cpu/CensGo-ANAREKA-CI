@@ -10,6 +10,17 @@ import { escapeHtml, normalizePointId } from "../../core/utils.js";
 import { toastWarning } from "../../core/toast.js";
 import { log, isVerbose } from "../../core/debug.js";
 import { buildPopupModel } from "./popupModel.js";
+// Renderer WebGL natif (opt-in) — importé pour l'aiguillage ci-dessous.
+// Cycle ESM assumé : markersGl.js réimporte buildPopup d'ici, mais seulement
+// à l'exécution (jamais au chargement). Voir l'en-tête de markersGl.js.
+import * as gl from "./markersGl.js";
+
+// true => les fonctions publiques ci-dessous délèguent au renderer WebGL.
+// Défaut false : le pool de marqueurs DOM historique (audité terrain) reste
+// le chemin par défaut tant que VITE_ENABLE_WEBGL_MARKERS n'est pas "true".
+function useGl() {
+  return CONFIG.ENABLE_WEBGL_MARKERS === true;
+}
 
 const iconCache = new Map();
 
@@ -192,7 +203,7 @@ function buildIconHTML(color, isVisited, isPending) {
   return html;
 }
 
-function buildPopup(point) {
+export function buildPopup(point) {
   const color = CONFIG.STATUS_COLORS[point.status] || "#95a5a6";
   // Texte du badge statut en variante assombrie : le jaune vif #f1c40f en
   // police sur fond clair était illisible en plein soleil (contraste ~1.9:1).
@@ -480,6 +491,7 @@ function renderVisibleMarkers() {
 }
 
 export function renderMarkers(points) {
+  if (useGl()) return gl.renderMarkersGl(points);
   const map = getMap();
   const cluster = getClusterGroup();
   if (!map || !cluster) return;
@@ -550,6 +562,7 @@ export function renderMarkers(points) {
 }
 
 export function upsertMarker(point) {
+  if (useGl()) return gl.upsertMarkerGl(point);
   const pid = normalizePointId(point.id);
   const existing = activeMarkers.get(pid);
   if (existing) {
@@ -573,6 +586,7 @@ export function upsertMarker(point) {
 }
 
 export function refreshMarker(pointId) {
+  if (useGl()) return gl.refreshMarkerGl(pointId);
   const pid = normalizePointId(pointId);
   const entry = activeMarkers.get(pid);
   const point = getPointById(pid);
@@ -590,6 +604,7 @@ export function refreshMarker(pointId) {
 }
 
 export function openPopup(pointId) {
+  if (useGl()) return gl.openGlPopup(pointId);
   const pid = normalizePointId(pointId);
   const point = getPointById(pid);
   if (!point) return;
@@ -613,6 +628,7 @@ export function openPopup(pointId) {
 }
 
 export function getFilteredBounds() {
+  if (useGl()) return gl.getFilteredBoundsGl();
   if (activeMarkers.size === 0) return null;
   const map = getMap();
   if (!map) return null;
