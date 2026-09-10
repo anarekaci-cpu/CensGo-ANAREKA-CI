@@ -23,6 +23,7 @@ import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml, normalizePointId } from "./core/utils.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
+import { computeTourAsync } from "./core/computeClient.js";
 import { lazyImport } from "./core/lazyImport.js";
 import { getModeMeta } from "./modules/routing/routing.js";
 import { isSpeechEnabled, setSpeechEnabled } from "./core/speech.js";
@@ -1124,7 +1125,7 @@ function bindEvents() {
     if (rainAlert) toastWarning(`${rainAlert.icon} ${rainAlert.message}`);
 
     const points = store.get("points").filter(p => !p.visited);
-    const { generateOptimizedTour, startTour } = await getTourModule();
+    const { startTour } = await getTourModule();
 
     // BUG signalé (audit) : le premier arrêt de la tournée pouvait diverger
     // du résultat du bouton "Plus proche" — le glouton géométrique de
@@ -1142,7 +1143,11 @@ function bindEvents() {
       console.warn("Correction du premier arrêt de tournée par la route échouée, repli géométrique:", err?.message || err);
     }
 
-    const tour = generateOptimizedTour(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading }, undefined, forcedFirstStopId);
+    // Calcul déporté dans un Web Worker (core/computeClient.js) : sur un gros
+    // recensement, le plus-proche-voisin pondéré + 2-opt bloquait le thread
+    // UI le temps du calcul. Repli synchrone transparent si le Worker est
+    // indisponible.
+    const tour = await computeTourAsync(points, { lat: pos.lat, lng: pos.lng, heading: pos.heading }, undefined, forcedFirstStopId);
     if (tour.length === 0) {
       toastInfo("Tous les points non-visités ont déjà été traités !");
       return;
