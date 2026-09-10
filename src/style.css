@@ -17,6 +17,12 @@
   --green-mid: #275940;
   --green-accent: #2ecc71;
   --green-light: #dcfce7;
+  /* Couleurs officielles ANAREKA-CI (charte) — teintes exactes réservées
+     aux accents de marque (HUD de guidage, etc.). Le vert applicatif
+     historique (--green-*) reste la couleur d'interface principale. */
+  --anareka-orange: #FF7A00;
+  --anareka-green: #00A859;
+  --anareka-dark: #0F172A;
   --glass-bg: rgba(26, 61, 43, 0.92);
   --glass-sheet: rgba(22, 40, 30, 0.88);
   --glass-sheet-light: rgba(255, 255, 255, 0.94);
@@ -1007,6 +1013,49 @@ header, .app-header {
 #routeBanner.is-compact { left: auto; right: 16px; width: 44px; min-height: 44px; padding: 0; border-radius: 50%; overflow: hidden; }
 #routeBanner.is-compact > span, #routeBanner.is-compact #routeChoiceBtn { display: none !important; }
 #routeBanner.is-compact #closeRouteBtn { display: flex; width: 44px; height: 44px; }
+
+/* HUD de guidage turn-by-turn (appView.js #navHud) — carte "verre" flottante
+   en haut : prochaine manœuvre + distance restante / temps estimé. Reste
+   visible en mode immersif (contrairement à .legend/.app-header). */
+.navigation-hud {
+  position: absolute;
+  top: calc(var(--safe-top) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  min-width: 240px;
+  max-width: min(92vw, 380px);
+  background: var(--glass-sheet-light);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-left: 4px solid var(--anareka-orange);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+#navHud[hidden] { display: none !important; }
+.navigation-hud .hud-mode { font-size: 22px; line-height: 1; flex-shrink: 0; }
+.navigation-hud .hud-text { min-width: 0; }
+.navigation-hud .hud-maneuver {
+  font-size: 14px; font-weight: 700; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.navigation-hud .hud-meta {
+  font-size: 12px; font-weight: 600; margin-top: 2px;
+  color: var(--anareka-orange);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .navigation-hud { background: var(--bg-card); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .navigation-hud { animation: none; }
+}
 #closeRouteBtn {
   background: rgba(255,255,255,0.15); border: none; color: white;
   width: 44px; height: 44px; border-radius: 50%;

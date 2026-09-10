@@ -330,10 +330,16 @@ export function fitToBounds(bounds, padding = [40, 40]) {
  * les itinéraires piétons de Google/Apple Maps — immédiatement reconnu
  * comme "à pied" sans être moins lisible que le trait plein vélo/véhicule.
  */
+// Cœur du tracé : cyan néon commun (#00F0FF, cf. --route-core), vif et
+// contrasté sur les deux fonds de carte. Le MODE reste distinguable par la
+// forme (piéton = pointillé rond façon Google/Apple Maps) et par le HUD /
+// le guidage vocal — pas par la couleur, qui porte désormais la signature
+// visuelle "néon" homogène.
+const ROUTE_CORE_COLOR = "#00F0FF";
 const ROUTE_LINE_STYLES = {
-  foot: { "line-color": "#f97316", "line-width": 6, "line-opacity": 0.95, "line-dasharray": [0, 1.8], "line-cap": "round" },
-  bike: { "line-color": "#0284c7", "line-width": 5.5, "line-opacity": 0.95, "line-cap": "round" },
-  car: { "line-color": "#dc2626", "line-width": 5.5, "line-opacity": 0.95, "line-cap": "round" }
+  foot: { "line-color": ROUTE_CORE_COLOR, "line-width": 6, "line-opacity": 0.98, "line-dasharray": [0, 1.8], "line-cap": "round" },
+  bike: { "line-color": ROUTE_CORE_COLOR, "line-width": 5.5, "line-opacity": 0.98, "line-cap": "round" },
+  car: { "line-color": ROUTE_CORE_COLOR, "line-width": 5.5, "line-opacity": 0.98, "line-cap": "round" }
 };
 
 // Effet néon : lueur cyan large et floutée sous le tracé (voir --route-core).

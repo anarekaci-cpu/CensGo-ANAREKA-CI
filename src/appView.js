@@ -307,6 +307,17 @@ export async function mountAuthenticatedApp(container) {
           <button id="routeChoiceBtn" type="button" class="route-choice-btn" style="display:none;">Changer</button>
           <button id="closeRouteBtn" aria-label="Fermer l'itinéraire">✕</button>
         </div>
+
+        <!-- HUD de guidage flottant (turn-by-turn) : prochaine manœuvre en
+             évidence + distance restante / temps estimé. Complète le panneau
+             bas (#navPanel) qui garde les contrôles (voix, recentrer, stop). -->
+        <div id="navHud" class="navigation-hud" hidden aria-live="polite" aria-atomic="true">
+          <div class="hud-mode" id="hudModeIcon" aria-hidden="true">🚶</div>
+          <div class="hud-text">
+            <div class="hud-maneuver" id="hudManeuver">—</div>
+            <div class="hud-meta" id="hudMeta"></div>
+          </div>
+        </div>
         
         <button id="fabNearest" style="display:none;">🏃 Point le plus proche</button>
         <button id="fabAdd" style="display:none;" aria-label="Ajouter un point de recensement">➕</button>
@@ -2300,6 +2311,17 @@ function bindStoreListeners() {
     document.body.classList.toggle("nav-immersive", active);
     const banner = document.getElementById("routeBanner");
     if (banner) banner.style.display = active ? "flex" : "none";
+    const hud = document.getElementById("navHud");
+    if (hud) {
+      hud.hidden = !active;
+      if (active) {
+        document.getElementById("hudModeIcon").textContent =
+          ({ foot: "🚶", bike: "🚲", car: "🚗" })[store.get("navigation.mode")] || "🚶";
+        document.getElementById("hudManeuver").textContent =
+          store.get("navigation.nextInstruction") || "Continuez tout droit";
+        document.getElementById("hudMeta").textContent = store.get("navigation.instruction") || "";
+      }
+    }
     // #fabAdd occupe la même bande verticale (bottom:84) que #navPanel une
     // fois la navigation active : le bouton restait cliquable "sous" le
     // panneau, invisible mais interceptant parfois le tap. On le masque
@@ -2361,6 +2383,8 @@ function bindStoreListeners() {
     }
     const infoEl = document.getElementById("routeInfo");
     if (infoEl) infoEl.textContent = text || "";
+    const hudMeta = document.getElementById("hudMeta");
+    if (hudMeta) hudMeta.textContent = text || "";
     const route = store.get("navigation.route");
     const choiceBtn = document.getElementById("routeChoiceBtn");
     const choiceLabel = document.getElementById("routeChoiceLabel");
@@ -2379,6 +2403,13 @@ function bindStoreListeners() {
   store.subscribe("navigation.nextInstruction", (text) => {
     const el = document.getElementById("navSub");
     if (el) el.textContent = text || "";
+    const hudManeuver = document.getElementById("hudManeuver");
+    if (hudManeuver) hudManeuver.textContent = text || (store.get("navigation.active") ? "Continuez tout droit" : "—");
+  });
+
+  store.subscribe("navigation.mode", (mode) => {
+    const icon = document.getElementById("hudModeIcon");
+    if (icon) icon.textContent = ({ foot: "🚶", bike: "🚲", car: "🚗" })[mode] || "🚶";
   });
 
   store.subscribe("navigation.arrived", (arrived) => {
