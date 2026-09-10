@@ -87,6 +87,68 @@ class SatelliteToggleControl {
   }
 }
 
+/**
+ * Transform CSS de l'aiguille de boussole pour un cap carte donné (pur,
+ * testable). La carte tourne dans le sens horaire quand `bearing` augmente ;
+ * l'aiguille doit donc tourner dans le sens INVERSE pour continuer à pointer
+ * le nord géographique.
+ * @param {number} bearing - map.getBearing(), en degrés
+ * @returns {string} valeur de `transform`
+ */
+export function compassNeedleTransform(bearing) {
+  const b = ((Number(bearing) || 0) % 360 + 360) % 360;
+  return `rotate(${(-b).toFixed(1)}deg)`;
+}
+
+/**
+ * Boussole SVG sur-mesure (remplace le compas natif de NavigationControl,
+ * désactivé via showCompass:false). L'aiguille pivote en direct avec
+ * map.getBearing() ; un tap réaligne la vue plein nord et à plat
+ * (flyTo bearing:0, pitch:0) — utile dès qu'un itinéraire a incliné la
+ * caméra (pitch 45°, voir setNav3DView()).
+ */
+class CompassControl {
+  onAdd(map) {
+    this._map = map;
+    this._container = document.createElement("div");
+    this._container.className = "maplibregl-ctrl maplibregl-ctrl-group compass-widget-3d";
+
+    this._button = document.createElement("button");
+    this._button.type = "button";
+    this._button.title = "Réorienter la carte au nord";
+    this._button.setAttribute("aria-label", "Réorienter la carte au nord");
+    this._button.innerHTML = `
+      <svg viewBox="0 0 40 40" width="26" height="26" aria-hidden="true">
+        <g class="compass-needle">
+          <polygon points="20,4 25,21 20,17 15,21" fill="#e11d48"/>
+          <polygon points="20,36 15,19 20,23 25,19" fill="#94a3b8"/>
+        </g>
+        <circle cx="20" cy="20" r="2.4" fill="currentColor"/>
+      </svg>`;
+    this._needle = this._button.querySelector(".compass-needle");
+
+    this._update = () => {
+      if (this._needle) this._needle.style.transform = compassNeedleTransform(map.getBearing());
+    };
+    this._button.addEventListener("click", () => {
+      map.flyTo({ bearing: 0, pitch: 0, duration: 800 });
+    });
+    map.on("rotate", this._update);
+    map.on("pitch", this._update);
+    this._update();
+
+    this._container.appendChild(this._button);
+    return this._container;
+  }
+
+  onRemove() {
+    this._map?.off("rotate", this._update);
+    this._map?.off("pitch", this._update);
+    this._container?.parentNode?.removeChild(this._container);
+    this._map = undefined;
+  }
+}
+
 let mapInstance = null;
 let clusterInstance = null;
 let userLocationMarker = null;
@@ -195,6 +257,7 @@ export function initMap(containerId = "map") {
     "bottom-left"
   );
   mapInstance.addControl(new SatelliteToggleControl(), "top-right");
+  mapInstance.addControl(new CompassControl(), "top-right");
 
   // minPoints très élevé => les points ne fusionnent JAMAIS en bulle "N
   // points" : chaque point reste son propre marqueur, visible individuellement
@@ -405,11 +468,15 @@ export function showUserLocation(lat, lng, accuracy) {
   }
   userLocationMarker.setLngLat([lng, lat]).addTo(mapInstance);
 
-  // Cône de direction (voir style.css .user-location-beam) : coords.heading
-  // vaut null tant que le GPS n'a pas de cap fiable (agent immobile) — dans
-  // ce cas on masque le cône plutôt que de le figer à 0°/nord, ce qui
-  // suggérerait à tort une direction connue.
-  const heading = store.get("geo.position")?.heading;
+  // Cône de direction (voir style.css .user-location-beam). Priorité au cap
+  // BOUSSOLE (deviceorientation, disponible même à l'arrêt et plus réactif —
+  // voir modules/compass/compass.js) dès qu'un relevé réel est arrivé
+  // (geo.headingLive) ; repli sur le cap GPS (coords.heading, null tant que
+  // l'agent est immobile). Si aucun des deux, on masque le cône plutôt que
+  // de le figer au nord, ce qui suggérerait une direction connue à tort.
+  const heading = store.get("geo.headingLive")
+    ? store.get("geo.heading")
+    : store.get("geo.position")?.heading;
   const markerEl = userLocationMarker.getElement();
   const beam = markerEl.querySelector(".user-location-beam");
   if (Number.isFinite(heading) && beam) {

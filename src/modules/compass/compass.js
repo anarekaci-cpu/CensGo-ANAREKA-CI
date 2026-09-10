@@ -11,6 +11,8 @@ const RADAR_RADIUS_KM = 3;
 let active = false;
 let orientationHandler = null;
 let usingAbsoluteOrientation = false;
+let listenerAttached = false;
+let passiveRequested = false;
 
 function handleOrientationEvent(event) {
   let heading = null;
@@ -25,6 +27,49 @@ function handleOrientationEvent(event) {
   if (heading == null || !Number.isFinite(heading)) return;
 
   store.set("geo.heading", ((heading % 360) + 360) % 360);
+  // Signale qu'un cap boussole RÉEL est disponible (le cône de cap sur la
+  // carte peut alors s'y fier plutôt qu'au seul cap GPS — voir map.js).
+  if (!store.get("geo.headingLive")) store.set("geo.headingLive", true);
+}
+
+/** Attache l'écouteur d'orientation une seule fois (idempotent). */
+function attachOrientationListener() {
+  if (listenerAttached) return;
+  usingAbsoluteOrientation = "ondeviceorientationabsolute" in window;
+  orientationHandler = handleOrientationEvent;
+  window.addEventListener(
+    usingAbsoluteOrientation ? "deviceorientationabsolute" : "deviceorientation",
+    orientationHandler,
+    true
+  );
+  listenerAttached = true;
+}
+
+function detachOrientationListener() {
+  if (!listenerAttached || !orientationHandler) return;
+  window.removeEventListener(
+    usingAbsoluteOrientation ? "deviceorientationabsolute" : "deviceorientation",
+    orientationHandler,
+    true
+  );
+  orientationHandler = null;
+  listenerAttached = false;
+}
+
+/**
+ * Suivi PASSIF du cap : sur Android (aucune autorisation requise pour
+ * deviceorientation), on écoute le capteur dès le démarrage pour alimenter
+ * le cône de cap sur la carte, SANS ouvrir le panneau boussole. Sur iOS,
+ * l'accès exige un geste utilisateur + requestPermission() : impossible en
+ * mode passif, on ne fait rien (le panneau boussole reste la voie iOS).
+ * No-op si déjà écouté (panneau ouvert, ou déjà appelé).
+ */
+export function startPassiveHeadingTracking() {
+  if (listenerAttached) return;
+  if (typeof DeviceOrientationEvent === "undefined") return;
+  if (typeof DeviceOrientationEvent.requestPermission === "function") return; // iOS
+  attachOrientationListener();
+  passiveRequested = true;
 }
 
 /** @returns {boolean} true si le capteur d'orientation est actuellement actif */
@@ -58,13 +103,7 @@ export async function enableCompass() {
     }
   }
 
-  usingAbsoluteOrientation = "ondeviceorientationabsolute" in window;
-  orientationHandler = handleOrientationEvent;
-  window.addEventListener(
-    usingAbsoluteOrientation ? "deviceorientationabsolute" : "deviceorientation",
-    orientationHandler,
-    true
-  );
+  attachOrientationListener();
 
   active = true;
   store.set("geo.compassActive", true);
@@ -72,18 +111,15 @@ export async function enableCompass() {
   return true;
 }
 
-/** Désactive le capteur d'orientation et retire l'écouteur. */
+/**
+ * Ferme le panneau boussole. L'écouteur d'orientation est CONSERVÉ s'il
+ * tournait aussi en mode passif (cône de cap sur la carte) ; il n'est retiré
+ * que si le panneau était le seul consommateur.
+ */
 export function disableCompass() {
-  if (orientationHandler) {
-    window.removeEventListener(
-      usingAbsoluteOrientation ? "deviceorientationabsolute" : "deviceorientation",
-      orientationHandler,
-      true
-    );
-    orientationHandler = null;
-  }
   active = false;
   store.set("geo.compassActive", false);
+  if (!passiveRequested) detachOrientationListener();
 }
 
 /**

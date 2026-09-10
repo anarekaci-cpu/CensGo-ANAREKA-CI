@@ -16,6 +16,7 @@ import {
   nextGpsPowerPreference,
   STATIONARY_WINDOW_MS
 } from "../../core/gpsPowerMode.js";
+import { startPassiveHeadingTracking } from "../compass/compass.js";
 
 let position = null;
 let displayPosition = null;
@@ -129,6 +130,11 @@ export function initGeolocation() {
   // Publie la préférence persistée dès le démarrage (le bouton d'état
   // l'affiche avant même le premier fix GPS).
   store.set("geo.powerMode", powerPreference);
+
+  // Cône de cap orienté par la boussole du téléphone (Android — passif, sans
+  // autorisation). Sur iOS, reste piloté par le cap GPS jusqu'à ce que
+  // l'agent ouvre le panneau boussole. Best-effort, jamais bloquant.
+  try { startPassiveHeadingTracking(); } catch { /* capteur indisponible */ }
 
   if (!navigator.geolocation) {
     log.traceAlways("GPS", "navigator.geolocation INDISPONIBLE");

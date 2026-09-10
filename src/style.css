@@ -1157,6 +1157,33 @@ body.nav-immersive .bottom-nav-bar {
   height: 44px !important;
 }
 
+/* Boussole SVG sur-mesure (map.js: CompassControl) — verre translucide
+   cohérent avec le reste des overlays (tokens --glass-*), aiguille qui
+   pivote en direct avec le cap de la carte. */
+.compass-widget-3d {
+  background: var(--glass-sheet-light) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+.compass-widget-3d button {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: transform 0.12s ease;
+}
+.compass-widget-3d button:active { transform: scale(0.9); }
+.compass-widget-3d .compass-needle {
+  transform-origin: 50% 50%;
+  transition: transform 0.18s ease-out;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .compass-widget-3d .compass-needle { transition: none; }
+}
+
 /* FAB "+ Ajouter un point" : action principale du terrain, doit être
    atteignable du pouce en usage une main — donc en bas à droite,
    au-dessus du FAB "point le plus proche". Le bouton header seul

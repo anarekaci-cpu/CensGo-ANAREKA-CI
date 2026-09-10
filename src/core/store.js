@@ -17,6 +17,10 @@ class Store {
       geo: {
         position: null,
         heading: 0,
+        // true dès qu'un vrai relevé deviceorientation est arrivé — permet
+        // de distinguer "cap boussole réel" de la valeur initiale 0
+        // (voir modules/compass/compass.js, map.js: cône de cap).
+        headingLive: false,
         accuracy: null,
         tracking: false,
         error: null,
