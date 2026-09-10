@@ -11,10 +11,19 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
+        // id stable : ancre l'identité de la PWA indépendamment de start_url
+        // (recommandé pour l'install Android / la génération TWA).
+        id: "/CensGo-ANAREKA-CI/",
         name: "CensGo — Recensement ANAREKA-CI",
         short_name: "CensGo",
         description: "Application de recensement terrain pour agents ANAREKA-CI en Côte d'Ivoire",
+        lang: "fr",
+        dir: "ltr",
+        categories: ["productivity", "utilities", "business"],
         start_url: "/CensGo-ANAREKA-CI/",
+        // scope explicite : délimite ce que la TWA considère « dans l'app »
+        // (hors scope = ouvert dans le navigateur). Doit englober start_url.
+        scope: "/CensGo-ANAREKA-CI/",
         display: "standalone",
         background_color: "#1a3d2b",
         theme_color: "#1a3d2b",
@@ -36,6 +45,11 @@ export default defineConfig({
         // polices + petits fichiers de données (json). woff/ttf ajoutés en
         // plus de woff2 pour les navigateurs terrain plus anciens.
         globPatterns: ["**/*.{js,css,html,json,png,svg,ico,woff,woff2,ttf,webmanifest}"],
+        // .well-known/assetlinks.json (vérification TWA/Digital Asset Links)
+        // ne doit PAS passer par le service worker : Android/Play le récupère
+        // hors contexte SW, et une copie précachée périmée après rotation de
+        // la clé de signature masquerait la mise à jour.
+        globIgnores: ["**/.well-known/**"],
         // Le chunk maplibre-gl fait ~800 Ko (voir manualChunks plus bas) —
         // au-dessus du plafond Workbox par défaut (2 Mio il passe, mais on le
         // rend explicite pour qu'une croissance future ne le fasse pas
