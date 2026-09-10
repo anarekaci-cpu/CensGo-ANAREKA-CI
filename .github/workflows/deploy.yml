@@ -59,6 +59,17 @@ jobs:
           VITE_ENABLE_OFFLINE: ${{ vars.VITE_ENABLE_OFFLINE }}
           VITE_ENABLE_TOUR_OPTIMIZATION: ${{ vars.VITE_ENABLE_TOUR_OPTIMIZATION }}
           VITE_ENABLE_SHEETS_SYNC: ${{ vars.VITE_ENABLE_SHEETS_SYNC }}
+          # Chargement spatial par emprise (opt-in) — nécessite l'exécution
+          # préalable de supabase/add_spatial_bbox.sql. Variable absente => flag
+          # à false côté app (config.js), comportement historique inchangé.
+          VITE_ENABLE_BBOX_LOADING: ${{ vars.VITE_ENABLE_BBOX_LOADING }}
+          VITE_BBOX_MAX_ROWS: ${{ vars.VITE_BBOX_MAX_ROWS }}
+          # Rendu des marqueurs en couches WebGL natives (opt-in) — à valider
+          # sur appareil réel. Variable absente => rendu DOM historique.
+          VITE_ENABLE_WEBGL_MARKERS: ${{ vars.VITE_ENABLE_WEBGL_MARKERS }}
+          # Bâtiments 3D (fill-extrusion, zoom >= 15). Défaut côté app = activé ;
+          # mettre la variable à "false" pour le couper sur parc bas de gamme.
+          VITE_ENABLE_3D_BUILDINGS: ${{ vars.VITE_ENABLE_3D_BUILDINGS }}
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
