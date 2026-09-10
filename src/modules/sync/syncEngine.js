@@ -1,8 +1,9 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards } from "../../db/database.js";
+import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards, purgeSyncQueue } from "../../db/database.js";
 import { backoffDelayMs } from "../../core/backoff.js";
+import { resolveSyncIntervalMs } from "../../core/networkQuality.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
@@ -16,6 +17,38 @@ const DEAD_RETRY_INTERVAL_MS = 5 * 60 * 1000;
 // sans jamais réussir ni échouer.
 const OP_TIMEOUT_MS = 15000;
 
+// === Cadence adaptative (réseau / batterie) — voir core/networkQuality.js ===
+// navigator.connection : Network Information API (Chrome/Android), absente
+// ailleurs — lue à chaque planification, sans abonnement.
+let batteryRef = null;
+function initBatteryRefForSync() {
+  if (batteryRef !== null || typeof navigator === "undefined" || typeof navigator.getBattery !== "function") return;
+  navigator.getBattery().then(b => { batteryRef = b; }).catch(() => {});
+}
+function currentSyncContext() {
+  const conn = (typeof navigator !== "undefined" && navigator.connection) || {};
+  return {
+    effectiveType: conn.effectiveType,
+    saveData: conn.saveData,
+    batteryLevel: batteryRef ? batteryRef.level : null,
+    charging: batteryRef ? batteryRef.charging : null
+  };
+}
+
+// Boucle de sync principale auto-planifiée : contrairement à un setInterval
+// fixe, l'intervalle est recalculé après chaque passage en fonction du
+// contexte réseau/batterie (2G, "économiseur de données", batterie faible
+// hors charge -> on espace ; retour immédiat à 30 s dès que ça repart).
+let mainSyncTimer = null;
+function scheduleMainSyncLoop() {
+  if (mainSyncTimer) clearTimeout(mainSyncTimer);
+  const delay = resolveSyncIntervalMs(CONFIG.SYNC_INTERVAL_MS, currentSyncContext());
+  mainSyncTimer = setTimeout(() => {
+    if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); triggerHazardSync(); pullHazards(); }
+    scheduleMainSyncLoop();
+  }, delay);
+}
+
 export async function initSyncEngine() {
   store.set("sync.conflicts", await getSyncConflicts());
   // Cache local d'abord (fonctionne hors-ligne dès l'ouverture) — pullHazards()
@@ -25,6 +58,9 @@ export async function initSyncEngine() {
   window.addEventListener("online", () => {
     isOnline = true;
     store.set("sync.status", "idle");
+    // Le lien vient de revenir : recalcule la cadence (souvent plus rapide
+    // qu'en 2G) et relance le prochain tick sans attendre l'ancien délai.
+    scheduleMainSyncLoop();
     retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
     triggerPhotoUpload();
     triggerSheetsSync();
@@ -37,9 +73,11 @@ export async function initSyncEngine() {
     store.set("sync.status", "offline");
   });
 
-  setInterval(() => {
-    if (isOnline) { triggerSync(); triggerPhotoUpload(); triggerSheetsSync(); triggerHazardSync(); pullHazards(); }
-  }, CONFIG.SYNC_INTERVAL_MS);
+  initBatteryRefForSync();
+  scheduleMainSyncLoop();
+  // Purge défensive de la file de sync au démarrage (reliquats d'anciens
+  // statuts, échecs définitifs périmés) — voir purgeSyncQueue().
+  purgeSyncQueue().catch(err => console.warn("Purge syncQueue échouée:", err?.message || err));
 
   setInterval(() => {
     if (isOnline) {
@@ -51,6 +89,7 @@ export async function initSyncEngine() {
       retryDeadHazardSyncs().then(count => { if (count > 0) triggerHazardSync(); })
         .catch(err => console.error("Dead hazard sync retry failed:", err));
     }
+    purgeSyncQueue().catch(err => console.warn("Purge syncQueue échouée:", err?.message || err));
   }, DEAD_RETRY_INTERVAL_MS);
 
   // Retour au premier plan (agent qui rouvre l'app après l'avoir mise en

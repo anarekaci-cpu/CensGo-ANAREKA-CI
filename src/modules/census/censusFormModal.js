@@ -6,7 +6,8 @@ import { getMap } from "../map/map.js";
 import { confirmAction } from "../../core/confirmModal.js";
 import { isValidLatLng } from "../../core/normalize.js";
 import { canMarkVisited } from "../../core/geofence.js";
-import { normalizePointId, escapeHtml } from "../../core/utils.js";
+import { normalizePointId, escapeHtml, debounce } from "../../core/utils.js";
+import { haptic } from "../../core/haptics.js";
 import { findProximityMatches } from "./proximityMatch.js";
 import { compressPhoto } from "../../core/photoCompression.js";
 import { extractExifGps } from "../../core/exif.js";
@@ -456,7 +457,13 @@ function bindFormEvents() {
   // le champ actif restait masqué derrière le clavier et l'agent tapait
   // "dans le vide".
   const form = document.getElementById("censusForm");
-  form?.addEventListener("input", saveDraft);
+  // Debounce : la frappe génère un "input" par touche — sans ça c'est un
+  // JSON.stringify + localStorage.setItem à chaque caractère, coûteux sur un
+  // Android d'entrée de gamme. On sauvegarde 400 ms après la dernière frappe.
+  // "change"/"click" (sélecteurs, cases à cocher) restent immédiats : peu
+  // fréquents et on veut capturer le choix sans attendre.
+  const debouncedSaveDraft = debounce(saveDraft, 400);
+  form?.addEventListener("input", debouncedSaveDraft);
   form?.addEventListener("change", saveDraft);
   form?.addEventListener("click", () => queueMicrotask(saveDraft));
 
@@ -686,6 +693,10 @@ function bindFormEvents() {
       // Ne s'applique qu'au PASSAGE à true (fiche déjà visitée qu'on
       // ré-enregistre sans y toucher, ou qu'on décoche : jamais bloqué).
       if (pointData.visited && !existingPoint?.visited && !canMarkVisited(lat, lon)) {
+        // Géofence anti-fraude franchi : action refusée. Vibration dédiée
+        // (motif "blocked") — l'agent a souvent les yeux ailleurs, le toast
+        // d'avertissement (émis par canMarkVisited) peut lui échapper.
+        haptic("blocked");
         return;
       }
 
@@ -724,6 +735,7 @@ function bindFormEvents() {
       // marqueurs en respectant les filtres actifs (un point créé hors filtre
       // n'apparaît pas, ce qui est le comportement attendu).
 
+      haptic("success");
       toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
       closeCensusForm();
     } catch (err) {

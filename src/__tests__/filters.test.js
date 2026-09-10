@@ -114,4 +114,15 @@ describe("filterPoints", () => {
     expect(filterPoints(null, DEFAULT_FILTERS)).toEqual([]);
     expect(filterPoints(undefined, { ...DEFAULT_FILTERS, block: "1" })).toEqual([]);
   });
+
+  it("filtre actif -> NOUVEAU tableau (jamais une mutation de l'entrée)", () => {
+    const out = filterPoints(pts, { ...DEFAULT_FILTERS, block: "1" });
+    expect(out).not.toBe(pts);
+    expect(pts).toHaveLength(3); // entrée intacte
+  });
+
+  it("recherche seule (sans autre filtre) -> liste filtrée", () => {
+    const named = [P("a", { name: "Chez Aya" }), P("b", { name: "Kiosque Zeze" })];
+    expect(filterPoints(named, { ...DEFAULT_FILTERS, search: "aya" }).map(p => p.id)).toEqual(["a"]);
+  });
 });

@@ -150,6 +150,35 @@ describe("generateOptimizedTour", () => {
     });
   });
 
+  it("distanceFromPrev : positif partout et somme cohérente avec la géométrie", () => {
+    const tour = generateOptimizedTour([
+      mkPoint("a", 5.3510, -3.9900),
+      mkPoint("b", 5.3520, -3.9900),
+      mkPoint("c", 5.3530, -3.9900)
+    ], start);
+    expect(tour.every(p => p.distanceFromPrev >= 0)).toBe(true);
+    const total = tour.reduce((s, p) => s + p.distanceFromPrev, 0);
+    // 3 points alignés sur ~330 m depuis un départ à ~110 m : total plausible.
+    expect(total).toBeGreaterThan(0.2);
+    expect(total).toBeLessThan(1);
+  });
+
+  it("2-opt : décroise un aller-retour évident (ordre de saisie défavorable)", () => {
+    // Points sur une ligne est-ouge ; saisis dans un ordre qui, en
+    // plus-proche-voisin pur, créerait un zig-zag. La passe 2-opt doit
+    // rendre une progression monotone (longitudes croissantes).
+    const pts = [
+      mkPoint("p2", 5.350, -3.9880),
+      mkPoint("p4", 5.350, -3.9860),
+      mkPoint("p1", 5.350, -3.9890),
+      mkPoint("p3", 5.350, -3.9870)
+    ];
+    const tour = generateOptimizedTour(pts, { lat: 5.350, lng: -3.9900 });
+    const lons = tour.map(p => p.lon);
+    const sorted = [...lons].sort((a, b) => a - b);
+    expect(lons).toEqual(sorted);
+  });
+
   it("plafonné à MAX_TOUR_STOPS — pas d'explosion O(N²) sur 10k points", () => {
     const pts = [];
     for (let i = 0; i < 10000; i++) {

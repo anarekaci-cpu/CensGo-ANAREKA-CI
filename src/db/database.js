@@ -2,6 +2,7 @@ import Dexie from "dexie";
 import { CONFIG } from "../core/config.js";
 import { normalizePointId } from "../core/utils.js";
 import { nextRetryAtIso, isRetryDue } from "../core/backoff.js";
+import { isPurgeableSyncItem } from "../core/syncQueueMaintenance.js";
 
 export const db = new Dexie(CONFIG.DB_NAME);
 
@@ -547,6 +548,23 @@ export async function markSyncFailed(queueId, errorMsg, maxAttempts = 3) {
 
 export async function getDeadSyncs() {
   return await db.syncQueue.where("status").equals("dead").toArray();
+}
+
+/**
+ * Purge défensive de la file de sync : supprime les entrées identifiées par
+ * isPurgeableSyncItem() (voir core/syncQueueMaintenance.js). Empêche la
+ * table de gonfler indéfiniment dans une PWA installée pendant des mois. Les
+ * entrées réellement synchronisées sont déjà supprimées à la volée par
+ * markSyncDone() — ceci ne rattrape que les reliquats et les échecs
+ * définitifs périmés. Renvoie le nombre supprimé.
+ */
+export async function purgeSyncQueue(opts = {}) {
+  return db.transaction("rw", db.syncQueue, async () => {
+    const all = await db.syncQueue.toArray();
+    const doomedIds = all.filter(item => isPurgeableSyncItem(item, opts)).map(item => item.id);
+    if (doomedIds.length) await db.syncQueue.bulkDelete(doomedIds);
+    return doomedIds.length;
+  });
 }
 
 export async function retryDeadSyncs() {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { stringSimilarity, normalizePointId, escapeHtml } from "../core/utils.js";
+import { describe, it, expect, vi } from "vitest";
+import { stringSimilarity, normalizePointId, escapeHtml, debounce } from "../core/utils.js";
 
 describe("stringSimilarity", () => {
   it("retourne 1 pour des chaînes identiques", () => {
@@ -37,5 +37,44 @@ describe("normalizePointId / escapeHtml (couverture existante conservée)", () =
 
   it("escapeHtml échappe les guillemets", () => {
     expect(escapeHtml('a "b" <c>')).toBe('a &quot;b&quot; &lt;c&gt;');
+  });
+});
+
+describe("debounce", () => {
+  it("n'exécute qu'une fois après une rafale d'appels, avec les derniers arguments", () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const d = debounce(fn, 400);
+    d("a"); d("b"); d("c");
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(399);
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith("c");
+    vi.useRealTimers();
+  });
+
+  it("chaque nouvel appel repousse l'échéance", () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const d = debounce(fn, 100);
+    d(); vi.advanceTimersByTime(80);
+    d(); vi.advanceTimersByTime(80);
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100);
+    expect(fn).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it(".cancel() empêche l'exécution en attente", () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const d = debounce(fn, 100);
+    d();
+    d.cancel();
+    vi.advanceTimersByTime(200);
+    expect(fn).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

@@ -16,6 +16,43 @@ rotation de la clé, pour éviter de laisser traîner une référence morte.
 > elle contourne RLS. Si une `service_role` a un jour été exposée, la révoquer
 > immédiatement depuis le dashboard Supabase.
 
+## 🔑 Note de rappel — Rotation des clés API Supabase
+
+**À faire au moins une fois avant le déploiement terrain**, puis à chaque
+suspicion de fuite (clé aperçue dans un log, un screenshot, un bundle, un
+commit ; départ d'une personne ayant eu accès au dashboard).
+
+### Clé `anon` (celle du bundle / `.env`)
+
+1. Dashboard Supabase → **Project Settings → API → Project API keys**.
+2. **Regenerate** la clé `anon` (⚠️ invalide l'ancienne immédiatement).
+3. Mettre à jour `VITE_SUPABASE_ANON_KEY` dans :
+   - le `.env` **local** (jamais commité — bloqué par `.githooks/pre-commit`) ;
+   - le **secret GitHub Actions** utilisé par `.github/workflows/deploy.yml`
+     (Settings → Secrets and variables → Actions) ;
+   - toute autre CI / hébergement.
+4. Redéployer (`npm run deploy` ou push sur `main`) et vérifier la connexion.
+5. L'ancienne clé reste lisible dans l'historique Git public : après rotation,
+   envisager `git filter-repo` + force-push pour retirer la référence morte
+   (utile seulement une fois la clé révoquée).
+
+### Clé `service_role` et secrets Edge Functions
+
+- `service_role` : **jamais** dans le frontend / une variable `VITE_*`.
+  Uniquement dans les secrets des Edge Functions (`supabase secrets set …`).
+  En cas de fuite : Regenerate immédiat, puis
+  `supabase functions deploy <fn>` pour chaque fonction concernée.
+- `GEMINI_API_KEY`, credentials Google Sheets, `AI_ALLOWED_ORIGINS` : gérés
+  via `supabase secrets`, à faire tourner selon la même règle. Redéploiement
+  explicite de la fonction Edge requis après chaque changement.
+
+### Après toute rotation
+
+- Vérifier `Authentication → URL Configuration` (Site URL / Redirect URLs
+  toujours restreints aux domaines de production).
+- Confirmer qu'aucun `.env*` (hors `.env.example`) n'est suivi par Git :
+  `git ls-files | grep -E '\.env'` ne doit renvoyer que `.env.example`.
+
 ## ✅ Modèle d'accès actuel (supabase/reset_rls.sql)
 
 Le script `supabase/reset_rls.sql` crée les tables et applique les policies
@@ -23,35 +60,61 @@ suivantes. C'est la référence à exécuter dans le dashboard Supabase — les
 exemples plus anciens de ce document (table `agent_zones`, colonne `bloc`)
 ne correspondent PAS au schéma réel.
 
+### Inscription libre-service et validation (rôle `NULL`)
+
+`reset_rls.sql` installe un trigger `on_auth_user_created` : à chaque
+`auth.signUp()`, une ligne `user_roles(user_id, role = NULL)` est créée
+automatiquement (SECURITY DEFINER — le client `authenticated` n'a **aucune**
+permission INSERT directe sur `user_roles`, donc un agent ne peut jamais
+s'auto-approuver).
+
+**Un compte `role = NULL` n'a accès à RIEN** : toutes les policies de
+lecture/écriture des données passent par `is_approved_user()`, qui n'est vrai
+que pour `role IN ('agent','admin')`. Concrètement, un compte fraîchement
+inscrit voit une carte vide et ne peut rien écrire tant qu'un admin ne l'a
+pas validé (`UPDATE user_roles SET role = 'agent' …`, depuis l'app via
+`admin_list_accounts()` / la policy « Admin can update roles », ou le
+dashboard). Vérifié dans le cadre de l'audit de finalisation.
+
+> `is_admin_user()` / `is_approved_user()` sont `SECURITY DEFINER` avec
+> `search_path` figé — indispensable : un `EXISTS(SELECT … FROM user_roles)`
+> écrit en clair dans une policy **de** `user_roles` provoquerait une
+> récursion RLS infinie (constaté en production).
+
 ### Table `census_points`
 
 | Opération | Qui | Condition |
 | ----------- | ----- | ----------- |
-| SELECT | tout utilisateur authentifié | `USING (true)` — modèle collaboratif : chaque agent voit toutes les fiches pour couvrir sa zone |
-| INSERT | agent | uniquement ses propres lignes (`created_by = auth.uid()`) ; admin : tout |
-| UPDATE | agent | uniquement ses propres lignes ; admin : tout |
+| SELECT | agent/admin **validé** | `USING (is_approved_user())` — un compte `role = NULL` ne voit aucune fiche |
+| INSERT | agent validé | uniquement ses propres lignes (`created_by = auth.uid()`) ; admin : tout |
+| UPDATE | agent validé | uniquement ses propres lignes ; admin : tout |
 | DELETE | admin uniquement | rôle vérifié via `user_roles` |
 
-> ℹ️ Le SELECT global est un choix produit assumé (recensement collaboratif).
-> Pour restreindre par zone, ajouter une table d'affectation
-> `agent_zones(agent_id, zone)` et remplacer le `USING (true)` par un filtre
-> sur `quartier`/zone — la structure RLS ci-dessous s'y prête déjà.
+> ℹ️ Parmi les comptes validés, le SELECT est global (recensement
+> collaboratif : chaque agent voit toutes les fiches pour couvrir sa zone).
+> Pour cloisonner par zone, ajouter une table d'affectation
+> `agent_zones(agent_id, zone)` et remplacer `is_approved_user()` par
+> `is_approved_user() AND EXISTS(… agent_zones … quartier)`.
 
 ### Tables de support
 
-- `user_roles(user_id UNIQUE, role IN ('agent','admin'))` — lecture de son
-  propre rôle seulement ; écriture réservée à `service_role`.
+- `user_roles(user_id UNIQUE, role IN ('agent','admin') OR role IS NULL)` —
+  chacun lit son propre rôle ; un **admin** lit tous les comptes (policy
+  « Admin can read all roles ») et peut changer le rôle d'un autre compte
+  (« Admin can update roles », jamais le sien). Aucun INSERT client (trigger
+  SECURITY DEFINER only) ; `service_role` gère tout.
 - `agent_positions` — chacun ne peut écrire/lire que SA position
   (`user_id = auth.uid()`) ; l'admin lit toutes les positions.
-- `target_zones` — lecture pour tous les authentifiés ; gestion admin.
+- `target_zones` — lecture pour tout compte validé (`is_approved_user()`) ;
+  gestion (INSERT/UPDATE/DELETE) réservée à l'admin.
 
 ### ⚠️ Point d'attention documenté
 
-La policy `USING (true)` en SELECT signifie : « toute personne authentifiée
-peut lire toutes les fiches ». Ce n'est PAS une faille ouverte au public
-anonyme (le rôle `anon` n'a aucun accès), mais un agent peut lire des fiches
-hors de sa zone. Si le besoin de cloisonnement par zone devient réel,
-appliquer la restriction décrite ci-dessus.
+Parmi les comptes **validés**, la lecture de `census_points` est globale :
+un agent peut lire des fiches hors de sa zone. Ce n'est pas une faille
+(aucun accès `anon`, aucun accès `role = NULL`), mais un choix produit. Si le
+cloisonnement par zone devient nécessaire, appliquer la restriction décrite
+ci-dessus.
 
 ### Anti-fraude "marquer visité" — fonction `assert_visit_geofence()`
 

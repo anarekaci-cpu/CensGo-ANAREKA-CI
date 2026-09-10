@@ -58,6 +58,30 @@ describe("computeStats", () => {
     expect(zone.pct).toBe(0);
   });
 
+  it("byActivity trié par fréquence décroissante ; activité absente -> 'Non renseignée'", () => {
+    const s = computeStats([
+      P("a", false, "VERT (Joignable)", "Boutique"),
+      P("b", false, "VERT (Joignable)", "Kiosque"),
+      P("c", false, "VERT (Joignable)", "Kiosque"),
+      P("d", false, "VERT (Joignable)", "Kiosque"),
+      P("e", false, "VERT (Joignable)", "Boutique"),
+      { id: "f", visited: false, status: "VERT (Joignable)", quartier: "X" } // pas d'activityType
+    ]);
+    expect(Object.keys(s.byActivity)[0]).toBe("Kiosque"); // 3 en tête
+    expect(s.byActivity["Non renseignée"]).toBe(1);
+  });
+
+  it("byStatus trié par ordre alphabétique (rendu stable de la légende)", () => {
+    const s = computeStats([
+      P("a", false, "ROUGE (Refus)"),
+      P("b", false, "VERT (Joignable)"),
+      P("c", false, "JAUNE (Injoignable)")
+    ]);
+    expect(Object.keys(s.byStatus)).toEqual([
+      "JAUNE (Injoignable)", "ROUGE (Refus)", "VERT (Joignable)"
+    ]);
+  });
+
   it("coveragePct est arrondi à l'entier le plus proche", () => {
     expect(computeStats([P("a", true), P("b", false), P("c", false)]).coveragePct).toBe(33);
     expect(computeStats([P("a", true), P("b", true), P("c", false), P("d", false), P("e", false), P("f", false)]).coveragePct).toBe(33);

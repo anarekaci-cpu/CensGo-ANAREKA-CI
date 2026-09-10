@@ -2,6 +2,8 @@ let container = null;
 const MAX_VISIBLE = 3;
 let visibleCount = 0;
 
+import { haptic } from "./haptics.js";
+
 function ensureContainer() {
   if (!container) {
     container = document.createElement("div");
@@ -12,10 +14,6 @@ function ensureContainer() {
     document.body.appendChild(container);
   }
   return container;
-}
-
-function vibrate(pattern) {
-  try { navigator.vibrate(pattern); } catch (_) { /* haptic not supported */ }
 }
 
 export function showToast(message, { type = "info", duration = 4000 } = {}) {
@@ -59,8 +57,8 @@ export function showToast(message, { type = "info", duration = 4000 } = {}) {
   c.appendChild(toast);
   visibleCount++;
 
-  if (type === "error") vibrate(200);
-  else if (type === "warning") vibrate(100);
+  if (type === "error") haptic("error");
+  else if (type === "warning") haptic("warning");
 
   if (duration > 0) {
     toast._timer = setTimeout(() => dismissToast(toast), duration);

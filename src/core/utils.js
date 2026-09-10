@@ -25,6 +25,34 @@ export function normalizePointId(id) {
   return String(id).trim();
 }
 
+/**
+ * Retarde l'exécution de `fn` jusqu'à `wait` ms après le DERNIER appel —
+ * les appels rapprochés (frappe clavier, événements "input" en rafale) ne
+ * déclenchent qu'une seule exécution, à la fin. Utilisé notamment pour la
+ * sauvegarde automatique du brouillon de fiche (un setItem localStorage +
+ * JSON.stringify à chaque touche serait du gaspillage sur un Android
+ * d'entrée de gamme).
+ *
+ * @param {Function} fn
+ * @param {number} wait - millisecondes
+ * @returns {Function} version debouncée, avec une méthode .cancel()
+ */
+export function debounce(fn, wait) {
+  let timer = null;
+  const debounced = (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, wait);
+  };
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
+}
+
 function normalizeForCompare(str) {
   return String(str || "")
     .normalize("NFD")

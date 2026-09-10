@@ -21,6 +21,7 @@ import { log } from "../../core/debug.js";
 import { flyToPoint, enableCameraFollow } from "../map/map.js";
 import { isRushHour } from "../traffic/trafficHeuristic.js";
 import { enableNavigationWakeLock, disableNavigationWakeLock } from "../../core/wakeLock.js";
+import { haptic } from "../../core/haptics.js";
 
 // Mode voiture uniquement (voir trafficHeuristic.js) : signale à l'agent que
 // la durée affichée intègre déjà un ralentissement heure de pointe estimé,
@@ -156,7 +157,7 @@ export function initNavigation() {
       // ou le bandeau à l'écran (non regardé) peuvent tous deux passer
       // inaperçus. Un double battement distinct signale l'arrivée même sans
       // regarder ni entendre l'appareil.
-      try { navigator.vibrate?.([120, 80, 120]); } catch { /* haptique non supporté */ }
+      haptic("waypoint");
     })
   );
 

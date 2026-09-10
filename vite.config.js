@@ -32,7 +32,15 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
+        // Shell applicatif complet précaché : tout le JS/CSS/HTML + icônes +
+        // polices + petits fichiers de données (json). woff/ttf ajoutés en
+        // plus de woff2 pour les navigateurs terrain plus anciens.
+        globPatterns: ["**/*.{js,css,html,json,png,svg,ico,woff,woff2,ttf,webmanifest}"],
+        // Le chunk maplibre-gl fait ~800 Ko (voir manualChunks plus bas) —
+        // au-dessus du plafond Workbox par défaut (2 Mio il passe, mais on le
+        // rend explicite pour qu'une croissance future ne le fasse pas
+        // silencieusement sortir du précache et casser la carte hors-ligne).
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: "index.html",
         navigateFallbackDenylist: [/^\/api\//],
         // Sans ça, les fichiers précachés d'un ancien build (chunks avec un
