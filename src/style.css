@@ -53,7 +53,7 @@
     --bg-surface: #101c2a;
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-muted: #8494a9;
     --border: #24354a;
     --border-focus: #4ade80;
     --green-dark: #a3e635;
@@ -78,7 +78,7 @@
   --bg-surface: #101c2a;
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #8494a9;
   --border: #24354a;
   --border-focus: #4ade80;
   --green-dark: #a3e635;
@@ -131,8 +131,8 @@ button { -webkit-user-select: none; user-select: none; }
 #boot-error .boot-icon { font-size: 48px; }
 #boot-error h2 { font-size: 20px; margin: 8px 0; }
 #boot-error button {
-  margin-top: 16px; padding: 12px 24px;
-  background: #2ecc71; color: white;
+  margin-top: 16px; padding: 12px 24px; min-height: 48px;
+  background: #2ecc71; color: #0d2818;
   border: none; border-radius: 8px;
   font-size: 14px; font-weight: 600; cursor: pointer;
 }
@@ -167,7 +167,7 @@ button { -webkit-user-select: none; user-select: none; }
   font-size: 15px; background: var(--bg-surface); color: var(--text-primary);
   transition: border-color 0.2s;
 }
-#loginBox input:focus { outline: none; border-color: #1a3d2b; }
+#loginBox input:focus { outline: none; border-color: var(--green-dark); }
 #loginBtn {
   width: 100%; padding: 14px; min-height: 48px;
   background: #1a3d2b; color: white;
@@ -262,10 +262,10 @@ button { -webkit-user-select: none; user-select: none; }
 .welcome-btn-primary { background: #1a3d2b; color: white; border: none; }
 .welcome-btn-primary:hover { opacity: 0.9; }
 .welcome-btn-secondary {
-  background: transparent; color: #1a3d2b;
+  background: transparent; color: var(--green-dark);
   border: 1.5px solid var(--border);
 }
-.welcome-btn-secondary:hover { border-color: #1a3d2b; }
+.welcome-btn-secondary:hover { border-color: var(--green-dark); }
 .welcome-btn-primary:active, .welcome-btn-secondary:active { transform: scale(0.98); }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1768,7 +1768,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 .agent-row-status { font-size: 12px; font-weight: 600; margin-top: 2px; }
 .agent-row-status.role-pending { color: #d97706; }
 .agent-row-status.role-agent { color: #16a34a; }
-.agent-row-status.role-admin { color: #1a3d2b; }
+.agent-row-status.role-admin { color: var(--green-dark); }
 .agent-row-stats { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
 .agents-summary {
   display: flex; flex-wrap: wrap; gap: 10px 16px;
@@ -1784,7 +1784,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 600;
   cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
 }
-.agent-action-btn:hover { border-color: #1a3d2b; color: #1a3d2b; }
+.agent-action-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
 .agent-action-btn:disabled { opacity: 0.5; cursor: default; }
 .agent-action-btn.agent-approve, .agent-action-btn.agent-promote {
   background: #1a3d2b; color: white; border-color: #1a3d2b;
