@@ -155,6 +155,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    globals: true
+    globals: true,
+    // e2e/ = Playwright (npm run test:e2e), pas Vitest.
+    include: ["src/**/*.test.js"]
   }
 });

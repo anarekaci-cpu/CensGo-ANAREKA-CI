@@ -545,7 +545,7 @@ header, .app-header {
   display: flex; flex-direction: column; gap: 8px;
 }
 .map-floating-controls-bottom {
-  position: absolute; bottom: 20px; right: 14px; z-index: 300;
+  position: absolute; bottom: 44px; right: 14px; z-index: 300;
   display: flex; flex-direction: column; gap: 6px;
 }
 .fab-map-control, .fab-map-zoom {
@@ -774,7 +774,7 @@ header, .app-header {
 }
 .nav-tab-fab .fab-circle {
   width: 56px; height: 56px; border-radius: 50%;
-  background: linear-gradient(135deg, #2ecc71 0%, #16a34a 100%);
+  background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
   color: white; font-size: 24px;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 8px 24px rgba(46, 204, 113, 0.55);
@@ -1084,7 +1084,7 @@ header, .app-header {
 }
 
 .legend {
-  position: absolute; bottom: 24px; left: 18px;
+  position: absolute; bottom: 40px; left: 18px;
   /* BUG CORRIGÉ : fond/texte figés en clair (rgba blanc, #334155) —
      restait un carton blanc illisible sur fond sombre en mode nuit. Passé
      aux tokens du thème (déjà définis pour les deux modes, voir :root
@@ -1952,7 +1952,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   header { padding: 10px 12px; }
   .htitle h1 { font-size: 13px; }
   .stats { font-size: 11px; }
-  #syncStatus { max-width: 80px; font-size: 11px; padding: 4px 8px; }
+  #syncStatus { max-width: none; font-size: 11px; padding: 4px 10px; }
   /* Sur très petit écran, le statut de sync a déjà peu de place — la météo
      n'est pas assez critique pour se disputer cet espace avec lui. */
   #weatherWidget { display: none; }
@@ -1973,7 +1973,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   .action-row { grid-template-columns: 1fr; }
   .census-modal, .ai-modal { padding: 0; }
   .census-modal-card, .ai-modal-card { max-width: 100%; height: 100%; max-height: 100vh; max-height: 100dvh; border-radius: 0; }
-  .legend { bottom: 16px; left: 12px; font-size: 11px; padding: 10px 12px; }
+  .legend { bottom: 36px; left: 12px; font-size: 11px; padding: 8px 12px; }
   #fabNearest { bottom: 16px; right: 12px; padding: 11px 16px; font-size: 12px; }
   #fabAdd { bottom: 76px; right: 12px; width: 52px; height: 52px; }
 }
@@ -1998,3 +1998,81 @@ input:checked + .slider:before { transform: translateX(24px); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* --- Carte : ergonomie mobile (audit 25/09) --- */
+.legend summary {
+  cursor: pointer; list-style: none; font-weight: 700;
+  min-height: 28px; display: flex; align-items: center; gap: 6px;
+  -webkit-user-select: none; user-select: none;
+}
+.legend summary::-webkit-details-marker { display: none; }
+.legend summary::after { content: "▸"; font-size: 10px; opacity: 0.6; transition: transform 0.2s; }
+.legend[open] summary::after { transform: rotate(90deg); }
+.legend[open] summary { margin-bottom: 4px; }
+.legend-visited { margin-top: 5px; border-top: 1px solid var(--border); padding-top: 5px; }
+/* Contrôles natifs (satellite, boussole) : sous l'en-tête et sous la
+   colonne flottante (localiser + danger), au lieu d'être masqués par
+   l'en-tête fixe. */
+.maplibregl-ctrl-top-right { top: calc(var(--header-h) + 14px + 2 * 44px + 2 * 8px); right: 4px; }
+.fab-hazard {
+  background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+#syncStatus { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .legend summary::after { transition: none; } }
+
+/* --- Icônes SVG + logo (remplacent les emoji de l'habillage carte) --- */
+.ui-icon { display: block; flex-shrink: 0; }
+.fab-circle .ui-icon { stroke-width: 2.6; }
+.zone-icon { display: inline-flex; align-items: center; color: var(--anareka-orange); }
+.brand-mark, .login-badge { display: inline-flex; align-items: center; justify-content: center; }
+.brand-logo-wrap { background: var(--brand-forest); border: 1px solid rgba(224, 165, 38, 0.35); }
+.login-badge .censgo-logo { filter: drop-shadow(0 4px 10px rgba(224, 165, 38, 0.35)); }
+.fab-map-control .ui-icon { width: 20px; height: 20px; }
+/* Contrôles natifs MapLibre alignés sur les boutons flottants (verre +
+   tokens du thème) — le fond blanc par défaut détonnait en mode sombre. */
+.maplibregl-ctrl-group {
+  background: var(--bg-card) !important; border: 1px solid var(--border);
+  border-radius: 14px !important; overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18) !important;
+}
+.censgo-ctrl-btn { display: flex !important; align-items: center; justify-content: center; color: var(--text-primary) !important; }
+.censgo-ctrl-btn.is-active { background: var(--brand-forest) !important; color: #E0A526 !important; }
+.maplibregl-ctrl-scale {
+  background: var(--glass-sheet-light) !important; color: var(--text-secondary) !important;
+  border-color: var(--text-secondary) !important;
+}
+
+/* --- Formulaire de recensement : cohérence des champs (audit 25/09) ---
+   Les champs hors .input-with-icon (établissement, quartier, adresse,
+   ville, GPS) gardaient le rendu natif du navigateur : rectangle blanc à
+   angles vifs, illisible en mode sombre. Même traitement que les champs
+   "nom" et "téléphone". */
+.census-form-body .form-group input[type="text"]:not(.input-with-icon input),
+.census-form-body .form-group input[type="number"],
+.census-form-body .form-group select {
+  width: 100%; padding: 12px 14px; min-height: 44px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-md);
+  font-size: 14px; background: var(--bg-surface); color: var(--text-primary);
+  box-sizing: border-box; transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.census-form-body .form-group input:focus,
+.census-form-body .form-group select:focus {
+  outline: none; border-color: #10b981; background: var(--bg-card);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+}
+.census-form-body .form-group input::placeholder { color: var(--text-muted); opacity: 1; }
+.input-val-badge:empty { display: none; }
+/* Sélecteur Homme/Femme : suit le thème (restait blanc en mode sombre). */
+.segmented-control { background: var(--bg-surface); border: 1px solid var(--border); }
+.segment-btn { color: var(--text-secondary); }
+.segment-btn.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .census-val-bar.val-info { background: #0f2a1c; color: #86efac; border-bottom-color: #14532d; }
+  :root:not([data-theme="light"]) .census-val-bar.val-warning { background: #2a2208; color: #fcd34d; border-bottom-color: #713f12; }
+  :root:not([data-theme="light"]) .census-val-bar.val-success { background: #0f2a1c; color: #86efac; border-bottom-color: #15803d; }
+}
+:root[data-theme="dark"] .census-val-bar.val-info { background: #0f2a1c; color: #86efac; border-bottom-color: #14532d; }
+:root[data-theme="dark"] .census-val-bar.val-warning { background: #2a2208; color: #fcd34d; border-bottom-color: #713f12; }
+:root[data-theme="dark"] .census-val-bar.val-success { background: #0f2a1c; color: #86efac; border-bottom-color: #15803d; }
+.segment-btn.active { box-shadow: inset 0 0 0 1.5px var(--green-accent), 0 2px 8px rgba(0,0,0,0.18); color: var(--text-primary); }

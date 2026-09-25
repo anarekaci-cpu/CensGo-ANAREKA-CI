@@ -7,6 +7,27 @@ import { getSupabaseClient } from "./supabase.js";
  * fragmenteraient les statistiques et les filtres.
  */
 
+const CACHE_KEY = "censgo.cities.v1";
+
+function readCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter(c => c && typeof c.name === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCache(cities) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cities)); } catch { /* quota / mode privé */ }
+}
+
+/**
+ * Liste des villes. Mise en cache locale à chaque succès : hors connexion,
+ * la dernière liste connue est réutilisée — sans elle, le champ "Ville"
+ * (obligatoire) restait vide et aucune fiche ne pouvait être enregistrée
+ * sur le terrain sans réseau.
+ */
 export async function loadCities() {
   try {
     const supabase = getSupabaseClient();
@@ -16,11 +37,19 @@ export async function loadCities() {
       .order("name", { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    const cities = data || [];
+    writeCache(cities);
+    return cities;
   } catch (err) {
-    console.warn("Villes indisponibles (table pas encore créée ou hors-ligne) :", err.message);
-    return [];
+    const cached = readCache();
+    console.warn(`Villes indisponibles (${err.message}) — ${cached.length} ville(s) en cache local utilisée(s).`);
+    return cached;
   }
+}
+
+/** Dernière liste connue (synchrone) — pour un affichage immédiat au démarrage. */
+export function getCachedCities() {
+  return readCache();
 }
 
 export async function addCity(name) {

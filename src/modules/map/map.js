@@ -1,4 +1,5 @@
 import maplibregl from "maplibre-gl";
+import { ICONS } from "../../core/icons.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
 import { shadow as versatilesShadow } from "@versatiles/style";
@@ -68,13 +69,12 @@ class SatelliteToggleControl {
     this._button.title = "Basculer vue satellite";
     this._button.setAttribute("aria-label", "Basculer vue satellite");
     this._button.setAttribute("aria-pressed", "false");
-    this._button.style.cssText = "font-size:16px;line-height:1;";
-    this._button.textContent = "🛰️";
+    this._button.className = "censgo-ctrl-btn";
+    this._button.innerHTML = ICONS.satellite;
     this._button.addEventListener("click", () => {
       const visible = toggleSatelliteView();
       this._button.setAttribute("aria-pressed", String(visible));
-      this._button.style.background = visible ? "#1a3d2b" : "";
-      this._button.style.filter = visible ? "invert(1)" : "";
+      this._button.classList.toggle("is-active", visible);
     });
 
     this._container.appendChild(this._button);
@@ -232,10 +232,9 @@ export function initMap(containerId = "map") {
     cameraFollowEnabled = false;
   });
 
-  mapInstance.addControl(
-    new maplibregl.NavigationControl({ showCompass: false }),
-    "bottom-right"
-  );
+  // Pas de NavigationControl : le zoom est déjà assuré par les boutons
+  // flottants #zoomInBtn/#zoomOutBtn (appView.js) — le contrôle natif en
+  // doublon se superposait à eux et à l'attribution sur mobile.
   // customAttribution explicite : ne pas dépendre de ce que le style GL
   // distant choisit (ou non) de déclarer sur sa source — l'obligation
   // d'attribution OSM/OpenFreeMap ne doit pas dépendre d'un tiers.
@@ -268,6 +267,15 @@ export function initMap(containerId = "map") {
   clusterInstance = new Supercluster({ radius: 60, maxZoom: 17, minPoints: Infinity });
 
   mapInstance.once("load", add3DBuildings);
+  // L'attribution "compacte" de MapLibre s'ouvre d'elle-même au chargement
+  // (classe maplibregl-compact-show) et recouvre toute la largeur du bas de
+  // l'écran sur mobile. On la replie : le bouton ⓘ reste là pour l'ouvrir,
+  // l'obligation d'attribution OSM est respectée.
+  mapInstance.once("load", () => {
+    mapInstance.getContainer()
+      .querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show")
+      ?.classList.remove("maplibregl-compact-show");
+  });
 
   return mapInstance;
 }

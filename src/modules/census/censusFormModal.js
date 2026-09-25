@@ -248,6 +248,7 @@ export function openCensusForm(point = null) {
   const map = getMap();
   const fallbackCenter = map ? map.getCenter() : { lat: CONFIG.MAP_CENTER[0], lng: CONFIG.MAP_CENTER[1] };
 
+  watchCities();
   populateCityOptions();
   resetPendingPhoto();
   // Obligatoire seulement à la CRÉATION — une fiche déjà existante n'a pas à
@@ -303,6 +304,7 @@ export function openCensusForm(point = null) {
   syncProduitsChips();
 
   modal.style.display = "flex";
+  resetValidationState();
   validateFormRealtime();
   checkProximity();
 }
@@ -313,6 +315,19 @@ export function openCensusForm(point = null) {
 // Conserve la sélection précédente si toujours valide (agent qui enchaîne
 // plusieurs fiches dans la même ville) ; sinon pré-sélectionne automatiquement
 // s'il n'existe qu'une seule ville configurée (cas mono-ville actuel).
+// Les villes arrivent en asynchrone : si le formulaire est déjà ouvert
+// (agent rapide, réseau lent), on remplit la liste dès leur arrivée au lieu
+// de laisser "Aucune ville configurée" jusqu'à la réouverture.
+let citiesSubscribed = false;
+function watchCities() {
+  if (citiesSubscribed) return;
+  citiesSubscribed = true;
+  store.subscribe("cities", () => {
+    const modal = document.getElementById("censusFormModal");
+    if (modal?.style.display === "flex") populateCityOptions();
+  });
+}
+
 function populateCityOptions() {
   const select = document.getElementById("cf_city");
   if (!select) return;
@@ -428,7 +443,13 @@ async function checkProximity() {
   warningEl.textContent = messages.join(" ");
 }
 
-export async function closeCensusForm() {
+/**
+ * @param {{ force?: boolean }} [opts] force: fermeture après un enregistrement
+ *   réussi — pas de confirmation "Fermer sans enregistrer ?" (la fiche vient
+ *   justement d'être enregistrée ; un "Annuler" laissait le formulaire ouvert
+ *   et un second "Enregistrer" créait un doublon).
+ */
+export async function closeCensusForm({ force = false } = {}) {
   const nameEl = document.getElementById("cf_name");
   const telEl = document.getElementById("cf_tel");
   // Un OU, pas un ET : le téléphone est légitimement vide pour un ménage
@@ -436,7 +457,7 @@ export async function closeCensusForm() {
   // remplis avant d'avertir laissait fermer sans confirmation une fiche où
   // l'agent avait saisi nom + adresse + GPS mais pas de téléphone, perdant
   // toute la saisie sans le moindre avertissement.
-  if ((nameEl && nameEl.value.trim()) || (telEl && telEl.value.trim())) {
+  if (!force && ((nameEl && nameEl.value.trim()) || (telEl && telEl.value.trim()))) {
     const ok = await confirmAction(
       "Fermer sans enregistrer ?",
       "Des données ont été saisies mais non enregistrées. Voulez-vous vraiment fermer ?"
@@ -484,6 +505,19 @@ function bindFormEvents() {
     const idx = focusables.indexOf(e.target);
     focusables[idx + 1]?.focus();
   });
+
+  // Suivi des champs touchés (voir touchedFields) : sortie d'un champ texte,
+  // changement de ville, choix d'une activité.
+  const formEl = document.getElementById("censusForm");
+  formEl?.addEventListener("focusout", (e) => {
+    if (e.target.id === "cf_name") touchedFields.add("name");
+    if (e.target.id === "cf_tel") touchedFields.add("tel");
+    validateFormRealtime();
+  });
+  formEl?.addEventListener("click", (e) => {
+    if (e.target.closest?.(".chip-a")) touchedFields.add("activity");
+  });
+  document.getElementById("cf_city")?.addEventListener("change", () => touchedFields.add("city"));
 
   // Inputs live validation
   document.getElementById("cf_name")?.addEventListener("input", () => {
@@ -626,6 +660,7 @@ function bindFormEvents() {
   // Form Submission
   document.getElementById("censusForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    submitAttempted = true;
     if (!validateFormRealtime()) {
       const isCreating = !document.getElementById("cf_id")?.value;
       toastWarning(`Veuillez remplir correctement les champs obligatoires (Nom, Téléphone, Ville et Type d'activité${isCreating ? ", et prendre une photo" : ""}).`);
@@ -737,7 +772,16 @@ function bindFormEvents() {
 
       haptic("success");
       toastSuccess(id ? "Fiche modifiée avec succès." : "Nouvelle fiche enregistrée.");
-      closeCensusForm();
+      closeCensusForm({ force: true });
+      // Envoi immédiat si le réseau est là, sans attendre le prochain cycle
+      // du moteur de sync (jusqu'à 30 s) : l'agent voit la fiche passer
+      // "à jour" tout de suite. Import dynamique = pas de dépendance
+      // circulaire ; hors-ligne, la file d'attente reste gérée comme avant.
+      if (navigator.onLine) {
+        import("../sync/syncEngine.js")
+          .then(({ triggerSync, triggerPhotoUpload }) => triggerSync().then(() => triggerPhotoUpload?.()))
+          .catch(() => { /* le cycle régulier prendra le relais */ });
+      }
     } catch (err) {
       // La garde de ré-entrance (saveBtn.disabled) resterait bloquée pour
       // toujours sans ce chemin d'erreur — l'agent doit pouvoir réessayer.
@@ -851,6 +895,20 @@ function formatPhoneCI(raw) {
   return parts.join(" ");
 }
 
+// Erreurs affichées seulement pour les champs déjà touchés par l'agent, ou
+// après une tentative d'enregistrement : un formulaire vierge couvert de
+// rouge ("⚠️ Requis" partout) avant même la première saisie était anxiogène
+// et masquait l'information utile (ce qu'il reste à remplir).
+const touchedFields = new Set();
+let submitAttempted = false;
+
+function resetValidationState() {
+  touchedFields.clear();
+  submitAttempted = false;
+}
+
+const HINT_NEUTRAL = "var(--text-muted)";
+
 function validateFormRealtime() {
   const nameVal = document.getElementById("cf_name")?.value.trim() || "";
   const telVal = (document.getElementById("cf_tel")?.value || "").replace(/\D/g, "");
@@ -871,35 +929,44 @@ function validateFormRealtime() {
   const isCreating = !document.getElementById("cf_id")?.value;
   const isPhotoValid = !isCreating || pendingPhoto != null;
 
-  if (cityErr) cityErr.style.color = isCityValid ? "#16a34a" : "#dc2626";
+  const show = (field) => submitAttempted || touchedFields.has(field);
+  const hintColor = (valid, field) => valid ? "#16a34a" : (show(field) ? "#dc2626" : HINT_NEUTRAL);
+
+  if (cityErr) cityErr.style.color = hintColor(isCityValid, "city");
   const photoErr = document.getElementById("cf_photo_err");
-  if (photoErr) photoErr.style.color = isPhotoValid ? "#16a34a" : "#dc2626";
+  if (photoErr) photoErr.style.color = hintColor(isPhotoValid, "photo");
 
   if (nameBadge) {
     if (isNameValid) {
       nameBadge.className = "input-val-badge valid";
       nameBadge.textContent = "✓ OK";
-      if (nameErr) nameErr.style.color = "#16a34a";
-    } else {
+    } else if (show("name")) {
       nameBadge.className = "input-val-badge invalid";
-      nameBadge.textContent = "⚠️ Requis";
-      if (nameErr) nameErr.style.color = "#dc2626";
+      nameBadge.textContent = "Requis";
+    } else {
+      nameBadge.className = "input-val-badge";
+      nameBadge.textContent = "";
     }
+    if (nameErr) nameErr.style.color = hintColor(isNameValid, "name");
   }
 
   if (telBadge) {
     if (isTelValid) {
       telBadge.className = "input-val-badge valid";
-      telBadge.textContent = "✓ 10 Chiffres";
+      telBadge.textContent = "✓ 10 chiffres";
       if (telErr) telErr.style.color = "#16a34a";
     } else if (telVal.length > 0) {
       telBadge.className = "input-val-badge invalid";
       telBadge.textContent = `${telVal.length}/10`;
-      if (telErr) telErr.style.color = "#eab308";
-    } else {
+      if (telErr) telErr.style.color = show("tel") ? "#dc2626" : "#eab308";
+    } else if (show("tel")) {
       telBadge.className = "input-val-badge invalid";
-      telBadge.textContent = "⚠️ Requis";
+      telBadge.textContent = "Requis";
       if (telErr) telErr.style.color = "#dc2626";
+    } else {
+      telBadge.className = "input-val-badge";
+      telBadge.textContent = "";
+      if (telErr) telErr.style.color = HINT_NEUTRAL;
     }
   }
 
@@ -913,9 +980,16 @@ function validateFormRealtime() {
     if (valText) valText.textContent = "Fiche à 100% valide — Prête à être enregistrée !";
     return true;
   } else {
-    if (valBar) valBar.className = "census-val-bar val-warning";
-    if (valIcon) valIcon.textContent = "⚠️";
-    if (valText) valText.textContent = `Saisie incomplète : vérifiez le Nom, le Numéro (10 chiffres), la Ville et le Type d'activité${isCreating ? ", et prenez une photo" : ""}.`;
+    // Message précis : ce qui MANQUE réellement, dans l'ordre du formulaire.
+    const missing = [];
+    if (!isNameValid) missing.push("nom");
+    if (!isTelValid) missing.push("téléphone (10 chiffres)");
+    if (!isActivityValid) missing.push("type d'activité");
+    if (!isCityValid) missing.push("ville");
+    if (!isPhotoValid) missing.push("photo");
+    if (valBar) valBar.className = `census-val-bar ${submitAttempted ? "val-warning" : "val-info"}`;
+    if (valIcon) valIcon.textContent = submitAttempted ? "⚠️" : "📝";
+    if (valText) valText.textContent = `${submitAttempted ? "Il manque" : "À remplir"} : ${missing.join(", ")}.`;
     return false;
   }
 }

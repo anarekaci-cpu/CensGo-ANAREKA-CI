@@ -1,4 +1,5 @@
 import maplibregl from "maplibre-gl";
+import { ICONS } from "../../core/icons.js";
 import { store } from "../../core/store.js";
 import { addHazard, resolveHazard } from "../../db/database.js";
 import { toastSuccess, toastWarning } from "../../core/toast.js";
@@ -89,11 +90,17 @@ function ensureReportButton() {
   btn.title = "Signaler un danger";
   btn.setAttribute("aria-label", "Signaler un danger");
   btn.textContent = "⚠️";
-  // Positionnement en miroir de #fabAdd (bas-droite, voir appView.js/style.css) :
-  // même bande verticale, côté opposé — action secondaire, ne doit jamais
-  // se superposer à l'action principale "Nouveau point".
-  btn.style.cssText = "position:fixed;left:18px;bottom:84px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:1px solid rgba(255,255,255,0.25);font-size:24px;line-height:1;cursor:pointer;z-index:200;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(217,119,6,0.4);";
   btn.addEventListener("click", () => reportHazard());
+  // Rangé dans la colonne de contrôles flottants (sous "Me géolocaliser") :
+  // en position fixe bas-gauche il recouvrait la légende de la carte.
+  const slot = document.querySelector(".map-floating-controls-top");
+  if (slot) {
+    btn.className = "fab-map-control fab-hazard";
+    btn.innerHTML = ICONS.hazard;
+    slot.appendChild(btn);
+    return;
+  }
+  btn.style.cssText = "position:fixed;left:18px;bottom:84px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;font-size:24px;z-index:200;display:flex;align-items:center;justify-content:center;";
   document.body.appendChild(btn);
 }
 

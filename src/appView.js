@@ -1,4 +1,5 @@
 import { store } from "./core/store.js";
+import { ICONS, logoSvg } from "./core/icons.js";
 import { CONFIG } from "./core/config.js";
 import { canMarkVisited } from "./core/geofence.js";
 import { updatePointVisit, upsertPoint } from "./db/database.js";
@@ -16,7 +17,7 @@ import { initCensusFormModal, openCensusForm } from "./modules/census/censusForm
 import { retryFailedSyncs, dismissConflict, triggerPhotoUpload, triggerSheetsSync } from "./modules/sync/syncEngine.js";
 import { toastInfo, toastWarning, toastError, toastSuccess } from "./core/toast.js";
 import { loadTargetZones, addTargetZone, removeTargetZone } from "./core/targetZones.js";
-import { loadCities, addCity, removeCity } from "./core/cities.js";
+import { loadCities, getCachedCities, addCity, removeCity } from "./core/cities.js";
 import { listInvites, createInvite, revokeInvite, buildInviteUrl } from "./core/invites.js";
 import { loadTourSessions } from "./core/tourSessions.js";
 import { confirmAction } from "./core/confirmModal.js";
@@ -90,7 +91,7 @@ export async function mountAuthenticatedApp(container) {
         <div class="header-top">
           <div class="brand-container">
             <div class="brand-logo-wrap">
-              <span class="brand-mark">🗺️</span>
+              <span class="brand-mark">${logoSvg(26)}</span>
             </div>
             <div class="brand-text">
               <span class="brand-title">CensGo</span>
@@ -113,7 +114,7 @@ export async function mountAuthenticatedApp(container) {
 
         <div class="header-zone-pill-row">
           <button id="zoneSelectorPill" class="zone-pill-btn" type="button" title="Aller au point non-visité le plus proche">
-            <span class="zone-icon">🏃</span>
+            <span class="zone-icon">${ICONS.nearest}</span>
             <span id="selectedZoneLabel" class="zone-name">Point le plus proche</span>
           </button>
           <div class="stats" id="statsHeader">Chargement...</div>
@@ -208,7 +209,7 @@ export async function mountAuthenticatedApp(container) {
         <div id="map"></div>
 
         <div class="map-floating-controls-top">
-          <button id="floatingLocateBtn" class="fab-map-control" title="Me géolocaliser" aria-label="Me géolocaliser">📍</button>
+          <button id="floatingLocateBtn" class="fab-map-control" title="Me géolocaliser" aria-label="Me géolocaliser">${ICONS.locate}</button>
         </div>
 
         <div class="map-floating-controls-bottom">
@@ -322,17 +323,15 @@ export async function mountAuthenticatedApp(container) {
         <button id="fabNearest" style="display:none;">🏃 Point le plus proche</button>
         <button id="fabAdd" style="display:none;" aria-label="Ajouter un point de recensement">➕</button>
         
-        <div class="legend">
-          <div><b>Statut</b></div>
+        <details class="legend" id="mapLegend">
+          <summary>Légende</summary>
           <div><span class="dot" style="background:#2ecc71"></span>Vert</div>
           <div><span class="dot" style="background:#f1c40f"></span>Jaune</div>
           <div><span class="dot" style="background:#e74c3c"></span>Rouge</div>
           <div><span class="dot" style="background:#9b59b6"></span>Violet</div>
           <div><span class="dot" style="background:#95a5a6"></span>Non défini</div>
-          <div style="margin-top:5px;border-top:1px solid #ddd;padding-top:5px">
-            <span style="opacity:0.5">✓</span> visité
-          </div>
-        </div>
+          <div class="legend-visited"><span style="opacity:0.5">✓</span> visité</div>
+        </details>
         
         <div id="loading">Chargement de la carte...</div>
         
@@ -538,7 +537,7 @@ export async function mountAuthenticatedApp(container) {
               <line x1="16" y1="6" x2="16" y2="22"></line>
             </svg>
           </div>
-          <span class="tab-label">Map</span>
+          <span class="tab-label">Carte</span>
         </button>
 
         <button id="navTabTasks" class="nav-tab" data-tab="tasks" aria-label="Tâches et tournée">
@@ -553,7 +552,7 @@ export async function mountAuthenticatedApp(container) {
 
         <button id="navTabFabAdd" class="nav-tab-fab" title="Nouveau Recensement" aria-label="Nouveau Recensement">
           <div class="fab-circle">
-            <span>➕</span>
+            ${ICONS.plus}
           </div>
         </button>
 
@@ -580,6 +579,11 @@ export async function mountAuthenticatedApp(container) {
       </nav>
     </div>
   `;
+  // Légende repliée par défaut sur mobile (elle masquait la carte et les
+  // boutons flottants), dépliée d'office sur tablette/ordinateur.
+  if (window.matchMedia?.("(min-width: 768px)").matches) {
+    document.getElementById("mapLegend")?.setAttribute("open", "");
+  }
 
   await initApp();
 }
@@ -746,6 +750,8 @@ async function initApp() {
 
   // Villes : liste fermée gérée par l'admin (voir supabase/add_cities.sql) —
   // alimente le select "Ville" du formulaire de recensement dès réception.
+  // Affichage immédiat depuis le cache local, rafraîchi dès que le réseau répond.
+  if (!(store.get("cities") || []).length) store.set("cities", getCachedCities());
   loadCities().then(cities => {
     store.set("cities", cities);
     populateCityFilter(cities);
@@ -946,10 +952,10 @@ function bindEvents() {
   };
 
   const themeBtn = document.getElementById("themeToggleBtn");
-  themeBtn.textContent = getEffectiveTheme() === "dark" ? "☀️" : "🌙";
+  themeBtn.innerHTML = getEffectiveTheme() === "dark" ? ICONS.sun : ICONS.moon;
   themeBtn.onclick = () => {
     const next = toggleTheme();
-    themeBtn.textContent = next === "dark" ? "☀️" : "🌙";
+    themeBtn.innerHTML = next === "dark" ? ICONS.sun : ICONS.moon;
     setMapTheme(next);
   };
 

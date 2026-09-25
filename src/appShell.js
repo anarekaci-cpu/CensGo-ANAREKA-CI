@@ -1,6 +1,7 @@
 import { store } from "./core/store.js";
 import { login, register, hasPendingInvite } from "./modules/auth/auth.js";
 import { escapeHtml } from "./core/utils.js";
+import { logoSvg } from "./core/icons.js";
 
 function inviteBadgeHTML() {
   return hasPendingInvite()
@@ -112,7 +113,7 @@ export class App {
       <div id="loginScreen">
         <div class="login-backdrop"></div>
         <div id="loginBox" class="welcome-box">
-          <div class="login-badge">🗺️</div>
+          <div class="login-badge">${logoSvg(40)}</div>
           <h1>CensGo</h1>
           <p class="welcome-tagline">Recensement terrain des restaurateurs, kiosques d'attiéké et vendeurs ambulants — ANAREKA-CI, Côte d'Ivoire.</p>
           <div class="welcome-actions">
@@ -137,7 +138,7 @@ export class App {
       <div id="loginScreen">
         <div class="login-backdrop"></div>
         <div id="loginBox">
-          <div class="login-badge">🗺️</div>
+          <div class="login-badge">${logoSvg(40)}</div>
           <h1>CensGo</h1>
           <p>Connexion agent de terrain — ANAREKA-CI</p>
           ${inviteBadgeHTML()}
@@ -194,7 +195,7 @@ export class App {
       <div id="loginScreen">
         <div class="login-backdrop"></div>
         <div id="loginBox" class="signup-box">
-          <div class="login-badge">🗺️</div>
+          <div class="login-badge">${logoSvg(40)}</div>
           <h1>Créer un compte</h1>
           <p>Inscription agent de terrain — ANAREKA-CI</p>
           ${inviteBadgeHTML()}
