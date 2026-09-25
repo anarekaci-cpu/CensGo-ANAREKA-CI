@@ -5,6 +5,7 @@ import { savePoints, mergePoints, getAllPoints, getMeta, setMeta } from "../../d
 import { normalizePoint } from "../../core/normalize.js";
 import { log, isVerbose } from "../../core/debug.js";
 import { bboxRpcArgs, boundsChangedEnough } from "../../core/bboxLoader.js";
+import { CONSENT_COLUMNS } from "../../core/consent.js";
 
 // Traduit une erreur Supabase/PostgREST en message actionnable pour un
 // agent terrain. Sans ça, une policy RLS bloquante ou une table vide
@@ -91,7 +92,10 @@ export async function fetchAllPages(supabase, { since = null } = {}) {
       // renvoie 42703 sur CHAQUE requête, rejetant la page 0 avant tout
       // affichage et bloquant toute synchro (déjà vécu sur ce projet, voir
       // le commentaire équivalent dans schema.sql).
-      .select("point_id,block,order,name,tel,etablissement,activity_type,city,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_at,created_by,photo_path")
+      // Colonnes de consentement demandées SEULEMENT si la fonctionnalité est
+      // activée (donc supabase/add_consent.sql exécuté) — même raison que
+      // ci-dessus : une colonne inconnue ferait échouer tout le chargement.
+      .select("point_id,block,order,name,tel,etablissement,activity_type,city,quartier,address,produits,sexe,status,visited,lat,lon,updated_at,created_at,created_by,photo_path" + (CONFIG.ENABLE_CONSENT ? "," + CONSENT_COLUMNS : ""))
       .order("block", { ascending: true })
       .order("order", { ascending: true })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);

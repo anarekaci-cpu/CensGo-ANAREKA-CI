@@ -4,6 +4,7 @@ import { store } from "../../core/store.js";
 import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards, purgeSyncQueue } from "../../db/database.js";
 import { backoffDelayMs } from "../../core/backoff.js";
 import { resolveSyncIntervalMs } from "../../core/networkQuality.js";
+import { consentToDb } from "../../core/consent.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
@@ -297,7 +298,9 @@ async function syncOne(supabase, item) {
           lat: p.lat,
           lon: p.lon,
           created_by: user?.id || null,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          // Consentement : envoyé seulement si activé ET présent sur la fiche.
+          ...(CONFIG.ENABLE_CONSENT ? consentToDb(p) : {})
         }, { onConflict: "point_id" })
         .abortSignal(signal)
     );

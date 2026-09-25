@@ -37,7 +37,8 @@ export default defineConfig({
       VITE_SUPABASE_URL: "https://e2e-test.supabase.co",
       VITE_SUPABASE_ANON_KEY: "e2e-anon-key",
       VITE_APP_ENV: "test",
-      VITE_ENABLE_ERROR_REPORTING: "true"
+      VITE_ENABLE_ERROR_REPORTING: "true",
+      VITE_ENABLE_CONSENT: "true"
     }
   }
 });

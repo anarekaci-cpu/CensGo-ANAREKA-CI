@@ -25,7 +25,7 @@ test.describe("Recensement", () => {
     await expect(page.locator("#censusValStatusText")).toContainText("À remplir");
     await page.locator("#cf_save_btn").click();
     // Après tentative : ce qui manque est listé précisément, rien n'est envoyé.
-    await expect(page.locator("#censusValStatusText")).toContainText("Il manque : nom");
+    await expect(page.locator("#censusValStatusText")).toContainText("Il manque : consentement de la personne, nom");
     await expect(page.locator("#cf_name_val")).toHaveText("Requis");
     await expect(page.locator("#cf_name")).toBeVisible();
   });
@@ -49,6 +49,11 @@ test.describe("Recensement", () => {
     await page.locator("#cf_city").selectOption("Bingerville");
     await page.locator("#cf_photo").setInputFiles(PHOTO);
     await expect(page.locator("#cf_photoPreview img")).toBeVisible();
+    // Consentement obligatoire à la création : le texte à lire est affiché.
+    await expect(page.locator("#cf_consent_text")).toContainText("ANAREKA-CI");
+    await expect(page.locator("#censusValStatusText")).toContainText("consentement");
+    await page.locator("#cf_consent").check();
+    await page.locator('input[name="cf_consent_method"][value="ecrit"]').check();
     await page.locator("#cf_lat").fill("5.3560");
     await page.locator("#cf_lon").fill("-3.8840");
     await page.locator("#cf_save_btn").click();
@@ -61,5 +66,8 @@ test.describe("Recensement", () => {
     const row = Array.isArray(sent) ? sent[0] : sent;
     expect(row.name).toBe("Adjoua Test");
     expect(row.city).toBe("Bingerville");
+    expect(row.consent_given).toBe(true);
+    expect(row.consent_method).toBe("ecrit");
+    expect(row.consent_at).toBeTruthy();
   });
 });

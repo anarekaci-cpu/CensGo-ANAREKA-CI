@@ -1,3 +1,4 @@
+import { consentFromRaw } from "./consent.js";
 /**
  * Normalisation centrale des points de recensement.
  *
@@ -86,7 +87,9 @@ export function normalizePoint(raw) {
     // supabase/add_census_photos.sql, db/database.js: markPhotoSynced()) —
     // jamais d'URL directe : consultée via core/censusPhotos.js (signée,
     // temporaire).
-    photoPath: toStr(raw.photoPath ?? raw.photo_path) || null
+    photoPath: toStr(raw.photoPath ?? raw.photo_path) || null,
+    // Consentement (loi 2013-450) — absent pour les fiches antérieures.
+    ...consentFromRaw(raw)
   };
 
   if (!coordsOk && (lat != null || lon != null)) {

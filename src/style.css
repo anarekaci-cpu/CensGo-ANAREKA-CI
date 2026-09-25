@@ -2086,3 +2086,21 @@ input:checked + .slider:before { transform: translateX(24px); }
   font-size: 14px; line-height: 1.5;
 }
 .map-unavailable strong { color: var(--text-primary); font-size: 16px; }
+
+/* --- Consentement (loi 2013-450) --- */
+.consent-group { gap: 10px; }
+.consent-script {
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-surface); padding: 10px 12px; font-size: 14px; line-height: 1.55;
+}
+.consent-script summary { cursor: pointer; font-weight: 600; color: var(--text-primary); min-height: 28px; }
+.consent-script p { margin: 8px 0 0; color: var(--text-secondary); }
+.consent-check {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  font-size: 14px; color: var(--text-primary); font-weight: 500; line-height: 1.4;
+}
+.consent-check input { width: 22px; height: 22px; margin-top: 1px; flex-shrink: 0; accent-color: #16a34a; }
+.consent-method .segment-btn { display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.consent-method input { accent-color: #16a34a; }
+.consent-method .segment-btn:has(input:checked) { background: var(--bg-card); color: var(--text-primary); box-shadow: inset 0 0 0 1.5px var(--green-accent); }
+.consent-done { color: #16a34a; font-weight: 600; }

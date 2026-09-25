@@ -72,6 +72,9 @@ jobs:
           VITE_ENABLE_3D_BUILDINGS: ${{ vars.VITE_ENABLE_3D_BUILDINGS }}
           # Suivi des erreurs terrain (opt-in) — après supabase/add_client_errors.sql.
           VITE_ENABLE_ERROR_REPORTING: ${{ vars.VITE_ENABLE_ERROR_REPORTING }}
+          # Consentement des personnes recensées (opt-in) — après supabase/add_consent.sql.
+          VITE_ENABLE_CONSENT: ${{ vars.VITE_ENABLE_CONSENT }}
+          VITE_CONSENT_CONTACT: ${{ vars.VITE_CONSENT_CONTACT }}
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

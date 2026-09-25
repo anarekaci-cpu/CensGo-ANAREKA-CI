@@ -68,6 +68,12 @@ export const CONFIG = {
   // activer après avoir exécuté supabase/add_client_errors.sql.
   ENABLE_ERROR_REPORTING: import.meta.env.VITE_ENABLE_ERROR_REPORTING === 'true',
 
+  // Consentement des personnes recensées (loi 2013-450) — opt-in : à
+  // activer après supabase/add_consent.sql. CONSENT_CONTACT (facultatif) :
+  // numéro/e-mail cité dans le texte lu à la personne.
+  ENABLE_CONSENT: import.meta.env.VITE_ENABLE_CONSENT === 'true',
+  CONSENT_CONTACT: import.meta.env.VITE_CONSENT_CONTACT || '',
+
   // Cartographie
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles
   // sont utilisées par src/modules/map/map.js -> la carte ne s'initialisait jamais.

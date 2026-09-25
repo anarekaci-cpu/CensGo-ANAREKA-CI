@@ -12,6 +12,7 @@ import { findProximityMatches } from "./proximityMatch.js";
 import { compressPhoto } from "../../core/photoCompression.js";
 import { extractExifGps } from "../../core/exif.js";
 import { haversineKm } from "../../core/geo.js";
+import { consentScript, buildConsentFields, hasConsent } from "../../core/consent.js";
 
 // Au-delà de cette distance entre la position GPS EXIF de la photo et la
 // position actuelle de l'agent, la photo est probablement une ancienne
@@ -97,6 +98,27 @@ export function initCensusFormModal() {
 
         <form id="censusForm" class="census-form-body" novalidate>
           <input type="hidden" id="cf_id" value="" />
+
+          <!-- Consentement (loi 2013-450) — EN PREMIER : la personne est informée
+               avant toute saisie la concernant. Voir core/consent.js -->
+          <div class="form-group consent-group" id="cf_consent_group" style="display:none;">
+            <label>Consentement de la personne <span class="req" id="cf_consent_req">*</span></label>
+            <details class="consent-script" id="cf_consent_script">
+              <summary>Texte à lire à la personne avant de l'enregistrer</summary>
+              <div id="cf_consent_text"></div>
+            </details>
+            <label class="consent-check">
+              <input type="checkbox" id="cf_consent" />
+              <span>La personne a été informée et <strong>accepte</strong> d'être recensée.</span>
+            </label>
+            <div class="segmented-control consent-method" role="radiogroup" aria-label="Forme du consentement">
+              <label class="segment-btn"><input type="radio" name="cf_consent_method" value="oral" checked /> Accord oral</label>
+              <label class="segment-btn"><input type="radio" name="cf_consent_method" value="ecrit" /> Accord écrit</label>
+            </div>
+            <div id="cf_consent_err" class="input-hint">Sans son accord, n'enregistrez ni son nom ni son numéro.</div>
+            <div id="cf_consent_done" class="input-hint consent-done" style="display:none;"></div>
+          </div>
+
 
           <!-- Nom Contact / Chef Ménage -->
           <div class="form-group">
@@ -251,6 +273,7 @@ export function openCensusForm(point = null) {
   watchCities();
   populateCityOptions();
   resetPendingPhoto();
+  setupConsentSection(point);
   // Obligatoire seulement à la CRÉATION — une fiche déjà existante n'a pas à
   // reprendre une photo pour être modifiée (voir plan : "se rassurer des
   // endroits" vise l'existence du point, pas chaque édition ultérieure).
@@ -518,6 +541,10 @@ function bindFormEvents() {
     if (e.target.closest?.(".chip-a")) touchedFields.add("activity");
   });
   document.getElementById("cf_city")?.addEventListener("change", () => touchedFields.add("city"));
+  document.getElementById("cf_consent")?.addEventListener("change", () => {
+    touchedFields.add("consent");
+    validateFormRealtime();
+  });
 
   // Inputs live validation
   document.getElementById("cf_name")?.addEventListener("input", () => {
@@ -718,7 +745,8 @@ function bindFormEvents() {
       address: document.getElementById("cf_address").value.trim(),
       produits: document.getElementById("cf_produits").value.trim(),
       lat,
-      lon
+      lon,
+      ...consentFieldsFromForm()
     };
 
     try {
@@ -895,6 +923,54 @@ function formatPhoneCI(raw) {
   return parts.join(" ");
 }
 
+// --- Consentement (loi 2013-450) ---
+// Obligatoire à la CRÉATION quand la fonctionnalité est activée ; pour une
+// fiche ancienne sans consentement, la case permet de régulariser sans
+// bloquer une simple correction.
+let consentRequired = false;
+let consentAlreadyGiven = false;
+
+function setupConsentSection(point) {
+  const group = document.getElementById("cf_consent_group");
+  if (!group) return;
+  consentAlreadyGiven = hasConsent(point);
+  consentRequired = CONFIG.ENABLE_CONSENT && !point;
+  if (!CONFIG.ENABLE_CONSENT) {
+    group.style.display = "none";
+    return;
+  }
+  group.style.display = "flex";
+  const box = document.getElementById("cf_consent");
+  const done = document.getElementById("cf_consent_done");
+  const text = document.getElementById("cf_consent_text");
+  if (text && !text.childElementCount) {
+    text.innerHTML = consentScript().map(line => `<p>${escapeHtml(line)}</p>`).join("");
+  }
+  document.getElementById("cf_consent_req").style.display = consentRequired ? "" : "none";
+  if (box) box.checked = false;
+  const oral = document.querySelector('input[name="cf_consent_method"][value="oral"]');
+  if (oral) oral.checked = true;
+  const script = document.getElementById("cf_consent_script");
+  if (script) script.open = !point; // nouvelle fiche : texte déplié d'office
+  const interactive = [box?.closest(".consent-check"), group.querySelector(".consent-method"), script, document.getElementById("cf_consent_err")];
+  if (consentAlreadyGiven) {
+    interactive.forEach(el => el && (el.style.display = "none"));
+    const when = new Date(point.consentAt).toLocaleDateString("fr-FR");
+    done.textContent = `✓ Accord ${point.consentMethod === "ecrit" ? "écrit" : "oral"} recueilli le ${when}.`;
+    done.style.display = "block";
+  } else {
+    interactive.forEach(el => el && (el.style.display = ""));
+    done.style.display = "none";
+  }
+}
+
+function consentFieldsFromForm() {
+  if (!CONFIG.ENABLE_CONSENT || consentAlreadyGiven) return {};
+  if (!document.getElementById("cf_consent")?.checked) return {};
+  const method = document.querySelector('input[name="cf_consent_method"]:checked')?.value || "oral";
+  return buildConsentFields({ method, userId: store.get("user")?.id || null });
+}
+
 // Erreurs affichées seulement pour les champs déjà touchés par l'agent, ou
 // après une tentative d'enregistrement : un formulaire vierge couvert de
 // rouge ("⚠️ Requis" partout) avant même la première saisie était anxiogène
@@ -928,6 +1004,7 @@ function validateFormRealtime() {
   // Photo obligatoire seulement à la création (cf_id vide) — voir openCensusForm().
   const isCreating = !document.getElementById("cf_id")?.value;
   const isPhotoValid = !isCreating || pendingPhoto != null;
+  const isConsentValid = !consentRequired || !!document.getElementById("cf_consent")?.checked;
 
   const show = (field) => submitAttempted || touchedFields.has(field);
   const hintColor = (valid, field) => valid ? "#16a34a" : (show(field) ? "#dc2626" : HINT_NEUTRAL);
@@ -974,7 +1051,10 @@ function validateFormRealtime() {
   const valIcon = document.getElementById("censusValStatusIcon");
   const valText = document.getElementById("censusValStatusText");
 
-  if (isNameValid && isTelValid && isActivityValid && isCityValid && isPhotoValid) {
+  const consentErr = document.getElementById("cf_consent_err");
+  if (consentErr) consentErr.style.color = hintColor(isConsentValid, "consent");
+
+  if (isNameValid && isTelValid && isActivityValid && isCityValid && isPhotoValid && isConsentValid) {
     if (valBar) valBar.className = "census-val-bar val-success";
     if (valIcon) valIcon.textContent = "✅";
     if (valText) valText.textContent = "Fiche à 100% valide — Prête à être enregistrée !";
@@ -987,6 +1067,8 @@ function validateFormRealtime() {
     if (!isActivityValid) missing.push("type d'activité");
     if (!isCityValid) missing.push("ville");
     if (!isPhotoValid) missing.push("photo");
+    // Consentement en tête : c'est la première étape du formulaire.
+    if (!isConsentValid) missing.unshift("consentement de la personne");
     if (valBar) valBar.className = `census-val-bar ${submitAttempted ? "val-warning" : "val-info"}`;
     if (valIcon) valIcon.textContent = submitAttempted ? "⚠️" : "📝";
     if (valText) valText.textContent = `${submitAttempted ? "Il manque" : "À remplir"} : ${missing.join(", ")}.`;
