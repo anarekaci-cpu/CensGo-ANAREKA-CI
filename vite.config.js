@@ -153,6 +153,8 @@ export default defineConfig({
       }
     }
   },
+  // Workers en modules ES (MapLibre v6 crée new Worker(url, { type: "module" })).
+  worker: { format: "es" },
   test: {
     environment: "jsdom",
     globals: true,

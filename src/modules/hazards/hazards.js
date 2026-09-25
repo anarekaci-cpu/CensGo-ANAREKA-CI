@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { ICONS } from "../../core/icons.js";
 import { store } from "../../core/store.js";
 import { addHazard, resolveHazard } from "../../db/database.js";

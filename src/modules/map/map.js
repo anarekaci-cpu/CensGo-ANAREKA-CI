@@ -1,4 +1,9 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+// MapLibre v6 : le worker (tuiles, GeoJSON, clusters) doit être fourni
+// explicitement avec un bundler. "?worker&url" fait compiler par Vite le
+// worker ET ses dépendances en un seul fichier servi depuis notre domaine
+// (worker-src 'self', aucun blob: nécessaire).
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { ICONS } from "../../core/icons.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
@@ -9,6 +14,8 @@ import { destinationPoint } from "../../core/geo.js";
 import { store } from "../../core/store.js";
 import { calculateRoutePadding } from "../../core/routeView.js";
 import { getEffectiveTheme } from "../../core/theme.js";
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 // OpenFreeMap au lieu de CARTO Voyager (choisi avec l'utilisateur, compromis
 // assumé) : CARTO Voyager/Dark Matter sont des styles délibérément
@@ -220,14 +227,29 @@ export function initMap(containerId = "map") {
   const container = document.getElementById(containerId);
   if (!container) return null;
 
-  mapInstance = new maplibregl.Map({
-    container: containerId,
-    style: getEffectiveTheme() === "dark" ? darkBasemapStyle() : BASEMAP_STYLE_URL,
-    center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
-    zoom: CONFIG.MAP_ZOOM,
-    maxZoom: CONFIG.MAP_MAX_ZOOM,
-    attributionControl: false
-  });
+  try {
+    mapInstance = new maplibregl.Map({
+      container: containerId,
+      style: getEffectiveTheme() === "dark" ? darkBasemapStyle() : BASEMAP_STYLE_URL,
+      center: [CONFIG.MAP_CENTER[1], CONFIG.MAP_CENTER[0]],
+      zoom: CONFIG.MAP_ZOOM,
+      maxZoom: CONFIG.MAP_MAX_ZOOM,
+      attributionControl: false
+    });
+  } catch (err) {
+    // MapLibre v6 exige WebGL2 (GPUInitializationError sur un appareil trop
+    // ancien ou avec l'accélération graphique désactivée). Sans ce garde-fou,
+    // toute l'application plantait au démarrage ; désormais seule la carte
+    // manque — formulaire, liste, rapports et synchro restent utilisables.
+    mapInstance = null;
+    console.error("Carte indisponible :", err);
+    container.innerHTML = `<div class="map-unavailable" role="alert">
+      <strong>La carte ne peut pas s'afficher sur cet appareil.</strong>
+      <span>Le navigateur ne prend pas en charge WebGL2 (ou l'accélération graphique est désactivée). Mettez à jour Chrome, ou essayez un autre téléphone. Vous pouvez quand même enregistrer des fiches avec le bouton +.</span>
+    </div>`;
+    document.getElementById("loading")?.remove();
+    return null;
+  }
   mapInstance.on("dragstart", () => {
     cameraFollowEnabled = false;
   });
@@ -271,11 +293,22 @@ export function initMap(containerId = "map") {
   // (classe maplibregl-compact-show) et recouvre toute la largeur du bas de
   // l'écran sur mobile. On la replie : le bouton ⓘ reste là pour l'ouvrir,
   // l'obligation d'attribution OSM est respectée.
-  mapInstance.once("load", () => {
-    mapInstance.getContainer()
-      .querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show")
-      ?.classList.remove("maplibregl-compact-show");
+  // L'état ouvert est porté à la fois par la classe ET par l'attribut
+  // "open" du <details> ; MapLibre le rouvre aussi quand le style annonce
+  // ses attributions (styledata) — on le replie donc aux deux moments,
+  // tant que l'agent ne l'a pas ouvert lui-même.
+  let attribUserToggled = false;
+  const collapseAttribution = () => {
+    if (attribUserToggled) return;
+    const el = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");
+    el?.classList.remove("maplibregl-compact-show");
+    el?.removeAttribute("open");
+  };
+  mapInstance.getContainer().addEventListener("click", (e) => {
+    if (e.target.closest?.(".maplibregl-ctrl-attrib-button")) attribUserToggled = true;
   });
+  mapInstance.once("load", collapseAttribution);
+  mapInstance.on("styledata", collapseAttribution);
 
   return mapInstance;
 }
@@ -321,7 +354,9 @@ export function fitToBounds(bounds, padding = [40, 40]) {
   if (!mapInstance || !bounds) return;
   const [[west, south], [east, north]] = bounds;
   const llb = new maplibregl.LngLatBounds([west, south], [east, north]);
-  mapInstance.fitBounds(llb, { padding: { top: padding[0], bottom: padding[0], left: padding[1], right: padding[1] } });
+  // maxZoom : une seule fiche => emprise nulle, sans plafond la carte
+  // zoomait au maximum (vue illisible).
+  mapInstance.fitBounds(llb, { padding: { top: padding[0], bottom: padding[0], left: padding[1], right: padding[1] }, maxZoom: 17 });
 }
 
 /**

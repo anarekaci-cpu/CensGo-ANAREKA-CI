@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { getSupabaseClient } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
 import { getMap } from "../map/map.js";

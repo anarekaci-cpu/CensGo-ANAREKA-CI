@@ -58,8 +58,18 @@ export async function mockSupabase(page, opts = {}) {
   const role = opts.role === undefined ? "agent" : opts.role;
   const points = opts.points || SAMPLE_POINTS;
 
-  // Réseau externe non-Supabase : coupé (tuiles, météo, routage…).
-  await page.route(/^https:\/\/(?!e2e-test\.supabase\.co)/, route => route.abort());
+  // Réseau externe non-Supabase : coupé (tuiles, météo, routage…), sauf le
+  // style clair OpenFreeMap remplacé par un style minimal local : la carte
+  // se charge réellement (et son worker GeoJSON tourne) sans réseau.
+  await page.route(/^https:\/\/(?!e2e-test\.supabase\.co)/, route => {
+    if (route.request().url().startsWith("https://tiles.openfreemap.org/styles/")) {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        version: 8, name: "e2e", sources: {},
+        layers: [{ id: "background", type: "background", paint: { "background-color": "#e8efe9" } }]
+      }) });
+    }
+    return route.abort();
+  });
 
   await page.route("https://e2e-test.supabase.co/**", async route => {
     const req = route.request();

@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { getClusterGroup, getMap } from "../map/map.js";
@@ -629,14 +629,12 @@ export function openPopup(pointId) {
 
 export function getFilteredBounds() {
   if (useGl()) return gl.getFilteredBoundsGl();
-  if (activeMarkers.size === 0) return null;
-  const map = getMap();
-  if (!map) return null;
-
+  // Emprise de TOUTES les fiches filtrées (loadedFeatures), pas seulement
+  // des marqueurs déjà à l'écran (activeMarkers = zone visible) : sinon
+  // « Vue d'ensemble filtrés » ne recadrait jamais vers des fiches hors
+  // champ et affichait à tort « Aucun point ne correspond aux filtres ».
+  if (!loadedFeatures.length) return null;
   const bounds = new maplibregl.LngLatBounds();
-  activeMarkers.forEach((entry) => {
-    bounds.extend(entry.marker.getLngLat());
-  });
-
+  for (const f of loadedFeatures) bounds.extend(f.geometry.coordinates);
   return [[bounds.getWest(), bounds.getSouth()], [bounds.getEast(), bounds.getNorth()]];
 }
