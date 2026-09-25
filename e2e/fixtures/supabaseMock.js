@@ -92,6 +92,12 @@ export async function mockSupabase(page, opts = {}) {
     const wantsObject = accept.includes("vnd.pgrst.object");
     if (path.startsWith("/rest/v1/")) {
       const table = path.replace("/rest/v1/", "");
+      if (table === "rpc/admin_list_accounts") {
+        return json([
+          { user_id: TEST_USER.id, email: TEST_USER.email, role: role, full_name: "Agent Test", agent_number: 7 },
+          { user_id: "00000000-0000-4000-8000-000000000002", email: "nouveau@example.ci", role: null, full_name: "Nouvel Agent", agent_number: null }
+        ]);
+      }
       if (method !== "GET" && method !== "HEAD") {
         opts.onWrite?.(table, req.postDataJSON(), method);
         return json(method === "POST" ? [] : [], 201);
