@@ -17,10 +17,18 @@
 -- ============================================================================
 
 -- 1) Fonctions applicatives : jamais pour anon, seulement pour authenticated.
-REVOKE EXECUTE ON FUNCTION public.admin_list_accounts() FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_admin_user()       FROM anon;
-REVOKE EXECUTE ON FUNCTION public.is_approved_user()    FROM anon;
-REVOKE EXECUTE ON FUNCTION public.redeem_invite(TEXT)   FROM anon;
+--    anon hérite aussi de PUBLIC : il faut retirer les DEUX, puis redonner
+--    explicitement le droit à authenticated — INDISPENSABLE, toutes les
+--    policies RLS (TO authenticated) appellent is_approved_user() /
+--    is_admin_user() : sans ce GRANT, les agents ne verraient plus rien.
+REVOKE EXECUTE ON FUNCTION public.admin_list_accounts() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_admin_user()       FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_approved_user()    FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.redeem_invite(TEXT)   FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.admin_list_accounts() TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.is_admin_user()       TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.is_approved_user()    TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.redeem_invite(TEXT)   TO authenticated;
 
 -- 2) Fonction de trigger : appelée uniquement par le trigger
 --    on_auth_user_created (qui s'exécute avec les droits du propriétaire).
@@ -30,13 +38,16 @@ REVOKE EXECUTE ON FUNCTION public.handle_new_user_role() FROM anon, authenticate
 -- 3) search_path figé sur le trigger updated_at (alerte 0011).
 ALTER FUNCTION public.set_updated_at() SET search_path = public;
 
--- Vérification : doit renvoyer 0 ligne.
-SELECT p.proname
+-- Vérification : anon_peut_executer doit être FALSE partout,
+-- authenticated_peut_executer TRUE (sauf handle_new_user_role : FALSE).
+SELECT p.proname,
+       has_function_privilege('anon', p.oid, 'EXECUTE')          AS anon_peut_executer,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_peut_executer
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND p.proname IN ('admin_list_accounts','is_admin_user','is_approved_user','redeem_invite','handle_new_user_role')
-  AND has_function_privilege('anon', p.oid, 'EXECUTE');
+ORDER BY 1;
 
 -- Non traité ici, volontairement :
 --  • spatial_ref_sys sans RLS / postgis dans "public" : table de référence
