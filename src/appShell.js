@@ -37,8 +37,13 @@ function describeSignupError(e) {
   if (/already registered|user already exists/i.test(msg)) {
     return "Un compte existe déjà avec cet e-mail — connectez-vous plutôt.";
   }
-  if (/password.*(least|short|weak)/i.test(msg)) {
-    return "Mot de passe trop court (6 caractères minimum).";
+  // Protection « mots de passe compromis » (HaveIBeenPwned) côté Supabase :
+  // à tester AVANT la règle de longueur, son message contient aussi "weak".
+  if (/pwned|easy to guess|known to be weak|leaked/i.test(msg)) {
+    return "Ce mot de passe figure dans des fuites de données connues. Choisissez-en un autre.";
+  }
+  if (/password.*(least|short|weak|characters)/i.test(msg)) {
+    return "Mot de passe trop faible : 8 caractères minimum, avec lettres et chiffres.";
   }
   return msg ? `Erreur d'inscription : ${msg}` : "Échec de l'inscription. Réessayez.";
 }
@@ -198,7 +203,7 @@ export class App {
             <input type="text" id="signupLastName" placeholder="Nom" autocomplete="family-name">
           </div>
           <input type="email" id="signupEmail" placeholder="Email" autocomplete="username">
-          <input type="password" id="signupPassword" placeholder="Mot de passe (6 caractères min.)" autocomplete="new-password">
+          <input type="password" id="signupPassword" placeholder="Mot de passe (8 caractères, lettres + chiffres)" minlength="8" autocomplete="new-password">
           <button id="signupBtn">
             <span class="login-spinner"></span>
             <span class="login-btn-text">Créer mon compte</span>
@@ -224,8 +229,8 @@ export class App {
         error.textContent = "Veuillez remplir tous les champs.";
         return;
       }
-      if (password.value.length < 6) {
-        error.textContent = "Mot de passe trop court (6 caractères minimum).";
+      if (password.value.length < 8 || !/[a-zA-Z]/.test(password.value) || !/\d/.test(password.value)) {
+        error.textContent = "Mot de passe trop faible : 8 caractères minimum, avec lettres et chiffres.";
         return;
       }
       error.textContent = "";
