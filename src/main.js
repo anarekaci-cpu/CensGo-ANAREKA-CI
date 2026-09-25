@@ -18,12 +18,21 @@ import { initTheme } from "./core/theme.js";
 import { initPwa } from "./core/pwa.js";
 import { requestPersistentStorage } from "./core/storagePersistence.js";
 import { initInstallPrompt, maybeShowInstallPrompt } from "./core/installPrompt.js";
+import { initErrorReporter, reportError } from "./core/errorReporter.js";
+import { CONFIG } from "./core/config.js";
+import { getSupabaseClient } from "./core/supabase.js";
 
 // Avant tout rendu (y compris le boot-screen) : évite un flash de thème
 // clair si l'agent a explicitement choisi le sombre lors d'une session
 // précédente (voir core/theme.js).
 initTheme();
 initPwa();
+// Le plus tôt possible : capte aussi les erreurs du démarrage.
+initErrorReporter({
+  enabled: CONFIG.ENABLE_ERROR_REPORTING,
+  getSupabaseClient,
+  version: CONFIG.APP_VERSION
+});
 // Doit être posé tôt : l'événement beforeinstallprompt peut se déclencher
 // à tout moment après le chargement de la page, bien avant que l'app ait
 // fini de monter.
@@ -96,6 +105,7 @@ async function bootstrap() {
 
   } catch (err) {
     console.error("❌ Erreur au démarrage:", err);
+    reportError(err, { source: "bootstrap" });
     // MissingAPIError : nom que Dexie donne lui-même quand indexedDB est
     // absent/coupé (private browsing, navigateur intégré d'appli tierce) —
     // on affiche alors le même message actionnable que StorageUnavailableError

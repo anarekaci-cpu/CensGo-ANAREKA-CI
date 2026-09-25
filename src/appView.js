@@ -1,4 +1,5 @@
 import { store } from "./core/store.js";
+import { errorsSectionHtml, renderErrorsPanel } from "./modules/admin/errorsPanel.js";
 import { ICONS, logoSvg } from "./core/icons.js";
 import { CONFIG } from "./core/config.js";
 import { canMarkVisited } from "./core/geofence.js";
@@ -462,6 +463,7 @@ export async function mountAuthenticatedApp(container) {
                   </div>
                 </div>
               </div>
+              ${errorsSectionHtml()}
             </div>
           </div>
         </div>
@@ -1354,6 +1356,7 @@ function bindEvents() {
       if (store.get("ui.isAdmin")) {
         const agentsModal = document.getElementById("agentsModal");
         if (agentsModal) agentsModal.style.display = "block";
+        renderErrorsPanel();
       } else {
         document.getElementById("controls")?.classList.toggle("open");
       }
@@ -1941,6 +1944,7 @@ function renderFollowUpList() {
 function bindAgentsModalEvents() {
   const openModal = async () => {
     document.getElementById("agentsModal").style.display = "block";
+    renderErrorsPanel();
     closeControls();
     await refreshAgentsList();
     renderCitiesList();

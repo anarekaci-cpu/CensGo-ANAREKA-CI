@@ -64,6 +64,10 @@ export const CONFIG = {
   // réel avant activation. Voir modules/census/markersGl.js.
   ENABLE_WEBGL_MARKERS: import.meta.env.VITE_ENABLE_WEBGL_MARKERS === 'true',
 
+  // Suivi des erreurs JS terrain (core/errorReporter.js) — opt-in : à
+  // activer après avoir exécuté supabase/add_client_errors.sql.
+  ENABLE_ERROR_REPORTING: import.meta.env.VITE_ENABLE_ERROR_REPORTING === 'true',
+
   // Cartographie
   // NOTE: ces clés étaient absentes de CONFIG (MAP_CENTER/MAP_ZOOM) alors qu'elles
   // sont utilisées par src/modules/map/map.js -> la carte ne s'initialisait jamais.

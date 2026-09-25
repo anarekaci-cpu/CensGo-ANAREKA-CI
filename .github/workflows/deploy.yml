@@ -70,6 +70,8 @@ jobs:
           # Bâtiments 3D (fill-extrusion, zoom >= 15). Défaut côté app = activé ;
           # mettre la variable à "false" pour le couper sur parc bas de gamme.
           VITE_ENABLE_3D_BUILDINGS: ${{ vars.VITE_ENABLE_3D_BUILDINGS }}
+          # Suivi des erreurs terrain (opt-in) — après supabase/add_client_errors.sql.
+          VITE_ENABLE_ERROR_REPORTING: ${{ vars.VITE_ENABLE_ERROR_REPORTING }}
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
