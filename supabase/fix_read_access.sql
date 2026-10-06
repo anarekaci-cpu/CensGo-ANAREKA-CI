@@ -1,7 +1,7 @@
 -- =============================================================
 -- FIX URGENT : restaure la lecture des points pour les agents
 -- connectés. À exécuter dans le SQL Editor du dashboard Supabase
--- (projet dojbdzponyioicetgziw).
+-- (projet Supabase de production).
 --
 -- Symptôme : 505 lignes visibles dans le dashboard (service_role,
 -- bypass RLS) mais l'API REST renvoie 0 ligne aux agents connectés.
@@ -54,7 +54,7 @@ END $$;
 CREATE POLICY "Authenticated read access"
   ON census_points FOR SELECT
   TO authenticated
-  USING (is_approved_user());
+  USING ((SELECT public.is_approved_user()));
 
 -- 4. Vérification post-application (à exécuter, résultat attendu :
 --    policyname = 'Authenticated read access', roles = {authenticated})

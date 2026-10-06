@@ -56,3 +56,26 @@ $$;
 
 REVOKE ALL ON FUNCTION census_points_in_bbox(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION census_points_in_bbox(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, INTEGER) TO authenticated;
+
+-- -------------------------------------------------------------
+-- spatial_ref_sys : table de référence PostGIS (systèmes de coordonnées),
+-- créée dans "public" et donc exposée par PostgREST sans RLS (alerte du
+-- conseiller sécurité). Aucune donnée ANAREKA : on active RLS avec une
+-- lecture seule pour anon/authenticated (PostGIS la lit pour ST_Transform)
+-- et aucune écriture. Nécessite d'être propriétaire de la table : si
+-- l'extension appartient à un autre rôle, un NOTICE est émis et rien n'est
+-- modifié (alors à faire depuis le dashboard : Database > Tables).
+-- Idempotent.
+-- -------------------------------------------------------------
+DO $$
+BEGIN
+  IF to_regclass('public.spatial_ref_sys') IS NOT NULL THEN
+    ALTER TABLE public.spatial_ref_sys ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Public read spatial_ref_sys" ON public.spatial_ref_sys;
+    CREATE POLICY "Public read spatial_ref_sys"
+      ON public.spatial_ref_sys FOR SELECT TO anon, authenticated
+      USING (true);
+  END IF;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'spatial_ref_sys : droits insuffisants (table appartenant a un autre role), RLS non active.';
+END $$;
