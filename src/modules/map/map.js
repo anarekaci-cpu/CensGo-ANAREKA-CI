@@ -1,5 +1,10 @@
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// maplibre-gl v6 déduit l'URL de son worker du fichier qui le contient (import.meta.url).
+// Une fois bundlé par Vite (prod) ou pré-bundlé (dev), ce voisin n'existe plus :
+// on fournit donc l'URL du worker explicitement (fichiers publiés par vite.config.js).
+maplibregl.setWorkerUrl?.(`${import.meta.env.BASE_URL}maplibre/maplibre-gl-worker.mjs`);
 import Supercluster from "supercluster";
 import { shadow as versatilesShadow } from "@versatiles/style";
 import { CONFIG } from "../../core/config.js";

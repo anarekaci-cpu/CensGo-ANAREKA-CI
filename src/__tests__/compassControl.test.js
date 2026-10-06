@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 // map.js importe maplibre-gl (+ CSS) et @versatiles/style au chargement du
 // module — on les neutralise pour tester la seule fonction pure.
-vi.mock("maplibre-gl", () => ({ default: {}, Map: class {}, NavigationControl: class {}, AttributionControl: class {}, ScaleControl: class {}, Marker: class {}, Popup: class {}, LngLatBounds: class {} }));
+vi.mock("maplibre-gl", () => ({ default: {}, setWorkerUrl: () => {}, Map: class {}, NavigationControl: class {}, AttributionControl: class {}, ScaleControl: class {}, Marker: class {}, Popup: class {}, LngLatBounds: class {} }));
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("@versatiles/style", () => ({ shadow: () => ({}) }));
 

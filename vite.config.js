@@ -1,5 +1,28 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { readFileSync } from "node:fs";
+
+// maplibre-gl v6 charge son worker (et son chunk partagé) par URL voisine du
+// fichier courant. Bundlé, ce voisin disparaît : on publie les deux fichiers sous
+// des noms fixes (maplibre/…), servis aussi en dev, et map.js passe cette URL.
+const MAPLIBRE_FILES = ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"];
+const maplibreWorkerFiles = () => ({
+  name: "maplibre-worker-files",
+  generateBundle() {
+    for (const f of MAPLIBRE_FILES) {
+      this.emitFile({ type: "asset", fileName: `maplibre/${f}`, source: readFileSync(`node_modules/maplibre-gl/dist/${f}`) });
+    }
+  },
+  configureServer(server) {
+    for (const f of MAPLIBRE_FILES) {
+      server.middlewares.use(`/CensGo-ANAREKA-CI/maplibre/${f}`, (_req, res) => {
+        res.setHeader("Content-Type", "text/javascript");
+        res.end(readFileSync(`node_modules/maplibre-gl/dist/${f}`));
+      });
+    }
+  }
+});
+
 
 export default defineConfig({
   base: "/CensGo-ANAREKA-CI/",
@@ -8,6 +31,7 @@ export default defineConfig({
     port: 3000
   },
   plugins: [
+    maplibreWorkerFiles(),
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
@@ -44,7 +68,7 @@ export default defineConfig({
         // Shell applicatif complet précaché : tout le JS/CSS/HTML + icônes +
         // polices + petits fichiers de données (json). woff/ttf ajoutés en
         // plus de woff2 pour les navigateurs terrain plus anciens.
-        globPatterns: ["**/*.{js,css,html,json,png,svg,ico,woff,woff2,ttf,webmanifest}"],
+        globPatterns: ["**/*.{js,css,html,json,mjs,png,svg,ico,woff,woff2,ttf,webmanifest}"],
         // .well-known/assetlinks.json (vérification TWA/Digital Asset Links)
         // ne doit PAS passer par le service worker : Android/Play le récupère
         // hors contexte SW, et une copie précachée périmée après rotation de
