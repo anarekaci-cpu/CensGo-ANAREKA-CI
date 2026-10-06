@@ -15,6 +15,15 @@ Vérifications locales effectuées :
 - `.env` local présent mais non suivi; son contenu n'est pas reproduit dans ce rapport.
 - Les fichiers `.env` ont toutefois été commités dans l'historique Git par le passé.
 
+## Mise à jour 2026-10-06 (constats obsolètes)
+
+- Tests : 400+ tests / 46+ fichiers passent désormais (le chiffre 204 ci-dessus est obsolète) ; couverture ≈ 32 %, seuil CI ajouté.
+- `npm audit --omit=dev` n'est plus propre : `maplibre-gl` <= 6.4 (critique, GHSA-jrc7-96c5-q579). Montée vers >= 6.12 bloquée par l'export par défaut supprimé (5 fichiers src/ à adapter, voir SECURITY.md). `braces` (dev, via gh-pages) sans correctif.
+- Corrigés : `source-map-js`, `brace-expansion`, `gh-pages` ; CI avec audit, Node 22, permissions minimales par job, concurrence séparée, Dependabot.
+- H3 géofence : correction par trigger serveur en cours ; à confirmer après exécution du SQL en base.
+- Journal d'audit : `audit_events` existe dans les scripts SQL ; reste à vérifier son déploiement et la politique de rétention.
+- Nouvelles recommandations : migration maplibre-gl 6.x, ESLint 9, relèvement progressif du seuil de couverture.
+
 ## Architecture constatée
 
 - Entrée : `src/main.js`, puis IndexedDB, auth, synchronisation, shell et vue authentifiée.

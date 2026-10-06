@@ -53,16 +53,19 @@ commit ; départ d'une personne ayant eu accès au dashboard).
 - Confirmer qu'aucun `.env*` (hors `.env.example`) n'est suivi par Git :
   `git ls-files | grep -E '\.env'` ne doit renvoyer que `.env.example`.
 
-## ✅ Modèle d'accès actuel (supabase/reset_rls.sql)
+## ✅ Modèle d'accès actuel (supabase/schema.sql)
 
-Le script `supabase/reset_rls.sql` crée les tables et applique les policies
-suivantes. C'est la référence à exécuter dans le dashboard Supabase — les
-exemples plus anciens de ce document (table `agent_zones`, colonne `bloc`)
-ne correspondent PAS au schéma réel.
+Le script `supabase/schema.sql` crée les tables et applique les policies
+suivantes. C'est la SEULE référence (`reset_rls.sql` n'est plus qu'un
+renvoi vers `schema.sql`, sans contenu propre) ; ordre d'exécution : voir
+l'en-tête de `schema.sql` (schema, puis add_*.sql, puis
+`harden_function_grants.sql` en dernier). Les exemples plus anciens de ce
+document (table `agent_zones`, colonne `bloc`) ne correspondent PAS au
+schéma réel.
 
 ### Inscription libre-service et validation (rôle `NULL`)
 
-`reset_rls.sql` installe un trigger `on_auth_user_created` : à chaque
+`schema.sql` installe un trigger `on_auth_user_created` : à chaque
 `auth.signUp()`, une ligne `user_roles(user_id, role = NULL)` est créée
 automatiquement (SECURITY DEFINER — le client `authenticated` n'a **aucune**
 permission INSERT directe sur `user_roles`, donc un agent ne peut jamais
@@ -86,9 +89,9 @@ dashboard). Vérifié dans le cadre de l'audit de finalisation.
 | Opération | Qui | Condition |
 | ----------- | ----- | ----------- |
 | SELECT | agent/admin **validé** | `USING (is_approved_user())` — un compte `role = NULL` ne voit aucune fiche |
-| INSERT | agent validé | uniquement ses propres lignes (`created_by = auth.uid()`) ; admin : tout |
-| UPDATE | agent validé | uniquement ses propres lignes ; admin : tout |
-| DELETE | admin uniquement | rôle vérifié via `user_roles` |
+| INSERT | agent validé | uniquement ses propres lignes (`created_by = auth.uid()`), avec coordonnées GPS obligatoires et `visited = false` (trigger `enforce_visit_geofence`) ; admin : tout |
+| UPDATE | agent validé | uniquement ses propres lignes, coordonnées immuables, passage à `visited = true` soumis à la preuve de position ; admin : tout |
+| DELETE | admin uniquement | `is_admin_user()` |
 
 > ℹ️ Parmi les comptes validés, le SELECT est global (recensement
 > collaboratif : chaque agent voit toutes les fiches pour couvrir sa zone).
@@ -103,8 +106,10 @@ dashboard). Vérifié dans le cadre de l'audit de finalisation.
   « Admin can read all roles ») et peut changer le rôle d'un autre compte
   (« Admin can update roles », jamais le sien). Aucun INSERT client (trigger
   SECURITY DEFINER only) ; `service_role` gère tout.
-- `agent_positions` — chacun ne peut écrire/lire que SA position
-  (`user_id = auth.uid()`) ; l'admin lit toutes les positions.
+- `agent_positions` — un compte **validé** n'écrit que SA position
+  (`user_id = auth.uid()` ET `is_approved_user()`) ; seul l'admin lit les
+  positions (un agent ne voit pas celle des autres). La colonne `email`
+  (donnée personnelle dupliquée) est facultative et à ne plus envoyer.
 - `target_zones` — lecture pour tout compte validé (`is_approved_user()`) ;
   gestion (INSERT/UPDATE/DELETE) réservée à l'admin.
 
@@ -116,17 +121,27 @@ un agent peut lire des fiches hors de sa zone. Ce n'est pas une faille
 cloisonnement par zone devient nécessaire, appliquer la restriction décrite
 ci-dessus.
 
-### Anti-fraude "marquer visité" — fonction `assert_visit_geofence()`
+### Anti-fraude "marquer visité" — trigger `enforce_visit_geofence()`
 
-Le contrôle de proximité GPS (empêcher un agent de cocher "visité" sans être
-sur place) existait initialement uniquement en JS côté client
-(`src/core/geofence.js`) — contournable par un appel direct à l'API Supabase
-hors de l'application. `assert_visit_geofence()` (dans `reset_rls.sql` /
-`schema.sql`) applique désormais ce contrôle côté serveur, à partir des
-coordonnées GPS soumises par l'app au moment de l'action (capturées côté
-client, aucun GPS serveur n'existe) ; appelée par `syncEngine.js` avant
-chaque synchronisation d'un passage à `visited=true`. Les admins en sont
-exemptés.
+Le contrôle de proximité GPS existait initialement en JS côté client
+(`src/core/geofence.js`) puis via un RPC optionnel `assert_visit_geofence()`
+: un `update({visited:true})` direct sur sa propre fiche contournait donc les
+deux. Il est désormais appliqué par un **trigger** `BEFORE INSERT OR UPDATE`
+sur `census_points` (`schema.sql`), pour tout non-admin et quel que soit le
+chemin d'écriture :
+
+- les coordonnées `lat`/`lon` d'une fiche sont immuables dès qu'elles existent ;
+- une fiche ne peut pas être créée sans coordonnées, ni directement visitée ;
+- le passage à `visited = true` exige, dans la même ligne, `visit_lat`,
+  `visit_lon`, `visit_accuracy`, `visit_at` (fix daté de 7 jours au plus, jamais dans le futur) et la
+  distance (max 500 m) est calculée sur les coordonnées STOCKÉES du point.
+
+Limite assumée : le serveur n'a pas de GPS, la preuve de position reste
+déclarée par le client ; elle empêche le contournement trivial et rend la
+fraude explicite (falsification volontaire des champs `visit_*`), pas
+impossible. Exemptés : admins et sessions sans `auth.uid()` (service_role,
+SQL editor, imports). Une visite synchronisée plus de 7 jours après le
+clic est refusée (constante `max_fix_age`, compatible avec le mode hors-ligne).
 
 ### Fonction Edge `ai-agent` — authentification du token
 
@@ -172,9 +187,10 @@ seul un administrateur peut lire les événements et qu'un utilisateur
 événements ne contiennent volontairement pas de nom, téléphone, adresse ou
 coordonnées précises.
 
-1. **Exécuter `supabase/reset_rls.sql`** dans le SQL Editor Supabase
-   (idempotent : crée les tables manquantes, remplace les policies, ne
-   supprime aucune donnée).
+1. **Exécuter `supabase/schema.sql`**, puis les `add_*.sql`, puis
+   `harden_function_grants.sql` dans le SQL Editor Supabase (ordre détaillé
+   en en-tête de `schema.sql` ; idempotent : crée les tables manquantes,
+   remplace les policies, ne supprime aucune donnée).
 2. **Régénérer les clés API** : Project Settings → API → Regenerate `anon`,
    mettre à jour `.env` (jamais commité), révoquer l'ancienne.
 3. **Restreindre les domaines** (Authentication → URL Configuration) :
@@ -193,16 +209,31 @@ coordonnées précises.
 | Pratique | Statut |
 | ---------- | -------- |
 | Clés API dans `.env` uniquement (hook pre-commit anti-`.env`) | ✅ |
-| RLS activé sur toutes les tables + policies par rôle | ✅ reset_rls.sql |
+| RLS activé sur toutes les tables + policies par rôle | ✅ schema.sql |
 | Rotation de la clé anon exposée | ⚠️ À faire côté dashboard |
 | HTTPS obligatoire | ✅ GitHub Pages |
 | Pas de secret serveur / service_role dans le client | ✅ (anon only) |
 | Échappement HTML systématique des données affichées | ✅ escapeHtml |
 | Validation des coordonnées GPS côté client | ✅ isValidLatLng |
-| Anti-fraude "marquer visité" appliqué côté serveur | ✅ assert_visit_geofence() |
+| Anti-fraude "marquer visité" appliqué côté serveur | ✅ trigger `enforce_visit_geofence()` (schema.sql ; à confirmer après exécution du SQL) |
 | Fonction Edge `ai-agent` : authentification vérifiée | ✅ (à redéployer, voir ci-dessus) |
-| Audit log des modifications | ⚠️ À ajouter |
+| Audit log des modifications | ✅ table `audit_events` + trigger serveur (vérifier le déploiement, voir ci-dessus) |
+| Audit des dépendances en CI (`npm audit --omit=dev --audit-level=high`) + Dependabot hebdomadaire | ⚠️ La CI échoue tant que maplibre-gl < 6.12 (voir ci-dessous) |
 | Rate limiting sur l'API | ⚠️ Configurable côté Supabase |
+
+### Mise à jour 2026-10-06 — dépendances et CI
+
+- Corrigé via `npm audit fix` : `source-map-js`, `brace-expansion`, `gh-pages` (dépendances transitives de build).
+- **Ouvert (critique)** : `maplibre-gl` 4.7.x vulnérable à GHSA-jrc7-96c5-q579 (contournement du sanitizer XSS `DOM.sanitize()`), corrigé en >= 6.12.0. La montée casse le build : depuis la v6 il n'y a plus d'export par défaut ; les 5 fichiers `import maplibregl from "maplibre-gl"` (agentTracking.js, markers.js, markersGl.js, hazards.js, map.js) doivent passer à `import * as maplibregl from "maplibre-gl"`, et les mocks de tests sont à revérifier. Mitigation en attendant : ne jamais passer de HTML non échappé à `setHTML`/popups (`escapeHtml`).
+- **Ouvert (dev uniquement)** : `braces` (via gh-pages > globby > fast-glob > micromatch), sans correctif publié ; n'affecte pas le bundle de production.
+- CI : permissions `pages:write`/`id-token:write` limitées au job de déploiement, concurrence séparée build/déploiement, Node 22, couverture vitest avec seuil de non-régression.
+
+### Recommandations
+
+- Migrer vers maplibre-gl >= 6.12 (changement src/ ci-dessus) ; l'étape CI `npm audit` repassera alors au vert.
+- Confirmer en base l'exécution du SQL géofence/trigger et la présence de `audit_events` (RLS, lecture admin seule).
+- Relever progressivement le seuil de couverture vitest (≈ 32 % mesuré).
+- Migrer ESLint 8 (fin de support) vers ESLint 9 (flat config) dans un chantier dédié.
 
 ---
 
