@@ -1,4 +1,6 @@
 import "./style.css";
+import "./premium.css";
+import { showIntroSplash } from "./modules/ui/introSplash.js";
 // maplibre-gl.css a délibérément migré vers modules/map/map.js : ce fichier
 // est importé statiquement par main.js et s'exécute AVANT la connexion, donc
 // tout ce qu'il importe (y compris du CSS) alourdit le premier écran (page
@@ -29,6 +31,8 @@ initPwa();
 initInstallPrompt();
 
 async function bootstrap() {
+  // Intro animée par-dessus le boot : non bloquante (l'app se charge en dessous).
+  showIntroSplash();
   const app = document.getElementById("app");
 
   app.innerHTML = `
