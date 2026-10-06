@@ -1,8 +1,7 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { getSupabaseClient } from "../../core/supabase.js";
 import { store } from "../../core/store.js";
 import { getMap } from "../map/map.js";
-import { escapeHtml } from "../../core/utils.js";
 
 let agentMarkers = new Map();
 let pollInterval = null;
@@ -70,47 +69,63 @@ export function renderAgentMarkers(agents) {
   agentMarkers.clear();
 
   agents.forEach(agent => {
-    const now = Date.now();
-    const agentTime = new Date(agent.updated_at).getTime();
-    const ageMinutes = Math.round((now - agentTime) / 60000);
-    const isStale = ageMinutes > 10;
+    try {
+      const lat = Number(agent?.lat);
+      const lon = Number(agent?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-    // Halo + pastille (même langage visuel que le marqueur "vous êtes ici"
-    // de l'agent lui-même, voir style.css .user-location-*) plutôt qu'un
-    // simple rond plat avec un emoji : donne un vrai repère de fraîcheur
-    // (le halo pulse seulement si l'agent est actif) au lieu de se fier au
-    // seul texte du popup pour distinguer actif/inactif.
-    const el = document.createElement("div");
-    el.className = `agent-marker-dot${isStale ? " is-stale" : ""}`;
-    el.innerHTML = `
-      <div class="agent-marker-halo"></div>
-      <div class="agent-marker-core">👤</div>
-    `;
+      const now = Date.now();
+      const agentTime = new Date(agent.updated_at).getTime();
+      const ageMinutes = Math.round((now - agentTime) / 60000);
+      const isStale = ageMinutes > 10;
 
-    const marker = new maplibregl.Marker({ element: el, anchor: "center" })
-      .setLngLat([agent.lon, agent.lat])
-      .addTo(map);
+      // Halo + pastille (même langage visuel que le marqueur "vous êtes ici",
+      // voir style.css .user-location-*). Le halo pulse seulement si actif.
+      const el = document.createElement("div");
+      el.className = `agent-marker-dot${isStale ? " is-stale" : ""}`;
+      const halo = document.createElement("div");
+      halo.className = "agent-marker-halo";
+      const core = document.createElement("div");
+      core.className = "agent-marker-core";
+      core.textContent = "👤";
+      el.append(halo, core);
 
-    const popup = new maplibregl.Popup({ offset: [0, -20], closeButton: true })
-      .setLngLat([agent.lon, agent.lat]);
-    // escapeHtml : l'email provient de la base — ne jamais l'injecter brut.
-    popup.setHTML(`
-      <div style="min-width:150px">
-        <b>👤 ${escapeHtml(agent.email)}</b><br>
-        <span style="font-size:12px; color:#666">
-          Position: ${agent.lat.toFixed(5)}, ${agent.lon.toFixed(5)}<br>
-          ${isStale ? `⚠️ Inactif depuis ${ageMinutes} min` : `✅ Actif (${ageMinutes} min)`}
-          ${agent.accuracy ? `<br>Précision: ${Math.round(agent.accuracy)}m` : ""}
-        </span>
-      </div>
-    `);
+      const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat([lon, lat])
+        .addTo(map);
 
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      popup.addTo(map);
-    });
+      // Popup construit en DOM + textContent : l'email provient de la base,
+      // jamais interprété comme HTML.
+      const content = document.createElement("div");
+      content.style.minWidth = "150px";
+      const title = document.createElement("b");
+      title.textContent = `👤 ${agent.email ?? ""}`;
+      const info = document.createElement("span");
+      info.style.cssText = "font-size:12px; color:#666";
+      const lines = [
+        `Position: ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+        isStale ? `⚠️ Inactif depuis ${ageMinutes} min` : `✅ Actif (${ageMinutes} min)`
+      ];
+      if (agent.accuracy) lines.push(`Précision: ${Math.round(agent.accuracy)}m`);
+      lines.forEach((line, i) => {
+        if (i > 0) info.appendChild(document.createElement("br"));
+        info.appendChild(document.createTextNode(line));
+      });
+      content.append(title, document.createElement("br"), info);
 
-    agentMarkers.set(agent.user_id, { marker, popup });
+      const popup = new maplibregl.Popup({ offset: [0, -20], closeButton: true })
+        .setLngLat([lon, lat])
+        .setDOMContent(content);
+
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        popup.addTo(map);
+      });
+
+      agentMarkers.set(agent.user_id, { marker, popup });
+    } catch (err) {
+      console.warn("Marqueur agent ignoré:", err?.message || err);
+    }
   });
 }
 

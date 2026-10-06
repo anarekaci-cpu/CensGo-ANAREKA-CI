@@ -13,7 +13,11 @@ import { log } from "./debug.js";
  * Aucun effet en production tant que le flag n'est pas posé.
  */
 
+// Compilé/actif uniquement en développement (import.meta.env.DEV) : en
+// production le flag localStorage est ignoré, donc impossible d'obtenir une
+// session factice en posant localStorage.DIAG=1.
 const DIAG_ENABLED = (() => {
+  if (!import.meta.env.DEV) return false;
   try {
     return localStorage.getItem("DIAG") === "1";
   } catch {

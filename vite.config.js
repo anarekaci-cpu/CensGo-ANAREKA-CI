@@ -142,7 +142,7 @@ export default defineConfig({
     // hors du chemin critique (écran de connexion : ~44 Ko gzip pour
     // index.js). Seuil relevé pour ne plus avertir sur CE chunk isolé et
     // déjà paresseux — pas pour masquer une vraie régression ailleurs.
-    chunkSizeWarningLimit: 850,
+    chunkSizeWarningLimit: 1100,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -155,6 +155,15 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    globals: true
+    globals: true,
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.js"],
+      exclude: ["src/__tests__/**"],
+      reporter: ["text-summary", "lcov"],
+      // Seuil de non-régression (couverture mesurée ~32 % le 2026-10-06) :
+      // à relever progressivement, ne pas le baisser.
+      thresholds: { lines: 28, statements: 28, functions: 28, branches: 28 }
+    }
   }
 });

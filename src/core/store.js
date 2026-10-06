@@ -72,7 +72,10 @@ class Store {
       }
     };
     this.listeners = new Map();
-    this.batch = new Set();
+    // Map path -> {value, oldValue} : N set() du même chemin dans une frame ne
+    // produisent qu'UNE notification (dernière valeur gagne, oldValue = la
+    // toute première valeur de la frame).
+    this.batch = new Map();
     this.frame = null;
   }
 
@@ -116,22 +119,29 @@ class Store {
   }
 
   _notify(path, value, oldValue) {
-    this.batch.add({ path, value, oldValue });
+    const pending = this.batch.get(path);
+    this.batch.set(path, { value, oldValue: pending ? pending.oldValue : oldValue });
     if (this.frame) cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => {
-      this.batch.forEach(({ path, value, oldValue }) => {
+      // Copie + clear AVANT la diffusion : un callback qui fait un set()
+      // ne doit pas être perdu par le clear() final.
+      const entries = [...this.batch];
+      this.batch.clear();
+      this.frame = null;
+      const notifiedParents = new Set();
+      entries.forEach(([path, { value, oldValue }]) => {
         // Notifier les listeners exacts
         const exact = this.listeners.get(path);
         if (exact) exact.forEach(cb => cb(value, oldValue));
 
         // Notifier les listeners wildcard (e.g. "sync.*")
         const parent = path.split(".").slice(0, -1).join(".");
-        if (parent) {
+        if (parent && !notifiedParents.has(parent)) {
+          notifiedParents.add(parent);
           const parentListeners = this.listeners.get(parent + ".*");
           if (parentListeners) parentListeners.forEach(cb => cb(this.get(parent), null));
         }
       });
-      this.batch.clear();
     });
   }
 }

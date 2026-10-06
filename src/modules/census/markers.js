@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
 import { getClusterGroup, getMap } from "../map/map.js";

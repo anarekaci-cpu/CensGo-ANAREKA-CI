@@ -43,6 +43,24 @@ function jsonResponse(req: Request, body: unknown, status = 200) {
 const MAX_BODY_BYTES = 32 * 1024; // une fiche seule, pas une photo — largement suffisant
 const GENERAL_SHEET_NAME = "Général";
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+const MAX_CITY_LENGTH = 60;
+const MAX_POINT_ID_LENGTH = 64;
+// Caractères interdits dans un nom d'onglet : ils cassent la notation A1
+// ('Onglet'!A1) ou permettent de cibler une autre plage/feuille.
+const FORBIDDEN_SHEET_NAME_CHARS = /['!:\[\]*?/\\]/;
+
+// Neutralise l'injection de formules : une cellule texte commençant par
+// = + - @ tab ou CR est préfixée d'une apostrophe. Les nombres sont conservés.
+function sanitizeCell(value: unknown): string | number | boolean {
+  if (typeof value === "number") return Number.isFinite(value) ? value : "";
+  if (typeof value === "boolean") return value;
+  const s = value == null ? "" : String(value);
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
+function isValidSheetName(name: string): boolean {
+  return name.length > 0 && name.length <= MAX_CITY_LENGTH && !FORBIDDEN_SHEET_NAME_CHARS.test(name) && !/[\u0000-\u001f]/.test(name);
+}
 
 // Ordre = colonnes A..O dans chaque onglet. Garder synchronisé avec l'export
 // CSV existant (src/appView.js, exportCSV()) pour que les deux exports
@@ -214,7 +232,7 @@ async function upsertRowInSheet(
 
   if (existing?.row_number) {
     const range = encodeURIComponent(`'${sheetName}'!A${existing.row_number}:O${existing.row_number}`);
-    await sheetsRequest(accessToken, `${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`, {
+    await sheetsRequest(accessToken, `${spreadsheetId}/values/${range}?valueInputOption=RAW`, {
       method: "PUT",
       body: JSON.stringify({ values: [rowValues] })
     });
@@ -227,7 +245,7 @@ async function upsertRowInSheet(
   const appendRange = encodeURIComponent(`'${sheetName}'!A:O`);
   const result = await sheetsRequest(
     accessToken,
-    `${spreadsheetId}/values/${appendRange}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    `${spreadsheetId}/values/${appendRange}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { method: "POST", body: JSON.stringify({ values: [rowValues] }) }
   );
   const rowNumber = parseRowNumberFromUpdatedRange(result.updates.updatedRange);
@@ -279,17 +297,65 @@ Deno.serve(async (req) => {
     const contentLength = Number(req.headers.get("Content-Length") || 0);
     if (contentLength > MAX_BODY_BYTES) return jsonResponse(req, { error: "Requête trop volumineuse." }, 413);
 
-    const { pointId, fields } = await req.json();
-    if (typeof pointId !== "string" || !pointId || !fields || typeof fields !== "object") {
-      return jsonResponse(req, { error: "Payload invalide (pointId/fields requis)." }, 400);
+    const rawBody = await req.text();
+    if (new TextEncoder().encode(rawBody).length > MAX_BODY_BYTES) {
+      return jsonResponse(req, { error: "Requête trop volumineuse." }, 413);
     }
-    const city = typeof fields.city === "string" && fields.city.trim() ? fields.city.trim() : null;
+    let parsedBody: { pointId?: unknown };
+    try {
+      parsedBody = JSON.parse(rawBody);
+    } catch {
+      return jsonResponse(req, { error: "JSON invalide." }, 400);
+    }
+    // "fields" envoyé par le client est volontairement IGNORÉ : la ligne est
+    // relue côté serveur (RLS) pour qu'un client ne puisse pas écrire dans la
+    // feuille des données différentes de celles de la base.
+    const pointId = parsedBody?.pointId;
+    if (typeof pointId !== "string" || !pointId || pointId.length > MAX_POINT_ID_LENGTH) {
+      return jsonResponse(req, { error: "Payload invalide (pointId requis)." }, 400);
+    }
+
+    // Client authentifié => RLS de census_points appliquée à CET utilisateur.
+    const { data: point, error: pointError } = await authedClient
+      .from("census_points")
+      .select("point_id,name,tel,etablissement,activity_type,city,quartier,address,produits,sexe,status,visited,lat,lon,updated_at")
+      .eq("point_id", pointId)
+      .maybeSingle();
+    if (pointError) {
+      console.error("Sheets sync point read error:", pointError.message);
+      return jsonResponse(req, { error: "Lecture du point impossible." }, 500);
+    }
+    if (!point) return jsonResponse(req, { error: "Point introuvable." }, 404);
+
+    const fields: Record<string, unknown> = { ...point, activityType: point.activity_type };
+
+    let city: string | null = null;
+    const cityRaw = typeof point.city === "string" ? point.city.trim() : "";
+    if (cityRaw) {
+      if (!isValidSheetName(cityRaw)) {
+        return jsonResponse(req, { error: "Nom de ville invalide." }, 400);
+      }
+      // La ville doit exister dans la liste fermée "cities" (lisible par les comptes approuvés).
+      const { data: cityRow, error: cityError } = await authedClient
+        .from("cities")
+        .select("name")
+        .eq("name", cityRaw)
+        .maybeSingle();
+      if (cityError) {
+        console.error("Sheets sync city read error:", cityError.message);
+        return jsonResponse(req, { error: "Lecture de la ville impossible." }, 500);
+      }
+      if (!cityRow || cityRow.name !== cityRaw) {
+        return jsonResponse(req, { error: "Ville inconnue." }, 400);
+      }
+      if (cityRaw !== GENERAL_SHEET_NAME) city = cityRaw;
+    }
 
     const rowValues = COLUMNS.map(c => {
-      const v = (fields as Record<string, unknown>)[c.key];
-      if (c.key === "point_id") return pointId;
+      const v = fields[c.key];
+      if (c.key === "point_id") return sanitizeCell(pointId);
       if (c.key === "visited") return v ? "oui" : "non";
-      return v ?? "";
+      return sanitizeCell(v);
     });
 
     const accessToken = await getGoogleAccessToken();

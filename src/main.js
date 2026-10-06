@@ -12,7 +12,6 @@ import { initGeolocation } from "./modules/geolocation/geolocation.js";
 import { App } from "./appShell.js";
 import { db } from "./db/database.js";
 import { store } from "./core/store.js";
-import { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } from "./core/diagnostics.js";
 import { escapeHtml } from "./core/utils.js";
 import { initTheme } from "./core/theme.js";
 import { initPwa } from "./core/pwa.js";
@@ -70,9 +69,13 @@ async function bootstrap() {
 
     // Mode diagnostic (localStorage.DIAG=1) : session factice + données de
     // test pour reproduire le flux complet sans identifiants. Inertre sinon.
-    if (isDiagEnabled()) {
-      diagInstallFakeUser();
-      await diagSeedPointsIfEmpty(db);
+    // Import dynamique sous import.meta.env.DEV : exclu du bundle de production.
+    if (import.meta.env.DEV) {
+      const { isDiagEnabled, diagInstallFakeUser, diagSeedPointsIfEmpty } = await import("./core/diagnostics.js");
+      if (isDiagEnabled()) {
+        diagInstallFakeUser();
+        await diagSeedPointsIfEmpty(db);
+      }
     }
 
     // Auth AVANT sync : le moteur de synchronisation envoie des mutations

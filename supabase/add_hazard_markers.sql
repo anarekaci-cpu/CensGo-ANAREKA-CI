@@ -1,17 +1,16 @@
 -- =============================================================
 -- AJOUT : signalement de dangers terrain ("Route bloquée", "Inondation")
--- partagés entre TOUS les agents — contrairement aux fiches de recensement
--- (visibilité propriétaire/admin), un danger doit être visible par n'importe
--- quel agent approuvé, y compris celui qui ne l'a pas signalé : c'est une
--- information de sécurité collective, pas une donnée de recensement.
--- À exécuter dans le SQL Editor du dashboard Supabase, après schema.sql.
+-- partagés entre TOUS les agents : contrairement aux fiches de recensement,
+-- un danger doit être visible par n'importe quel agent approuvé, y compris
+-- celui qui ne l'a pas signalé (information de sécurité collective).
+-- À exécuter après schema.sql.
 --
 -- Idempotent : peut être exécuté plusieurs fois sans erreur.
 -- =============================================================
 
-CREATE TABLE IF NOT EXISTS hazard_markers (
+CREATE TABLE IF NOT EXISTS public.hazard_markers (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_by   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_by   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   hazard_type  TEXT NOT NULL CHECK (hazard_type IN ('flooding', 'road_blocked', 'other')),
   note         TEXT,
   lat          DOUBLE PRECISION NOT NULL CHECK (lat BETWEEN -90 AND 90),
@@ -21,33 +20,44 @@ CREATE TABLE IF NOT EXISTS hazard_markers (
   resolved_by  UUID REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_hazard_markers_active ON hazard_markers (resolved_at) WHERE resolved_at IS NULL;
+-- created_by : ON DELETE CASCADE supprimait les signalements de sécurité
+-- d'un agent (et donc l'alerte pour les autres) à la suppression de son
+-- compte. Désormais SET NULL, colonne nullable : le danger reste visible.
+ALTER TABLE public.hazard_markers ALTER COLUMN created_by DROP NOT NULL;
+ALTER TABLE public.hazard_markers DROP CONSTRAINT IF EXISTS hazard_markers_created_by_fkey;
+ALTER TABLE public.hazard_markers ADD CONSTRAINT hazard_markers_created_by_fkey
+  FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE SET NULL;
 
-ALTER TABLE hazard_markers ENABLE ROW LEVEL SECURITY;
+-- Index sur les clés étrangères (suppression d'un compte = scan sinon).
+CREATE INDEX IF NOT EXISTS idx_hazard_markers_active ON public.hazard_markers (resolved_at) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_hazard_markers_created_by ON public.hazard_markers (created_by);
+CREATE INDEX IF NOT EXISTS idx_hazard_markers_resolved_by ON public.hazard_markers (resolved_by);
 
-DROP POLICY IF EXISTS "Approved users can report hazards" ON hazard_markers;
-DROP POLICY IF EXISTS "Approved users can read all hazards" ON hazard_markers;
-DROP POLICY IF EXISTS "Approved users can resolve hazards" ON hazard_markers;
+ALTER TABLE public.hazard_markers ENABLE ROW LEVEL SECURITY;
 
--- Écriture (signalement) : n'importe quel agent/admin approuvé, jamais au
--- nom d'un autre (created_by = auth.uid()).
+DROP POLICY IF EXISTS "Approved users can report hazards" ON public.hazard_markers;
+DROP POLICY IF EXISTS "Approved users can read all hazards" ON public.hazard_markers;
+DROP POLICY IF EXISTS "Approved users can resolve hazards" ON public.hazard_markers;
+
+-- Signalement : agent/admin approuvé, jamais au nom d'un autre.
 CREATE POLICY "Approved users can report hazards"
-  ON hazard_markers FOR INSERT TO authenticated
-  WITH CHECK (created_by = auth.uid() AND is_approved_user());
+  ON public.hazard_markers FOR INSERT TO authenticated
+  WITH CHECK (created_by = (SELECT auth.uid()) AND (SELECT public.is_approved_user()));
 
--- Lecture : TOUS les utilisateurs approuvés voient TOUS les dangers actifs
--- ou passés — sécurité collective, volontairement plus large que le modèle
--- propriétaire des fiches de recensement (voir schema.sql).
+-- Lecture : TOUS les utilisateurs approuvés voient TOUS les dangers
+-- (sécurité collective, volontairement plus large que les fiches).
 CREATE POLICY "Approved users can read all hazards"
-  ON hazard_markers FOR SELECT TO authenticated
-  USING (is_approved_user());
+  ON public.hazard_markers FOR SELECT TO authenticated
+  USING ((SELECT public.is_approved_user()));
 
--- Résolution : l'auteur du signalement ou un admin peut le marquer résolu —
--- pas de DELETE (historique conservé, comme audit_events/tour_sessions).
+-- Résolution : l'auteur ou un admin ; pas de DELETE (historique conservé).
 CREATE POLICY "Approved users can resolve hazards"
-  ON hazard_markers FOR UPDATE TO authenticated
-  USING (is_approved_user() AND (created_by = auth.uid() OR is_admin_user()))
-  WITH CHECK (is_approved_user() AND (created_by = auth.uid() OR is_admin_user()));
+  ON public.hazard_markers FOR UPDATE TO authenticated
+  USING ((SELECT public.is_approved_user()) AND (created_by = (SELECT auth.uid()) OR (SELECT public.is_admin_user())))
+  WITH CHECK ((SELECT public.is_approved_user()) AND (created_by = (SELECT auth.uid()) OR (SELECT public.is_admin_user())));
+
+REVOKE ALL ON public.hazard_markers FROM anon;
+REVOKE DELETE, TRUNCATE ON public.hazard_markers FROM authenticated;
 
 -- Vérification post-application
 SELECT policyname, roles, cmd FROM pg_policies

@@ -20,7 +20,7 @@
  * du module — donc le cycle est sûr.
  */
 
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { store } from "../../core/store.js";
 import { getMap } from "../map/map.js";
 import { normalizePointId } from "../../core/utils.js";
