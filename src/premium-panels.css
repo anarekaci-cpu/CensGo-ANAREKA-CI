@@ -1,0 +1,392 @@
+/* ==========================================================================
+   CensGo — relooking premium des panneaux (chargé après premium.css)
+   Fiche détaillée, modales, formulaires, filtres, toasts, guidage.
+   Même direction que premium.css : Liquid Glass + charte ANAREKA-CI.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Fiche détaillée (bottom sheet)
+   -------------------------------------------------------------------------- */
+.merchant-bottom-sheet {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(46, 204, 113, 0.16), transparent 55%),
+    radial-gradient(90% 70% at 100% 100%, rgba(255, 122, 0, 0.10), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 40%),
+    rgba(9, 28, 19, 0.82);
+  border: 1px solid var(--glass-edge);
+  border-radius: 28px;
+  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: blur(30px) saturate(200%);
+  transition: transform 0.6s cubic-bezier(0.22, 1.2, 0.36, 1), opacity 0.3s ease;
+}
+.handle-bar { width: 40px; height: 5px; background: rgba(255, 255, 255, 0.28); }
+.sheet-drag-handle:hover .handle-bar { background: rgba(255, 255, 255, 0.5); }
+.sheet-close-btn {
+  background: rgba(255, 255, 255, 0.10); border: 1px solid var(--glass-edge-soft);
+  transition: transform 0.35s var(--ease-spring), background 0.2s ease;
+}
+.sheet-close-btn:hover { transform: rotate(90deg) scale(1.08); }
+
+.merchant-avatar-pro {
+  background: linear-gradient(145deg, #1f6b43, #0f3d27);
+  border: 1px solid rgba(74, 222, 128, 0.55);
+  box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.10), 0 8px 22px rgba(46, 204, 113, 0.30);
+}
+.sheet-merchant-name { font-size: 19px; letter-spacing: -0.02em; }
+.metric-pill-card, .merchant-bottom-sheet .status-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-edge-soft);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.merchant-bottom-sheet .sheet-body .sheet-info-item {
+  padding: 7px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.04);
+}
+
+.btn-sheet-primary {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 60%, #0f7a3b 100%);
+  box-shadow: var(--glow-green), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: transform 0.3s var(--ease-spring), filter 0.2s ease, box-shadow 0.3s ease;
+}
+.btn-sheet-primary::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-18deg); transition: left 0.7s var(--ease-out-expo);
+  pointer-events: none;
+}
+.btn-sheet-primary:hover::after { left: 130%; }
+.btn-sheet-secondary, .btn-sheet-icon {
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--glass-edge);
+  transition: transform 0.3s var(--ease-spring), background 0.2s ease;
+}
+
+/* Contenu de la fiche : apparition échelonnée à chaque ouverture. */
+.merchant-bottom-sheet.open :is(.sheet-header-pro, .sheet-body, .card-quick-metrics, .sheet-actions-row, .sheet-status-pills) {
+  animation: sheetItem 0.55s var(--ease-out-expo) backwards;
+}
+.merchant-bottom-sheet.open .sheet-header-pro   { animation-delay: 0.10s; }
+.merchant-bottom-sheet.open .sheet-status-pills { animation-delay: 0.16s; }
+.merchant-bottom-sheet.open .sheet-body         { animation-delay: 0.22s; }
+.merchant-bottom-sheet.open .card-quick-metrics { animation-delay: 0.28s; }
+.merchant-bottom-sheet.open .sheet-actions-row  { animation-delay: 0.34s; }
+@keyframes sheetItem { from { opacity: 0; transform: translateY(14px); } }
+
+/* --------------------------------------------------------------------------
+   2. Modales (recensement, assistant IA, confirmation)
+   -------------------------------------------------------------------------- */
+.census-modal-backdrop, .ai-modal-backdrop, .confirm-modal-backdrop {
+  background: radial-gradient(70% 60% at 50% 40%, rgba(11, 42, 27, 0.55), rgba(3, 10, 7, 0.82));
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+.census-modal-card, .ai-modal-card, .confirm-modal-card {
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  animation: modalIn 0.55s var(--ease-spring) both;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(26px) scale(0.93); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+
+.census-modal-header, .ai-modal-header {
+  position: relative; overflow: hidden;
+  background:
+    radial-gradient(90% 160% at 0% 0%, rgba(46, 204, 113, 0.35), transparent 60%),
+    radial-gradient(70% 140% at 100% 100%, rgba(255, 122, 0, 0.28), transparent 62%),
+    linear-gradient(135deg, #082015, #12402a);
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--glass-edge-soft);
+}
+.census-modal-header::after, .ai-modal-header::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #4ade80, #ff7a00, transparent);
+  opacity: 0.8; transform-origin: left; animation: lineGrow 0.9s 0.2s var(--ease-out-expo) backwards;
+}
+@keyframes lineGrow { from { transform: scaleX(0); } }
+.census-modal-title h3, .ai-modal-title h3 {
+  font-size: 18px; letter-spacing: -0.015em;
+  background: linear-gradient(120deg, #ffffff, #c7f9d9);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.census-modal-title p { color: #ffb36b; font-weight: 600; }
+.census-header-icon, .ai-badge-icon {
+  display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.10); border: 1px solid var(--glass-edge);
+  font-size: 24px; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+.census-close-btn, .ai-close-btn {
+  background: rgba(255, 255, 255, 0.10); border: 1px solid var(--glass-edge-soft);
+  transition: transform 0.35s var(--ease-spring), background 0.2s ease;
+}
+.census-close-btn:hover, .ai-close-btn:hover { background: rgba(255, 255, 255, 0.22); transform: rotate(90deg); }
+
+/* Formulaire : champs échelonnés à l'ouverture. */
+.census-form-body > .form-group,
+.census-form-body > .form-group-row { animation: sheetItem 0.5s var(--ease-out-expo) backwards; }
+.census-form-body > :nth-child(1) { animation-delay: 0.12s; }
+.census-form-body > :nth-child(2) { animation-delay: 0.17s; }
+.census-form-body > :nth-child(3) { animation-delay: 0.22s; }
+.census-form-body > :nth-child(4) { animation-delay: 0.27s; }
+.census-form-body > :nth-child(5) { animation-delay: 0.32s; }
+.census-form-body > :nth-child(6) { animation-delay: 0.37s; }
+.census-form-body > :nth-child(n+7) { animation-delay: 0.42s; }
+
+.form-group label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
+.input-with-icon input,
+.census-form-body select, .census-form-body textarea,
+#controls select, #controls input[type="text"], .ai-prompt-box input {
+  border-radius: 14px; border-width: 1.5px;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  transition: border-color 0.2s ease, box-shadow 0.25s ease, background 0.2s ease, transform 0.25s var(--ease-spring);
+}
+.input-with-icon input:focus, .census-form-body select:focus, .census-form-body textarea:focus,
+#controls select:focus, #controls input:focus, .ai-prompt-box input:focus {
+  border-color: #34d399; transform: translateY(-1px);
+  box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.16), 0 10px 26px rgba(46, 204, 113, 0.14);
+}
+
+.census-form-body .status-pill, .chip-q, .chip-p, .chip-a, .chip-prompt, .segment-btn, .ai-tab {
+  transition: transform 0.3s var(--ease-spring), background 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease;
+}
+.census-form-body .status-pill:hover, .chip-q:hover, .chip-p:hover, .chip-a:hover, .chip-prompt:hover { transform: translateY(-2px); }
+.census-form-body .status-pill.active {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pill-color, #2ecc71) 22%, transparent), 0 10px 24px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+.segmented-control, .ai-tabs { border-radius: 16px; }
+.segment-btn.active, .ai-tab.active { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12); }
+.slider { background: linear-gradient(135deg, #cbd5e1, #b6c2d1); }
+input:checked + .slider { background: linear-gradient(135deg, #4ade80, #16a34a); box-shadow: 0 0 14px rgba(46, 204, 113, 0.5); }
+.slider:before { transition: transform 0.4s var(--ease-spring); }
+
+.btn-ai-action, .btn-ai-send, .confirm-primary {
+  background: linear-gradient(135deg, #1f8a52, #2ecc71);
+  box-shadow: 0 10px 26px rgba(46, 204, 113, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.3s var(--ease-spring), filter 0.2s ease, box-shadow 0.3s ease;
+}
+.btn-ai-action:hover, .btn-ai-send:hover, .confirm-primary:hover { transform: translateY(-2px); filter: brightness(1.08); }
+.confirm-danger { background: linear-gradient(135deg, #b91c1c, #ef4444); box-shadow: 0 10px 26px rgba(220, 38, 38, 0.32); }
+.confirm-cancel { border: 1px solid var(--border); }
+.confirm-modal-actions button { border-radius: 14px; transition: transform 0.3s var(--ease-spring), filter 0.2s ease; }
+.confirm-modal-actions button:hover { transform: translateY(-2px); }
+.confirm-modal-title { font-size: 19px; letter-spacing: -0.015em; }
+.btn-ai-action-secondary { border-radius: 14px; transition: transform 0.3s var(--ease-spring), background 0.15s ease; }
+.btn-ai-action-secondary:hover { transform: translateY(-1px); }
+
+/* --------------------------------------------------------------------------
+   3. Panneau de filtres et d'actions
+   -------------------------------------------------------------------------- */
+#controls {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 35%),
+    var(--bg-card-glass);
+  border: 1px solid var(--glass-edge);
+  border-radius: 26px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  transition: transform 0.6s cubic-bezier(0.22, 1.2, 0.36, 1), opacity 0.3s ease;
+}
+#controls.open #controlsInner > * { animation: sheetItem 0.5s var(--ease-out-expo) backwards; }
+#controls.open #controlsInner > :nth-child(1) { animation-delay: 0.08s; }
+#controls.open #controlsInner > :nth-child(2) { animation-delay: 0.14s; }
+#controls.open #controlsInner > :nth-child(3) { animation-delay: 0.20s; }
+#controls.open #controlsInner > :nth-child(4) { animation-delay: 0.26s; }
+#controls.open #controlsInner > :nth-child(n+5) { animation-delay: 0.32s; }
+.action-row button, .filter-chip {
+  border-radius: 14px;
+  transition: transform 0.3s var(--ease-spring), box-shadow 0.25s ease, filter 0.2s ease;
+}
+.action-row button:hover, .filter-chip:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14); }
+
+/* --------------------------------------------------------------------------
+   4. Toasts et panneau de guidage
+   -------------------------------------------------------------------------- */
+.toast {
+  border: 1px solid var(--glass-edge) !important;
+  border-radius: 18px !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%); backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  animation: toastSpring 0.55s var(--ease-spring) !important;
+  position: relative; overflow: hidden;
+}
+.toast::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: linear-gradient(180deg, #4ade80, #ff7a00);
+}
+.toast-info    { background: rgba(10, 32, 22, 0.86) !important; }
+.toast-success { background: linear-gradient(135deg, rgba(22, 163, 74, 0.92), rgba(15, 122, 59, 0.92)) !important; }
+.toast-warning { background: linear-gradient(135deg, rgba(234, 120, 8, 0.94), rgba(194, 90, 4, 0.94)) !important; }
+.toast-error   { background: linear-gradient(135deg, rgba(220, 38, 38, 0.94), rgba(153, 27, 27, 0.94)) !important; }
+@keyframes toastSpring { from { opacity: 0; transform: translateY(26px) scale(0.9); } }
+
+#navPanel {
+  border: 1px solid var(--glass-edge);
+  border-radius: 24px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  -webkit-backdrop-filter: blur(26px) saturate(190%); backdrop-filter: blur(26px) saturate(190%);
+}
+#routeBanner {
+  border-radius: 18px; border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* --------------------------------------------------------------------------
+   5. Mouvement réduit
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .merchant-bottom-sheet.open :is(.sheet-header-pro, .sheet-body, .card-quick-metrics, .sheet-actions-row, .sheet-status-pills),
+  .census-form-body > *, #controls.open #controlsInner > *,
+  .census-modal-card, .ai-modal-card, .confirm-modal-card, .toast,
+  .census-modal-header::after, .ai-modal-header::after { animation: none !important; }
+  .btn-sheet-primary::after { display: none; }
+  .sheet-close-btn:hover, .census-close-btn:hover, .ai-close-btn:hover { transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   6. Badge de statut lisible sur la fiche sombre + popup de carte en verre
+   -------------------------------------------------------------------------- */
+.merchant-bottom-sheet .sheet-status-badge {
+  filter: brightness(1.75) saturate(1.15);
+  padding: 3px 10px; border-radius: 99px; font-weight: 800; letter-spacing: 0.01em;
+}
+.merchant-bottom-sheet .sheet-title-row, .merchant-bottom-sheet .sheet-sub-row { row-gap: 6px; }
+
+.maplibregl-popup .maplibregl-popup-content {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(46, 204, 113, 0.16), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 45%),
+    rgba(9, 28, 19, 0.88);
+  color: #e2e8f0; border-radius: 22px; padding: 16px 16px 14px;
+  -webkit-backdrop-filter: blur(24px) saturate(190%); backdrop-filter: blur(24px) saturate(190%);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.maplibregl-popup .maplibregl-popup-content .popup-title { color: #ffffff; letter-spacing: -0.01em; }
+.maplibregl-popup .maplibregl-popup-content :is(.popup-row, .popup-details, .popup-coords, .popup-updated) { color: #b6c2d1; }
+.maplibregl-popup .maplibregl-popup-content .popup-status { filter: brightness(1.6) saturate(1.15); }
+.maplibregl-popup .maplibregl-popup-content :is(.go-btn, .visit-btn) {
+  border-radius: 14px; transition: transform 0.3s var(--ease-spring), filter 0.2s ease;
+}
+.maplibregl-popup .maplibregl-popup-content :is(.go-btn, .visit-btn):hover { transform: translateY(-2px); filter: brightness(1.1); }
+.maplibregl-popup .maplibregl-popup-close-button { color: #cbd5e1; border-radius: 50%; transition: transform 0.3s var(--ease-spring), background 0.2s ease; }
+.maplibregl-popup .maplibregl-popup-close-button:hover { background: rgba(255, 255, 255, 0.14); color: #fff; transform: rotate(90deg); }
+.maplibregl-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip, .maplibregl-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: rgba(9, 28, 19, 0.92); }
+.maplibregl-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip, .maplibregl-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: rgba(9, 28, 19, 0.92); }
+.maplibregl-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(9, 28, 19, 0.92); }
+.maplibregl-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(9, 28, 19, 0.92); }
+
+/* --------------------------------------------------------------------------
+   7. Formulaire de recensement : champs bruts, bandeau, segments, actions
+   (variables de thème : fonctionne en clair comme en sombre)
+   -------------------------------------------------------------------------- */
+.census-form-body :is(input[type="text"], input[type="tel"], input[type="number"], input[type="search"], select, textarea) {
+  width: 100%; box-sizing: border-box; min-height: 46px; padding: 12px 14px;
+  border: 1.5px solid var(--border); border-radius: 14px; font-size: 14px;
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent); color: var(--text-primary);
+}
+.census-form-body :is(input, select, textarea)::placeholder { color: var(--text-muted); opacity: 1; }
+
+.census-val-bar {
+  display: flex; align-items: center; gap: 10px; padding: 11px 20px; font-weight: 600;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  animation: sheetItem 0.5s 0.15s var(--ease-out-expo) backwards;
+}
+.census-val-bar.val-warning { background: linear-gradient(90deg, rgba(245, 158, 11, 0.20), rgba(245, 158, 11, 0.07)); color: #fbbf24; border-bottom: 1px solid rgba(245, 158, 11, 0.30); }
+.census-val-bar.val-info    { background: linear-gradient(90deg, rgba(46, 204, 113, 0.18), rgba(46, 204, 113, 0.05)); color: #86efac; border-bottom: 1px solid rgba(46, 204, 113, 0.28); }
+.census-val-bar.val-success { background: linear-gradient(90deg, rgba(34, 197, 94, 0.28), rgba(34, 197, 94, 0.08)); color: #bbf7d0; border-bottom: 1px solid rgba(34, 197, 94, 0.4); }
+
+.segmented-control { background: var(--bg-surface); border: 1px solid var(--border); padding: 5px; gap: 5px; }
+.segment-btn { color: var(--text-secondary); border-radius: 12px; }
+.segment-btn.active {
+  background: linear-gradient(135deg, #2ecc71, #16a34a); color: #ffffff;
+  box-shadow: 0 8px 20px rgba(46, 204, 113, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.form-group-row { border-radius: 16px; background: color-mix(in srgb, var(--bg-surface) 85%, transparent); }
+
+.chip-q, .chip-p, .chip-a {
+  border-color: var(--border); background: color-mix(in srgb, var(--bg-surface) 85%, transparent); color: var(--text-primary);
+}
+.chip-p.active, .chip-a.active, .chip-q.active {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.28), rgba(46, 204, 113, 0.10));
+  border-color: #34d399; color: #4ade80;
+}
+
+.btn-capture-gps {
+  border-radius: 14px; background: color-mix(in srgb, #3b82f6 14%, var(--bg-surface));
+  color: #60a5fa; border: 1px solid color-mix(in srgb, #3b82f6 40%, transparent);
+  transition: transform 0.3s var(--ease-spring), background 0.2s ease;
+}
+.btn-capture-gps:hover { transform: translateY(-2px); background: color-mix(in srgb, #3b82f6 24%, var(--bg-surface)); }
+.cf-photo-preview img { border-radius: 16px; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3); animation: modalIn 0.5s var(--ease-spring) backwards; }
+
+.form-actions { position: sticky; bottom: 0; padding-top: 12px; margin-top: 12px; }
+.btn-ai-format {
+  background: color-mix(in srgb, #a855f7 16%, var(--bg-surface)); color: #c084fc;
+  border: 1px solid color-mix(in srgb, #a855f7 40%, transparent);
+  transition: transform 0.3s var(--ease-spring), filter 0.2s ease;
+}
+.btn-save-census {
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 60%, #0f7a3b 100%);
+  box-shadow: var(--glow-green), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: transform 0.3s var(--ease-spring), filter 0.2s ease, box-shadow 0.3s ease;
+}
+.btn-save-census::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-18deg); transition: left 0.7s var(--ease-out-expo); pointer-events: none;
+}
+.btn-save-census:hover::after { left: 130%; }
+.btn-ai-format:hover, .btn-save-census:hover { transform: translateY(-2px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .census-val-bar, .cf-photo-preview img { animation: none !important; }
+  .btn-save-census::after { display: none; }
+}
+
+.form-actions {
+  z-index: 2; margin-left: -20px; margin-right: -20px; padding: 18px 20px 4px;
+  background: linear-gradient(to top, var(--bg-card) 62%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   8. Modales « ai-modal » (assistant, comptes, rapports, relances)
+   Le JS les affiche en style="display:block", ce qui annulait le centrage flex.
+   -------------------------------------------------------------------------- */
+.ai-modal[style*="block"] { display: flex !important; }
+
+.ai-tabs {
+  background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  padding: 6px; gap: 6px; overflow-x: auto; scrollbar-width: none;
+}
+.ai-tabs::-webkit-scrollbar { display: none; }
+.ai-tab { color: var(--text-secondary); border-radius: 12px; white-space: nowrap; }
+.ai-tab.active {
+  background: linear-gradient(135deg, #2ecc71, #16a34a); color: #ffffff;
+  box-shadow: 0 8px 20px rgba(46, 204, 113, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.chip-prompt {
+  background: color-mix(in srgb, #2ecc71 14%, var(--bg-surface)); color: #4ade80;
+  border: 1px solid color-mix(in srgb, #2ecc71 38%, transparent);
+}
+.chip-prompt:hover { background: color-mix(in srgb, #2ecc71 24%, var(--bg-surface)); }
+.btn-ai-action-secondary {
+  background: color-mix(in srgb, #2ecc71 10%, var(--bg-surface)); color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.btn-vision-select {
+  background: color-mix(in srgb, #2ecc71 8%, var(--bg-surface)); color: var(--text-primary);
+  border-radius: 16px; transition: transform 0.3s var(--ease-spring), background 0.2s ease;
+}
+.btn-vision-select:hover { transform: translateY(-2px); background: color-mix(in srgb, #2ecc71 16%, var(--bg-surface)); }
+.ai-content-body { animation: sheetItem 0.45s 0.1s var(--ease-out-expo) backwards; }
+@media (prefers-reduced-motion: reduce) { .ai-content-body { animation: none !important; } }
+
+/* Les toasts s'empilent au-dessus du dock, pas dessus. */
+#toast-container { bottom: calc(var(--nav-height) + 40px + var(--safe-bottom)) !important; }
+.maplibregl-popup .maplibregl-popup-content :is(summary, .popup-details summary, .popup-details) { color: #cbd5e1; }

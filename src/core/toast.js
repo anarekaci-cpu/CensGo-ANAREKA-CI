@@ -36,6 +36,7 @@ export function showToast(message, { type = "info", duration = 4000 } = {}) {
   const style = colors[type] || colors.info;
 
   const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
   toast.setAttribute("role", type === "error" || type === "warning" ? "alert" : "status");
   toast.style.cssText = `background:${style.bg};color:${style.color};padding:12px 16px;border-radius:12px;font-size:14px;font-weight:500;box-shadow:0 4px 20px rgba(0,0,0,0.25);pointer-events:auto;display:flex;align-items:center;gap:8px;animation:toastIn 0.3s ease;max-width:100%;word-break:break-word;`;
 
