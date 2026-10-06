@@ -21,7 +21,7 @@
     "@versatiles/style": "^5.13.1",
     "dexie": "^4.0.8",
     "maplibre-gl": "^6.12.0",
-    "supercluster": "^8.0.1"
+    "supercluster": "^9.1.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
