@@ -3,6 +3,7 @@ import { CONFIG } from "../core/config.js";
 import { normalizePointId } from "../core/utils.js";
 import { nextRetryAtIso, isRetryDue } from "../core/backoff.js";
 import { isPurgeableSyncItem } from "../core/syncQueueMaintenance.js";
+import { isTransientSyncError } from "./syncErrors.js";
 
 export const db = new Dexie(CONFIG.DB_NAME);
 
@@ -56,68 +57,73 @@ db.version(5).stores({
 
 // === API haut niveau ===
 
+/**
+ * Ids des points ayant une opération pending/dead dans syncQueue : seuls
+ * ceux-là portent une intention locale non confirmée par le serveur. Pour
+ * tous les autres, le serveur fait foi (avant : tout état "visited" local
+ * d'un point synchronisé était préservé indéfiniment, masquant les
+ * changements faits par d'autres agents).
+ */
+async function getQueuedPointIds() {
+  const items = await db.syncQueue.toArray();
+  const ids = new Set();
+  for (const item of items) {
+    if (item.pointId && (item.status === "pending" || item.status === "dead")) ids.add(item.pointId);
+  }
+  return ids;
+}
+
+function maxLocalIdOf(points) {
+  return points.reduce((max, p) => Math.max(max, p.localId || 0), 0);
+}
+
 export async function savePoints(pointsArray) {
   // TRANSACTION obligatoire : sans elle, deux chargements concurrents
   // (ex: double montage de l'app ou sync + refresh manuel) pouvaient
   // s'entrelacer — A.clear(), B.clear(), A.bulkAdd(505), B.bulkAdd(505) —
   // produisant des doublons ou une table vide. Dexie exécute maintenant
   // lecture + effacement + réécriture de façon atomique.
-  return db.transaction("rw", db.points, async () => {
+  return db.transaction("rw", db.points, db.syncQueue, async () => {
     const localPoints = await db.points.toArray();
-    const unsynced = localPoints.filter(p => !p.syncedAt);
-    const unsyncedIds = new Set(unsynced.map(p => p.id));
-
-    // Construire une Map de l'état visited local pour les points synchronisés :
-    // si un agent a basculé un point en "non visité" localement et que la sync
-    // n'a pas encore poussé ce changement vers Supabase, la valeur serveur
-    // (visited: true) ne doit PAS écraser l'intention locale.
-    const localVisitedState = new Map();
-    for (const p of localPoints) {
-      if (p.syncedAt) localVisitedState.set(p.id, !!p.visited);
-    }
+    const queuedIds = await getQueuedPointIds();
+    // Protégés : jamais synchronisés (syncedAt nul) OU avec une opération
+    // pending/dead en file — leur version locale prime sur le serveur.
+    const protectedPoints = localPoints.filter(p => !p.syncedAt || queuedIds.has(p.id));
+    const protectedIds = new Set(protectedPoints.map(p => p.id));
 
     await db.points.clear();
 
-    const withLocal = pointsArray
-      .filter(p => !unsyncedIds.has(p.id))
-      .map((p, i) => {
-        const localVisited = localVisitedState.get(p.id);
-        // Si le point existait déjà en local ET que l'état local diffère du
-        // serveur, préserver la valeur locale (l'agent a agi hors-ligne).
-        // Si localVisited est undefined (premier chargement), utiliser la valeur serveur.
-        const mergedVisited = localVisited !== undefined ? localVisited : p.visited;
-        return {
-          ...p,
-          visited: mergedVisited,
-          localId: i + 1,
-          syncedAt: new Date().toISOString()
-        };
-      });
+    const now = new Date().toISOString();
+    const withServer = pointsArray
+      .filter(p => !protectedIds.has(p.id))
+      .map((p, i) => ({ ...p, localId: i + 1, syncedAt: now }));
 
-    let nextId = withLocal.length + 1;
-    const unsyncedPreserved = unsynced.map(p => ({
-      ...p,
-      localId: nextId++
-    }));
+    let nextId = withServer.length + 1;
+    const preserved = protectedPoints.map(p => ({ ...p, localId: nextId++ }));
 
-    await db.points.bulkAdd([...withLocal, ...unsyncedPreserved]);
-    return withLocal.length + unsyncedPreserved.length;
+    await db.points.bulkAdd([...withServer, ...preserved]);
+    return withServer.length + preserved.length;
   });
 }
 
 export async function mergePoints(pointsArray) {
-  return db.transaction("rw", db.points, async () => {
+  return db.transaction("rw", db.points, db.syncQueue, async () => {
     const localPoints = await db.points.toArray();
+    const queuedIds = await getQueuedPointIds();
     const incomingById = new Map(pointsArray.map(point => [point.id, point]));
+    const now = new Date().toISOString();
     const merged = localPoints.map(point => {
       const incoming = incomingById.get(point.id);
-      if (!incoming || !point.syncedAt) return point;
-      return { ...incoming, localId: point.localId, syncedAt: new Date().toISOString() };
+      if (!incoming || !point.syncedAt || queuedIds.has(point.id)) return point;
+      return { ...incoming, localId: point.localId, syncedAt: now };
     });
     const existingIds = new Set(localPoints.map(point => point.id));
+    // localId = max+1 (et non merged.length+1) : après des suppressions ou
+    // des trous, length+1 pouvait retomber sur un localId déjà utilisé.
+    let nextId = maxLocalIdOf(localPoints) + 1;
     for (const point of pointsArray) {
       if (!existingIds.has(point.id)) {
-        merged.push({ ...point, localId: merged.length + 1, syncedAt: new Date().toISOString() });
+        merged.push({ ...point, localId: nextId++, syncedAt: now });
       }
     }
     await db.points.clear();
@@ -169,6 +175,9 @@ export async function updatePointVisit(pointId, visited, status, position) {
     ...point,
     visited,
     status: status || point.status,
+    // Remis à null comme upsertPoint() : le point porte une intention locale
+    // non confirmée, savePoints()/mergePoints() ne doivent pas l'écraser.
+    syncedAt: null,
     updatedAt: new Date().toISOString()
   };
 
@@ -182,7 +191,13 @@ export async function updatePointVisit(pointId, visited, status, position) {
       visited,
       status,
       lat: visited && position ? position.lat : null,
-      lon: visited && position ? position.lng : null
+      lon: visited && position ? position.lng : null,
+      // Données de preuve de visite exigées par le serveur (visit_accuracy,
+      // visit_at) : précision et horodatage du FIX GPS, pas de la synchro.
+      accuracy: visited && position && Number.isFinite(position.accuracy) ? position.accuracy : null,
+      fixAt: visited && position
+        ? new Date(Number.isFinite(position.timestamp) ? position.timestamp : Date.now()).toISOString()
+        : null
     },
     baseUpdatedAt,
     createdAt: new Date().toISOString(),
@@ -194,6 +209,12 @@ export async function updatePointVisit(pointId, visited, status, position) {
 }
 
 export async function upsertPoint(pointData) {
+  // Lecture du max localId + écriture dans UNE transaction : deux créations
+  // concurrentes ne peuvent plus obtenir le même localId (clé primaire).
+  return db.transaction("rw", db.points, db.syncQueue, () => upsertPointTx(pointData));
+}
+
+async function upsertPointTx(pointData) {
   let point = await db.points.where("id").equals(pointData.id || "").first();
   const now = new Date().toISOString();
   // null pour un point tout neuf (rien n'existait avant -> aucun conflit
@@ -224,7 +245,7 @@ export async function upsertPoint(pointData) {
     await db.points.put(updated);
   } else {
     const all = await db.points.toArray();
-    const maxLocalId = all.reduce((max, p) => Math.max(max, p.localId || 0), 0);
+    const maxLocalId = maxLocalIdOf(all);
     // Un ID basé sur un compteur local (ex: bgv_004) entrerait en collision dès que
     // deux agents créent un nouveau point hors-ligne au même moment : chaque téléphone
     // reparties du même maxLocalId, et le second à synchroniser écraserait le premier
@@ -288,7 +309,9 @@ export async function logTourSession({ distanceKm, stopCount, startedAt, endedAt
   await db.syncQueue.add({
     pointId: null,
     action: "log_tour",
-    payload: { distanceKm, stopCount, startedAt, endedAt },
+    // id client (UUID) : le serveur fait un upsert ignoreDuplicates dessus —
+    // un renvoi après timeout ambigu ne crée plus de tournée en double.
+    payload: { id: crypto.randomUUID(), distanceKm, stopCount, startedAt, endedAt },
     baseUpdatedAt: null,
     createdAt: new Date().toISOString(),
     attempts: 0,
@@ -486,7 +509,7 @@ export async function retryDeadHazardSyncs() {
   return dead.length;
 }
 
-export async function markPointSynced(pointId, completedQueueId = null) {
+export async function markPointSynced(pointId, completedQueueId = null, serverUpdatedAt = null) {
   // Dexie rejette .equals(null/undefined) au lieu de ne rien trouver (clé
   // IndexedDB invalide) — les items "log_tour" n'ont pas de pointId (voir
   // logTourSession() ci-dessus) et doivent donc court-circuiter ici plutôt
@@ -494,11 +517,25 @@ export async function markPointSynced(pointId, completedQueueId = null) {
   if (!pointId) return;
   const point = await db.points.where("id").equals(pointId).first();
   if (!point) return;
-  const remaining = await db.syncQueue
+  const remainingItems = await db.syncQueue
     .where("pointId").equals(pointId)
     .filter(item => item.id !== completedQueueId && (item.status === "pending" || item.status === "dead"))
-    .count();
-  if (remaining > 0) return;
+    .toArray();
+  if (serverUpdatedAt) {
+    // L'horloge du serveur fait foi (trigger set_updated_at) : on la stocke
+    // telle quelle, et les opérations encore en file pour ce point — issues
+    // de CET appareil, donc postérieures — repartent de cette version (sinon
+    // leur baseUpdatedAt, horloge locale, provoquerait un faux conflit).
+    await db.points.update(point.localId, {
+      updatedAt: serverUpdatedAt,
+      ...(remainingItems.length === 0 ? { syncedAt: new Date().toISOString() } : {})
+    });
+    await Promise.all(remainingItems
+      .filter(item => item.status === "pending")
+      .map(item => db.syncQueue.update(item.id, { baseUpdatedAt: serverUpdatedAt })));
+    return;
+  }
+  if (remainingItems.length > 0) return;
   await db.points.put({ ...point, syncedAt: new Date().toISOString() });
 }
 
@@ -527,13 +564,16 @@ export async function markSyncDone(queueId) {
 // "dead" pour qu'il arrête d'être retenté silencieusement et remonte à l'utilisateur
 // (avant ce correctif, un item passait direct en "failed" et n'était plus jamais
 // repris par getPendingSyncs — la fiche restait bloquée sans que personne ne le sache).
-export async function markSyncFailed(queueId, errorMsg, maxAttempts = 3) {
+export async function markSyncFailed(queueId, errorMsg, maxAttempts = 3, { transient = true } = {}) {
   const item = await db.syncQueue.get(queueId);
   const attempts = (item?.attempts || 0) + 1;
-  const dead = attempts >= maxAttempts;
+  // Erreur permanente (RLS, 4xx, règle métier) : inutile de patienter, dead
+  // tout de suite — elle ne repartira que sur action explicite.
+  const dead = !transient || attempts >= maxAttempts;
   await db.syncQueue.update(queueId, {
     status: dead ? "dead" : "pending",
     error: errorMsg,
+    transient,
     attempts,
     // Backoff exponentiel (core/backoff.js) : tant qu'il reste des
     // tentatives, l'item n'est PAS renvoyé au tick suivant — il attend une
@@ -567,15 +607,35 @@ export async function purgeSyncQueue(opts = {}) {
   });
 }
 
-export async function retryDeadSyncs() {
-  const dead = await db.syncQueue.where("status").equals("dead").toArray();
+/**
+ * Remet des items "dead" en file.
+ * @param {{onlyTransient?:boolean}} [opts] onlyTransient=true (retry
+ *   AUTOMATIQUE : timer, retour réseau) ne relance que les échecs transitoires
+ *   (réseau, 5xx, timeout). Les refus permanents (4xx, RLS 42501, règles
+ *   métier comme la géofence) restent "dead" jusqu'à une action explicite
+ *   (bouton de l'agent -> appel sans option), sinon ils seraient renvoyés
+ *   en boucle toutes les 5 minutes.
+ */
+export async function retryDeadSyncs({ onlyTransient = false } = {}) {
+  let dead = await db.syncQueue.where("status").equals("dead").toArray();
+  if (onlyTransient) {
+    dead = dead.filter(item =>
+      typeof item.transient === "boolean" ? item.transient : isTransientSyncError({ message: item.error || "" }));
+  }
   await Promise.all(dead.map(item =>
     // nextRetryAt remis à null : relance explicite (bouton "réessayer" ou
     // retour de connexion) — l'agent veut un envoi immédiat, pas d'attendre
     // le backoff hérité de la dernière tentative échouée.
-    db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null, nextRetryAt: null })
+    db.syncQueue.update(item.id, { status: "pending", attempts: 0, error: null, transient: null, nextRetryAt: null })
   ));
   return dead.length;
+}
+
+/** Supprime de la file des items écartés par dédup (voir dedupSyncQueue). */
+export async function removeSyncItems(ids) {
+  if (!ids || ids.length === 0) return 0;
+  await db.syncQueue.bulkDelete(ids);
+  return ids.length;
 }
 
 const CONFLICTS_META_KEY = "syncConflicts";

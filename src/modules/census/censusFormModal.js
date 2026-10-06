@@ -44,8 +44,20 @@ const CENSUS_DRAFT_FIELDS = ["name", "tel", "etablissement", "activity", "sexe",
 // avoir l'id définitif du point comme clé étrangère.
 let pendingPhoto = null; // { blob, mimeType } | null
 
+// URL blob de l'aperçu courant : à révoquer dès qu'elle n'est plus affichée,
+// sinon chaque photo prise garde son Blob en mémoire jusqu'à fermeture de l'app.
+let previewObjectUrl = null;
+
+function revokePreviewUrl() {
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+}
+
 function resetPendingPhoto() {
   pendingPhoto = null;
+  revokePreviewUrl();
   const preview = document.getElementById("cf_photoPreview");
   if (preview) { preview.style.display = "none"; preview.innerHTML = ""; }
   const btn = document.getElementById("cf_photoBtn");
@@ -585,7 +597,9 @@ function bindFormEvents() {
 
       const preview = document.getElementById("cf_photoPreview");
       if (preview) {
+        revokePreviewUrl();
         const url = URL.createObjectURL(blob);
+        previewObjectUrl = url;
         preview.innerHTML = `<img src="${url}" alt="Photo de l'établissement" />`;
         preview.style.display = "block";
       }

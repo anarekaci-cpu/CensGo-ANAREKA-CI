@@ -1,9 +1,10 @@
 import { getSupabaseClient } from "../../core/supabase.js";
 import { CONFIG } from "../../core/config.js";
 import { store } from "../../core/store.js";
-import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards, purgeSyncQueue } from "../../db/database.js";
+import { getPendingSyncs, getDueSyncs, markSyncDone, markSyncFailed, markPointSynced, getDeadSyncs, retryDeadSyncs, recordSyncConflict, getSyncConflicts, dismissSyncConflict, getPendingPhotos, getDeadPhotos, retryDeadPhotos, markPhotoSynced, markPhotoFailed, getPointById, enqueueSheetsSync, getPendingSheetsSyncs, markSheetsSyncDone, markSheetsSyncFailed, getDeadSheetsSyncs, retryDeadSheetsSyncs, getPendingHazardSyncs, markHazardSyncDone, markHazardSyncFailed, getDeadHazardSyncs, retryDeadHazardSyncs, saveHazards, getActiveHazards, purgeSyncQueue, removeSyncItems } from "../../db/database.js";
 import { backoffDelayMs } from "../../core/backoff.js";
 import { resolveSyncIntervalMs } from "../../core/networkQuality.js";
+import { isTransientSyncError } from "../../db/syncErrors.js";
 
 let isOnline = navigator.onLine;
 let isSyncing = false;
@@ -49,7 +50,13 @@ function scheduleMainSyncLoop() {
   }, delay);
 }
 
+let engineInitialized = false;
+
 export async function initSyncEngine() {
+  // Idempotent : un second appel (double montage, HMR) empilait sinon des
+  // listeners online/offline/visibilitychange et des setInterval en double.
+  if (engineInitialized) return;
+  engineInitialized = true;
   store.set("sync.conflicts", await getSyncConflicts());
   // Cache local d'abord (fonctionne hors-ligne dès l'ouverture) — pullHazards()
   // rafraîchira depuis le serveur juste après si une connexion est disponible.
@@ -61,7 +68,7 @@ export async function initSyncEngine() {
     // Le lien vient de revenir : recalcule la cadence (souvent plus rapide
     // qu'en 2G) et relance le prochain tick sans attendre l'ancien délai.
     scheduleMainSyncLoop();
-    retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
+    retryFailedSyncs({ auto: true }).catch(err => console.error("Dead sync retry failed:", err));
     triggerPhotoUpload();
     triggerSheetsSync();
     triggerHazardSync();
@@ -81,7 +88,7 @@ export async function initSyncEngine() {
 
   setInterval(() => {
     if (isOnline) {
-      retryFailedSyncs().catch(err => console.error("Dead sync retry failed:", err));
+      retryFailedSyncs({ auto: true }).catch(err => console.error("Dead sync retry failed:", err));
       retryDeadPhotos().then(count => { if (count > 0) triggerPhotoUpload(); })
         .catch(err => console.error("Dead photo retry failed:", err));
       retryDeadSheetsSyncs().then(count => { if (count > 0) triggerSheetsSync(); })
@@ -150,12 +157,15 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  */
 export function dedupSyncQueue(items) {
   const latestByPoint = new Map();
+  const firstByPoint = new Map();
   const upserts = [];
 
   for (const item of items) {
     if (item.action === "update_visit") {
+      if (!firstByPoint.has(item.pointId)) firstByPoint.set(item.pointId, item);
       const existing = latestByPoint.get(item.pointId);
-      if (!existing || item.createdAt > existing.createdAt) {
+      // >= : à date égale (même milliseconde), le dernier de la file gagne.
+      if (!existing || item.createdAt >= existing.createdAt) {
         if (existing) latestByPoint.delete(item.pointId);
         latestByPoint.set(item.pointId, item);
       }
@@ -164,7 +174,18 @@ export function dedupSyncQueue(items) {
     }
   }
 
-  return [...latestByPoint.values(), ...upserts].sort(
+  // L'élément conservé hérite de la version de base du PLUS ANCIEN du groupe :
+  // c'est la dernière version serveur réellement connue ; la base des items
+  // suivants est une horloge locale qui ne correspondrait à rien côté serveur.
+  const kept = [...latestByPoint.values()].map(item => {
+    const first = firstByPoint.get(item.pointId);
+    if (first && first !== item && first.baseUpdatedAt !== undefined) {
+      return { ...item, baseUpdatedAt: first.baseUpdatedAt };
+    }
+    return item;
+  });
+
+  return [...kept, ...upserts].sort(
     (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
   );
 }
@@ -201,6 +222,7 @@ async function handleConflict(item) {
 }
 
 async function syncOne(supabase, item) {
+  let serverUpdatedAt = null;
   if (item.action === "update_visit") {
     // Contrôle serveur anti-fraude (audit sécu) : le contrôle de proximité
     // GPS (canMarkVisited(), core/geofence.js) n'existait qu'en JS côté
@@ -223,13 +245,24 @@ async function syncOne(supabase, item) {
       if (geofenceError) throw geofenceError;
     }
 
+    // updated_at : JAMAIS envoyé par le client (horloge d'un téléphone
+    // potentiellement fausse) — le trigger serveur set_updated_at le pose.
+    const updateRow = {
+      visited: item.payload.visited,
+      status: item.payload.status
+    };
+    if (item.payload.visited) {
+      // Preuve de visite exigée par le serveur dans la MÊME ligne que
+      // visited=true (contrôle géofence en trigger) : position, précision et
+      // horodatage du fix GPS capturés à l'action (voir updatePointVisit()).
+      updateRow.visit_lat = item.payload.lat;
+      updateRow.visit_lon = item.payload.lon;
+      updateRow.visit_accuracy = item.payload.accuracy ?? null;
+      updateRow.visit_at = item.payload.fixAt || item.createdAt;
+    }
     let query = supabase
       .from(CONFIG.TABLE_NAME)
-      .update({
-        visited: item.payload.visited,
-        status: item.payload.status,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateRow)
       .eq("point_id", item.pointId);
 
     // Écriture CONDITIONNELLE quand on connaît le updated_at serveur au
@@ -244,8 +277,9 @@ async function syncOne(supabase, item) {
       query = query.eq("updated_at", item.baseUpdatedAt);
     }
 
-    const { data, error } = await withTimeout((signal) => query.select("point_id").abortSignal(signal));
+    const { data, error } = await withTimeout((signal) => query.select("point_id,updated_at").abortSignal(signal));
     if (error) throw error;
+    serverUpdatedAt = data?.[0]?.updated_at || null;
 
     if (item.baseUpdatedAt && (!data || data.length === 0)) {
       await handleConflict(item);
@@ -276,7 +310,10 @@ async function syncOne(supabase, item) {
     }
 
     const user = store.get("user");
-    const { error } = await withTimeout((signal) =>
+    // `visited` volontairement ABSENT : le serveur interdit visited=true à
+    // l'INSERT (preuve géofence requise) et une colonne absente n'est pas
+    // touchée en cas de conflit — une visite passe par update_visit.
+    const { data: upsertData, error } = await withTimeout((signal) =>
       supabase
         .from(CONFIG.TABLE_NAME)
         .upsert({
@@ -293,31 +330,34 @@ async function syncOne(supabase, item) {
           produits: p.produits,
           sexe: p.sexe,
           status: p.status,
-          visited: p.visited,
           lat: p.lat,
           lon: p.lon,
-          created_by: user?.id || null,
-          updated_at: new Date().toISOString()
+          created_by: user?.id || null
         }, { onConflict: "point_id" })
+        .select("updated_at")
         .abortSignal(signal)
     );
     if (error) throw error;
+    serverUpdatedAt = (Array.isArray(upsertData) ? upsertData[0] : upsertData)?.updated_at || null;
   } else if (item.action === "log_tour") {
     // Append-only (voir supabase/add_tour_sessions.sql) : jamais de conflit
-    // de version possible, un simple insert suffit — pas de baseUpdatedAt.
+    // de version possible — pas de baseUpdatedAt. Idempotent : l'id client
+    // (UUID, voir logTourSession()) + ignoreDuplicates évitent un doublon si
+    // la réponse d'un premier envoi s'est perdue (timeout ambigu).
     const user = store.get("user");
     if (!user) throw new Error("Session absente — tournée non journalisée");
     const p = item.payload;
     const { error } = await withTimeout((signal) =>
       supabase
         .from("tour_sessions")
-        .insert({
+        .upsert({
+          ...(p.id ? { id: p.id } : {}),
           user_id: user.id,
           distance_km: p.distanceKm,
           stop_count: p.stopCount,
           started_at: p.startedAt,
           ended_at: p.endedAt
-        })
+        }, p.id ? { onConflict: "id", ignoreDuplicates: true } : undefined)
         .abortSignal(signal)
     );
     if (error) throw error;
@@ -352,41 +392,71 @@ async function syncOne(supabase, item) {
   // Idempotence : une opération n'est retirée de la file QUE si le serveur
   // l'a acceptée (pas d'erreur ci-dessus). markSyncDone ne s'exécute jamais
   // après un échec — la donnée locale ET l'entrée pending sont conservées.
-  await markPointSynced(item.pointId, item.id);
+  await markPointSynced(item.pointId, item.id, serverUpdatedAt);
   await markSyncDone(item.id);
 }
 
+/**
+ * Envoie un item avec réessais intra-cycle. Renvoie true si l'item est parti,
+ * false s'il a échoué (déjà marqué failed/dead en base).
+ */
+async function syncItemWithRetries(supabase, item) {
+  let attempts = 0;
+  while (attempts < 3) {
+    try {
+      await syncOne(supabase, item);
+      return true;
+    } catch (err) {
+      attempts++;
+      const transient = isTransientSyncError(err);
+      // Refus permanent (RLS, 4xx, règle métier) : réessayer immédiatement ne
+      // changera rien — dead tout de suite, relance seulement sur action
+      // explicite de l'agent (voir retryFailedSyncs()).
+      if (!transient || attempts >= 3) {
+        console.error(`Sync failed (${attempts} attempt(s)) for ${item.pointId}:`, err);
+        const message = err?.message || "Erreur réseau ou synchronisation échouée";
+        await markSyncFailed(item.id, message, CONFIG.MAX_RETRY_ATTEMPTS, { transient });
+        store.set("sync.lastError", message);
+        return false;
+      }
+      // Backoff exponentiel + jitter (core/backoff.js) : espace les
+      // réessais INTRA-cycle et désynchronise les workers. Base/plafond
+      // courts : ce délai s'écoule pendant que la garde isSyncing est tenue.
+      // Le backoff long (minutes) est porté par nextRetryAt entre deux cycles.
+      await sleep(backoffDelayMs(attempts, { base: 500, cap: 8000 }));
+    }
+  }
+  return false;
+}
+
+/**
+ * Concurrence ENTRE points, ordre STRICT au sein d'un même point : jusqu'à
+ * MAX_CONCURRENT workers pouvaient envoyer en parallèle deux opérations du
+ * même pointId (ex. upsert + update_visit), la plus ancienne pouvant arriver
+ * en dernier et écraser la plus récente. Les items sont groupés par pointId
+ * (ordre de la file préservé) ; un groupe est traité séquentiellement et
+ * s'arrête au premier échec (les suivants restent pending, intacts, pour ne
+ * jamais envoyer une valeur plus récente avant une plus ancienne).
+ */
 async function syncWithConcurrency(items, supabase) {
-  const queue = [...items];
+  const groups = new Map();
+  for (const item of items) {
+    // Items sans pointId (log_tour) : indépendants, un groupe chacun.
+    const key = item.pointId ? `p:${item.pointId}` : `q:${item.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const queue = [...groups.values()];
   const run = async () => {
     while (queue.length > 0) {
-      const item = queue.shift();
-      let attempts = 0;
-      while (attempts < 3) {
-        try {
-          await syncOne(supabase, item);
-          break;
-        } catch (err) {
-          attempts++;
-          if (attempts >= 3) {
-            console.error(`Sync failed after 3 attempts for ${item.pointId}:`, err);
-            const message = err?.message || "Erreur réseau ou synchronisation échouée";
-            await markSyncFailed(item.id, message, CONFIG.MAX_RETRY_ATTEMPTS);
-            store.set("sync.lastError", message);
-          } else {
-            // Backoff exponentiel + jitter (core/backoff.js) : espace les
-            // réessais INTRA-cycle et désynchronise les MAX_CONCURRENT
-            // workers pour qu'ils ne rejouent pas tous au même instant.
-            // Base/plafond courts : ce délai s'écoule pendant que la garde
-            // isSyncing est tenue. Le backoff long (minutes) est porté par
-            // nextRetryAt entre deux cycles, pas ici.
-            await sleep(backoffDelayMs(attempts, { base: 500, cap: 8000 }));
-          }
-        }
+      const group = queue.shift();
+      for (const item of group) {
+        const ok = await syncItemWithRetries(supabase, item);
+        if (!ok) break;
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, items.length) }, () => run()));
+  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, queue.length) }, () => run()));
 }
 
 export async function triggerSync() {
@@ -427,15 +497,27 @@ export async function triggerSync() {
     // `due` est le sous-ensemble hors backoff, seul réellement envoyé ce
     // tick. Si tout est en backoff (connexion instable, échecs récents), on
     // ne touche pas au réseau : le prochain tick / la prochaine échéance
-    // nextRetryAt reprendra la main.
-    store.set("sync.status", "syncing");
+    // nextRetryAt reprendra la main — et le statut ne reste PAS "syncing"
+    // (rien n'est en cours d'envoi).
     store.set("sync.pendingCount", pending.length);
 
     const due = await getDueSyncs();
-    if (due.length === 0) return;
+    if (due.length === 0) {
+      const dead = await getDeadSyncs();
+      store.set("sync.deadCount", dead.length);
+      store.set("sync.status", dead.length > 0 ? "error" : "idle");
+      return;
+    }
+    store.set("sync.status", "syncing");
 
     const supabase = getSupabaseClient();
     const deduped = dedupSyncQueue(due);
+    // Les update_visit supplantés par un plus récent sont SUPPRIMÉS de la
+    // file : sinon ils restaient pending et repartaient au cycle suivant,
+    // écrasant la valeur serveur à jour par une valeur périmée.
+    const keptIds = new Set(deduped.map(i => i.id));
+    const supersededIds = due.filter(i => !keptIds.has(i.id)).map(i => i.id);
+    if (supersededIds.length > 0) await removeSyncItems(supersededIds);
     await syncWithConcurrency(deduped, supabase);
 
     const remaining = await getPendingSyncs();
@@ -443,7 +525,10 @@ export async function triggerSync() {
     store.set("sync.pendingCount", remaining.length);
     store.set("sync.pendingPointIds", [...new Set(remaining.map(p => p.pointId))]);
     store.set("sync.deadCount", dead.length);
-    store.set("sync.status", dead.length > 0 ? "error" : (remaining.length > 0 ? "syncing" : "idle"));
+    // "syncing" seulement s'il reste du travail ENVOYABLE maintenant ; des
+    // items tous en backoff ne justifient pas un statut "en cours" permanent.
+    const stillDue = remaining.length > 0 ? await getDueSyncs() : [];
+    store.set("sync.status", dead.length > 0 ? "error" : (stillDue.length > 0 ? "syncing" : "idle"));
     store.set("sync.lastError", null);
     store.set("sync.lastSync", new Date().toISOString());
     store.set("sync.conflicts", await getSyncConflicts());
@@ -475,18 +560,23 @@ export async function triggerSync() {
 // toujours — même préoccupation que partout ailleurs dans ce moteur pour un
 // upload suspendu sur un réseau terrain dégradé.
 function raceTimeout(promise, ms, message) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
-  ]);
+  let timerId;
+  const timeout = new Promise((_, reject) => {
+    timerId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  // Timer nettoyé dans tous les cas (succès, échec, timeout) : sans finally,
+  // chaque upload réussi laissait un setTimeout de 15 s en vie.
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timerId));
 }
 
 async function uploadOnePhoto(supabase, photo) {
   const user = store.get("user");
-  const path = `${user.id}/${photo.pointId}-${Date.now()}.jpg`;
+  // Chemin DÉTERMINISTE (pas de Date.now()) + upsert:true : un nouvel essai
+  // après un échec partiel réécrit le même objet au lieu d'en orpheliner un.
+  const path = `${user.id}/${photo.pointId}-${photo.id}.jpg`;
 
   const { error: uploadError } = await raceTimeout(
-    supabase.storage.from("census-photos").upload(path, photo.blob, { contentType: photo.mimeType, upsert: false }),
+    supabase.storage.from("census-photos").upload(path, photo.blob, { contentType: photo.mimeType, upsert: true }),
     OP_TIMEOUT_MS,
     "Envoi de la photo trop long — réessai plus tard."
   );
@@ -582,14 +672,15 @@ async function sendOneHazardSync(supabase, item, userId) {
   if (item.action === "create") {
     const h = item.payload;
     const { error } = await withTimeout((signal) =>
-      supabase.from("hazard_markers").insert({
+      // upsert sur id (UUID client) + ignoreDuplicates : renvoi idempotent.
+      supabase.from("hazard_markers").upsert({
         id: h.id,
         created_by: userId,
         hazard_type: h.hazardType,
         note: h.note,
         lat: h.lat,
         lon: h.lon
-      }).abortSignal(signal)
+      }, { onConflict: "id", ignoreDuplicates: true }).abortSignal(signal)
     );
     if (error) throw error;
   } else if (item.action === "resolve") {
@@ -670,8 +761,12 @@ export async function pullHazards() {
   }
 }
 
-export async function retryFailedSyncs() {
-  const count = await retryDeadSyncs();
+/**
+ * @param {{auto?:boolean}} [opts] auto=true (timer, retour réseau) : ne relance
+ *   que les échecs transitoires. Sans option (bouton agent) : relance tout.
+ */
+export async function retryFailedSyncs({ auto = false } = {}) {
+  const count = await retryDeadSyncs({ onlyTransient: auto });
   if (count > 0 && isOnline) await triggerSync();
   return count;
 }

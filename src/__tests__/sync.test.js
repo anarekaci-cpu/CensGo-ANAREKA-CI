@@ -56,4 +56,21 @@ describe("dedupSyncQueue", () => {
     ]);
     expect(out.map(i => i.id)).toEqual([1, 2]);
   });
+
+  it("à date égale, le dernier de la file gagne", () => {
+    const out = dedupSyncQueue([
+      visit(1, "p1", "2026-01-01T10:00:00Z"),
+      visit(2, "p1", "2026-01-01T10:00:00Z")
+    ]);
+    expect(out.map(i => i.id)).toEqual([2]);
+  });
+
+  it("l'item conservé hérite de la baseUpdatedAt du plus ancien du groupe", () => {
+    const out = dedupSyncQueue([
+      { ...visit(1, "p1", "2026-01-01T10:00:00Z"), baseUpdatedAt: "SERVER" },
+      { ...visit(2, "p1", "2026-01-01T10:00:05Z"), baseUpdatedAt: "LOCAL-CLOCK" }
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].baseUpdatedAt).toBe("SERVER");
+  });
 });

@@ -70,6 +70,13 @@ const REMOTE_TIMEOUT_MS = 12000;
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 100; // garde-fou : 100 x 1000 = 100k points max
 
+// Marge de sécurité sur le curseur de sync delta : lastSync est l'instant de
+// DÉBUT du chargement (pas de fin) moins cette marge. Une ligne modifiée
+// pendant le téléchargement, ou avec un léger décalage d'horloge/commit
+// serveur, serait sinon manquée à jamais par le filtre `updated_at >= lastSync`.
+// Rejouer quelques minutes est inoffensif : mergePoints() est idempotent.
+export const LAST_SYNC_SAFETY_MARGIN_MS = 5 * 60 * 1000;
+
 /**
  * Télécharge TOUTES les lignes par pages de PAGE_SIZE.
  * Chaque page a son propre timeout ; en cas d'échec après au moins une page
@@ -259,6 +266,8 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
     const supabase = getSupabaseClient();
 
     perfMark("SUPABASE-START");
+    // Curseur du prochain delta, figé AVANT toute requête (voir la marge).
+    const syncCursorIso = new Date(Date.now() - LAST_SYNC_SAFETY_MARGIN_MS).toISOString();
     const t0Supa = performance.now();
     let data = null;
     let supaError = null;
@@ -317,7 +326,7 @@ async function _loadCensusData(forceOffline, { forceFullSync = false, forceRefre
     perfMark("PERSISTENCE");
 
     const nowIso = new Date().toISOString();
-    await setMeta("lastSync", nowIso);
+    await setMeta("lastSync", syncCursorIso);
     store.set("points", merged);
     log.trace("STORE", `pointsCount = ${merged.length}`);
     if (isVerbose()) {
