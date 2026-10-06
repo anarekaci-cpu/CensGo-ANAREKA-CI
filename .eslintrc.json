@@ -10,7 +10,36 @@
   },
   "extends": "eslint:recommended",
   "rules": {
-    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
     "no-console": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/__tests__/**/*.js",
+        "**/*.test.js",
+        "scripts/**/*.js",
+        "vite.config.js"
+      ],
+      "env": {
+        "node": true
+      },
+      "globals": {
+        "vi": "readonly",
+        "describe": "readonly",
+        "it": "readonly",
+        "test": "readonly",
+        "expect": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly",
+        "beforeAll": "readonly",
+        "afterAll": "readonly"
+      }
+    }
+  ]
 }
