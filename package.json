@@ -17,7 +17,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
+    "@supabase/supabase-js": "^2.117.2",
     "@versatiles/style": "^5.13.1",
     "dexie": "^4.0.8",
     "maplibre-gl": "^6.12.0",
