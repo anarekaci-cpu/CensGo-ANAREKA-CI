@@ -21,6 +21,7 @@ import { listInvites, createInvite, revokeInvite, buildInviteUrl } from "./core/
 import { loadTourSessions } from "./core/tourSessions.js";
 import { confirmAction } from "./core/confirmModal.js";
 import { escapeHtml, normalizePointId, debounce } from "./core/utils.js";
+import { toCsv } from "./modules/ui/csv.js";
 import { computeStats } from "./core/analytics.js";
 import { filterPoints } from "./core/filters.js";
 import { computeTourAsync } from "./core/computeClient.js";
@@ -1575,7 +1576,11 @@ function bindAiEvents() {
         currentImageBase64 = evt.target.result;
         if (imgPreview) {
           imgPreview.style.display = "block";
-          imgPreview.innerHTML = `<img src="${currentImageBase64}" alt="Aperçu de la photo sélectionnée" style="max-width:100%; max-height:180px; border-radius:10px; margin-top:8px; border:1px solid #ddd;" />`;
+          const previewImg = document.createElement("img");
+          previewImg.src = currentImageBase64;
+          previewImg.alt = "Aperçu de la photo sélectionnée";
+          previewImg.style.cssText = "max-width:100%; max-height:180px; border-radius:10px; margin-top:8px; border:1px solid #ddd;";
+          imgPreview.replaceChildren(previewImg);
         }
         if (runVisionBtn) runVisionBtn.style.display = "block";
       };
@@ -1739,9 +1744,7 @@ function exportAgentReportCSV() {
   const rows = matched.map(p => [
     p.createdAt || "", p.id, p.name, p.etablissement, p.city, p.quartier, p.tel, p.status, p.visited ? "oui" : "non"
   ]);
-  const csv = [header, ...rows]
-    .map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  const csv = toCsv([header, ...rows]);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -2822,9 +2825,7 @@ async function exportCSV() {
     p.id, p.block, p.name, p.etablissement, p.activityType, p.tel, p.city, p.quartier, p.address,
     p.produits, p.sexe, p.status, p.visited ? "oui" : "non", p.lat, p.lon
   ]);
-  const csv = [header, ...rows]
-    .map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
-    .join("\n");
+  const csv = toCsv([header, ...rows]);
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);

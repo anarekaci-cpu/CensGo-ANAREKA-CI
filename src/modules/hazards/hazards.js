@@ -1,8 +1,7 @@
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { store } from "../../core/store.js";
 import { addHazard, resolveHazard } from "../../db/database.js";
 import { toastSuccess, toastWarning } from "../../core/toast.js";
-import { escapeHtml } from "../../core/utils.js";
 import { log } from "../../core/debug.js";
 import { getMap } from "../map/map.js";
 import { chooseHazardType } from "./hazardReportModal.js";
@@ -16,19 +15,29 @@ const HAZARD_LABELS = { flooding: "Inondation", road_blocked: "Route bloquée", 
 // (voir modules/census/markers.js) — une instance Marker par danger suffit.
 const activeHazardMarkers = new Map();
 
-function buildHazardPopupHtml(hazard) {
+function buildHazardPopupContent(hazard) {
   const label = HAZARD_LABELS[hazard.hazardType] || HAZARD_LABELS.other;
   const date = new Date(hazard.createdAt).toLocaleString("fr-FR", {
     day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
   });
-  return `
-    <div class="hazard-popup">
-      <div class="popup-title">${HAZARD_ICONS[hazard.hazardType] || "⚠️"} ${escapeHtml(label)}</div>
-      ${hazard.note ? `<div class="popup-row">${escapeHtml(hazard.note)}</div>` : ""}
-      <div class="popup-updated">Signalé le ${escapeHtml(date)}${hazard.pendingSync ? " · en attente d'envoi" : ""}</div>
-      <button type="button" class="hazard-resolve-btn" data-id="${escapeHtml(hazard.id)}">✅ Marquer résolu</button>
-    </div>
-  `;
+  const root = document.createElement("div");
+  root.className = "hazard-popup";
+  const mk = (cls, text) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.textContent = text;
+    return d;
+  };
+  root.appendChild(mk("popup-title", `${HAZARD_ICONS[hazard.hazardType] || "⚠️"} ${label}`));
+  if (hazard.note) root.appendChild(mk("popup-row", String(hazard.note)));
+  root.appendChild(mk("popup-updated", `Signalé le ${date}${hazard.pendingSync ? " · en attente d'envoi" : ""}`));
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "hazard-resolve-btn";
+  btn.dataset.id = String(hazard.id);
+  btn.textContent = "✅ Marquer résolu";
+  root.appendChild(btn);
+  return root;
 }
 
 async function handleResolveClick(hazardId) {
@@ -48,7 +57,7 @@ function createHazardMarker(hazard, map) {
   el.textContent = HAZARD_ICONS[hazard.hazardType] || "⚠️";
   el.style.cssText = "font-size:28px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.45));cursor:pointer;";
 
-  const popup = new maplibregl.Popup({ offset: 20 }).setHTML(buildHazardPopupHtml(hazard));
+  const popup = new maplibregl.Popup({ offset: 20 }).setDOMContent(buildHazardPopupContent(hazard));
   popup.on("open", () => {
     popup.getElement()?.querySelector(".hazard-resolve-btn")
       ?.addEventListener("click", (e) => handleResolveClick(e.currentTarget.dataset.id));
