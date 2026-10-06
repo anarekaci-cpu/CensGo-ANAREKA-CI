@@ -154,19 +154,19 @@ body:not(.app-revealed) :is(.app-header, .legend, .bottom-nav-bar, .fab-map-cont
 .app-revealed .fab-map-control:nth-of-type(2) { animation-delay: 0.38s; }
 .app-revealed .fab-map-control:nth-of-type(3) { animation-delay: 0.46s; }
 .app-revealed .fab-map-zoom                   { animation-delay: 0.54s; }
-.app-revealed .nav-tab         { animation: popIn 0.6s var(--ease-spring) backwards; }
+.app-revealed .nav-tab         { animation: dockPopIn 0.6s var(--ease-spring) backwards; }
 .app-revealed .nav-tab:nth-child(1) { animation-delay: 0.55s; }
 .app-revealed .nav-tab:nth-child(2) { animation-delay: 0.63s; }
 .app-revealed .nav-tab:nth-child(4) { animation-delay: 0.71s; }
 .app-revealed .nav-tab:nth-child(5) { animation-delay: 0.79s; }
-.app-revealed .nav-tab-fab     { animation: popIn 0.7s 0.5s var(--ease-spring) backwards; }
+.app-revealed .nav-tab-fab     { animation: dockPopIn 0.7s 0.5s var(--ease-spring) backwards; }
 .app-revealed #statsHeader     { animation: fadeUp 0.6s 0.5s var(--ease-out-expo) backwards; }
 
 @keyframes dropIn       { from { opacity: 0; transform: translateY(-24px); } }
 @keyframes riseIn       { from { opacity: 0; transform: translateY(34px) scale(0.96); } }
 @keyframes slideInLeft  { from { opacity: 0; transform: translateX(-22px); } }
 @keyframes slideInRight { from { opacity: 0; transform: translateX(22px); } }
-@keyframes popIn        { from { opacity: 0; transform: scale(0.5); } }
+@keyframes dockPopIn    { from { opacity: 0; transform: scale(0.5); } }
 @keyframes fadeUp       { from { opacity: 0; transform: translateY(8px); } }
 
 /* --------------------------------------------------------------------------
