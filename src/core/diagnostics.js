@@ -19,6 +19,10 @@ import { log } from "./debug.js";
 const DIAG_ENABLED = (() => {
   if (!import.meta.env.DEV) return false;
   try {
+    // Raccourci dev : http://127.0.0.1:3100/CensGo-ANAREKA-CI/?diag=1
+    if (new URLSearchParams(location.search).get("diag") === "1") {
+      localStorage.setItem("DIAG", "1");
+    }
     return localStorage.getItem("DIAG") === "1";
   } catch {
     return false;
