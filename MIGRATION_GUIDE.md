@@ -93,11 +93,9 @@ Le dossier `dist/` contient l'application prête pour GitHub Pages.
 ## 📤 Étape 6 : Déployer sur GitHub Pages
 
 ```bash
-# Installer gh-pages (déjà dans devDependencies)
-npm install -g gh-pages
-
-# Déployer
-npm run deploy
+# Le script `deploy` (gh-pages) a été retiré : construire puis publier dist/
+# avec l'hébergeur de votre choix (ou un push sur main si le CI déploie).
+npm run build
 ```
 
 ---

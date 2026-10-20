@@ -9,7 +9,6 @@ PWA de recensement pour ANAREKA-CI (Cote d'Ivoire). Vanilla JS + Vite + MapLibre
 - `npm test` / `npm run test:watch` — Vitest tests
 - `npm run lint` — ESLint check on `src/`
 - `npm run lint:fix` — Auto-fix lint issues
-- `npm run deploy` — Build + deploy to GitHub Pages
 
 ## Architecture
 - Entry: `src/main.js` → bootstrap IndexedDB → auth → sync engine → app shell → app view

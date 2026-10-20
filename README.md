@@ -66,7 +66,6 @@ npm run build
 | `npm run preview` | Prévisualiser le build |
 | `npm test` / `npm run test:watch` | Tests Vitest |
 | `npm run lint` / `npm run lint:fix` | ESLint sur `src/` |
-| `npm run deploy` | Build + déploiement GitHub Pages |
 
 ---
 

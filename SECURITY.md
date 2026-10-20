@@ -31,7 +31,7 @@ commit ; départ d'une personne ayant eu accès au dashboard).
    - le **secret GitHub Actions** utilisé par `.github/workflows/deploy.yml`
      (Settings → Secrets and variables → Actions) ;
    - toute autre CI / hébergement.
-4. Redéployer (`npm run deploy` ou push sur `main`) et vérifier la connexion.
+4. Redéployer (push sur `main`) et vérifier la connexion.
 5. L'ancienne clé reste lisible dans l'historique Git public : après rotation,
    envisager `git filter-repo` + force-push pour retirer la référence morte
    (utile seulement une fois la clé révoquée).
@@ -225,7 +225,7 @@ coordonnées précises.
 
 - Corrigé via `npm audit fix` : `source-map-js`, `brace-expansion`, `gh-pages` (dépendances transitives de build).
 - **Ouvert (critique)** : `maplibre-gl` 4.7.x vulnérable à GHSA-jrc7-96c5-q579 (contournement du sanitizer XSS `DOM.sanitize()`), corrigé en >= 6.12.0. La montée casse le build : depuis la v6 il n'y a plus d'export par défaut ; les 5 fichiers `import maplibregl from "maplibre-gl"` (agentTracking.js, markers.js, markersGl.js, hazards.js, map.js) doivent passer à `import * as maplibregl from "maplibre-gl"`, et les mocks de tests sont à revérifier. Mitigation en attendant : ne jamais passer de HTML non échappé à `setHTML`/popups (`escapeHtml`).
-- **Ouvert (dev uniquement)** : `braces` (via gh-pages > globby > fast-glob > micromatch), sans correctif publié ; n'affecte pas le bundle de production.
+- Aucune vulnérabilité ouverte : `gh-pages` (et sa chaîne `braces`) a été retiré avec le script `deploy`.
 - CI : permissions `pages:write`/`id-token:write` limitées au job de déploiement, concurrence séparée build/déploiement, Node 22, couverture vitest avec seuil de non-régression.
 
 ### Recommandations
